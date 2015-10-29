@@ -37,7 +37,7 @@ R_API void U(add_method_infos_to_sdb)(RBinJavaObj *bin);
 R_API RList * retrieve_all_access_string_and_value (RBinJavaAccessFlags *access_flags);
 R_API char * retrieve_access_string(ut16 flags, RBinJavaAccessFlags *access_flags);
 R_API ut16 calculate_access_value(const char * access_flags_str, RBinJavaAccessFlags *access_flags);
-R_API int r_bin_java_new_bin (RBinJavaObj *bin, ut64 loadaddr, Sdb *kv, const ut8 * buf, ut64 len);
+R_API int r_bin_java_new_bin (RBinJavaObj *bin, ut64 loadaddr, Sdb *kv);
 R_API int extract_type_value (const char *arg_str, char **output);
 R_API int r_bin_java_check_reset_cp_obj(RBinJavaCPTypeObj* cp_obj, ut8 tag);
 R_API ut8 * r_bin_java_cp_get_4bytes(ut8 tag, ut32 *out_sz, const ut8 * buf, const ut64 len);
@@ -1547,51 +1547,58 @@ R_API RBinJavaCPTypeObj* r_bin_java_clone_cp_item(RBinJavaCPTypeObj *obj) {
 	return clone_obj;
 }
 
-R_API RBinJavaCPTypeObj* r_bin_java_read_next_constant_pool_item(RBinJavaObj *bin, const ut64 offset, const ut8* buf, ut64 len) {
-	RBinJavaCPTypeMetas *java_constant_info = NULL;
+R_API RBinJavaCPTypeObj* r_bin_java_read_next_constant_pool_item(RBinJavaObj *bin, const ut64 offset) {
+	RBinJavaCPTypeMetas *info = NULL;
+	int r;
 	ut8 tag = 0;
 	ut64 buf_sz = 0;
 	ut8 *cp_buf = NULL;
-	ut32 str_len = 0;
-	RBinJavaCPTypeObj *java_obj = NULL;
-	tag = buf[offset];
+	RBinJavaCPTypeObj *obj = NULL;
+	r = r_buf_read_at (bin->b, offset, &tag, 1);
+	if (r < 1) return NULL;
 	if (tag > R_BIN_JAVA_CP_METAS_SZ) {
 		eprintf ("Invalid tag '%d' at offset 0x%08"PFMT64x"\n", tag, (ut64)offset);
-		java_obj = r_bin_java_unknown_cp_new (bin, &tag, 1);
-		if (java_obj != NULL && java_obj->metas != NULL) {
-			java_obj->file_offset = offset;
-			java_obj->loadaddr = bin->loadaddr;
+		obj = r_bin_java_unknown_cp_new (bin, &tag, 1);
+		if (obj != NULL && obj->metas != NULL) {
+			obj->file_offset = offset;
+			obj->loadaddr = bin->loadaddr;
 		}
-		return java_obj;
+		return obj;
 	}
-	java_constant_info = &R_BIN_JAVA_CP_METAS[tag];
-	if (java_constant_info->tag == 0 || java_constant_info->tag == 2) {
-		return java_obj;
+	info = &R_BIN_JAVA_CP_METAS[tag];
+	if (info->tag == 0 || info->tag == 2) {
+		return obj;
 	}
-	buf_sz += java_constant_info->len;
-	if (java_constant_info->tag == 1) {
+	buf_sz += info->len;
+	if (info->tag == 1) {
 		str_len = R_BIN_JAVA_USHORT (buf, offset+1);
 		buf_sz += str_len;
 	}
-	cp_buf = malloc (buf_sz);
-	if (!cp_buf)
-		return java_obj;
-	memset (cp_buf, 0, buf_sz);
-	memcpy (cp_buf, (ut8*) buf+offset, buf_sz);
+	cp_buf = calloc (buf_sz);
+	if (!cp_buf) return obj;
+	if (offset > bin->size || offset + buf_sz > bin->size) {
+		free (cp_buf);
+		return NULL;
+	}
+	r = r_buf_read_at (bin->b, offset, cp_buf, buf_sz);
+	if (r < 1) {
+		free (cp_buf);
+		return NULL;
+	}
 	IFDBG eprintf ("Parsed the tag '%d':%s and create object from offset 0x%08"PFMT64x".\n",tag, R_BIN_JAVA_CP_METAS[tag].name, offset);
-	java_obj = (*java_constant_info->allocs->new_obj)(bin, cp_buf, buf_sz);
-	if (java_obj != NULL && java_obj->metas != NULL) {
-		java_obj->file_offset = offset;
-		//IFDBG eprintf ("java_obj->file_offset = 0x%08"PFMT64x".\n",java_obj->file_offset);
-	}else if(java_obj == NULL) {
+	obj = (*info->allocs->new_obj)(bin, cp_buf, buf_sz);
+	if (obj != NULL && obj->metas != NULL) {
+		obj->file_offset = offset;
+		//IFDBG eprintf ("obj->file_offset = 0x%08"PFMT64x".\n",obj->file_offset);
+	} else if(obj == NULL) {
 		eprintf ("Unable to parse the tag '%d' and create valid object.\n",tag);
-	}else if(java_obj->metas == NULL) {
+	} else if(obj->metas == NULL) {
 		eprintf ("Unable to parse the tag '%d' and create valid object.\n",tag);
-	}else{
-		eprintf ("Failed to set the java_obj->metas-file_offset for '%d' offset is(0x%08"PFMT64x").\n",tag, offset);
+	} else{
+		eprintf ("Failed to set the obj->metas-file_offset for '%d' offset is(0x%08"PFMT64x").\n",tag, offset);
 	}
 	free (cp_buf);
-	return java_obj;
+	return obj;
 }
 
 R_API RBinJavaInterfaceInfo* r_bin_java_read_next_interface_item(RBinJavaObj *bin, const ut64 offset, const ut8 * buf, const ut64 len) {
@@ -2057,21 +2064,24 @@ R_API ut64 r_bin_java_read_class_file2(RBinJavaObj *bin, const ut64 offset, cons
 	return bin->cf2.cf2_size;
 }
 
-R_API ut64 r_bin_java_parse_cp_pool (RBinJavaObj *bin, const ut64 offset, const ut8 * buf, const ut64 len) {
-	int ord = 0;
-	ut64 adv = 0;
+R_API bool r_bin_java_parse_cp_pool (RBinJavaObj *bin) {
+	int ord = 0, r, off;
 	RBinJavaCPTypeObj *obj = NULL;
-	const ut8* cp_buf = buf + offset;
 	r_list_free (bin->cp_list);
 	bin->cp_list = r_list_newf (r_bin_java_constant_pool);
-	bin->cp_offset = offset;
-	memcpy ((char *) &bin->cp_count, cp_buf, 2);
-	bin->cp_count = R_BIN_JAVA_USHORT (cp_buf, 0)-1;
+	off = bin->cur_off;
+	if (off > bin->size || off + 2 > bin->size)
+		return false;
+	r = r_buf_read_at (bin->b, off, (ut8*)&bin->cp_count, 2);
+	if (r < 1) return false;
+	off += r;
+	bin->cp_count = R_BIN_JAVA_USHORT (bin->b, 0) - 1;
 	adv += 2;
 	IFDBG eprintf ("ConstantPoolCount %d\n", bin->cp_count);
 	r_list_append (bin->cp_list, r_bin_java_get_java_null_cp ());
-	for (ord=1,bin->cp_idx=0; bin->cp_idx < bin->cp_count && adv < len; ord++, bin->cp_idx++) {
-		obj = r_bin_java_read_next_constant_pool_item (bin, offset+adv, buf, len);
+	for (ord = 1, bin->cp_idx = 0; bin->cp_idx < bin->cp_count &&
+		off < bin->size; ord++, bin->cp_idx++) {
+		obj = r_bin_java_read_next_constant_pool_item (bin, off, buf, len);
 		if (obj) {
 			//IFDBG eprintf ("SUCCESS Read ConstantPoolItem %d\n", i);
 			obj->metas->ord = ord;
@@ -2085,8 +2095,8 @@ R_API ut64 r_bin_java_parse_cp_pool (RBinJavaObj *bin, const ut64 offset, const 
 			}
 
 			IFDBG ((RBinJavaCPTypeMetas *) obj->metas->type_info)->allocs->print_summary (obj);
-			adv += ((RBinJavaCPTypeMetas *) obj->metas->type_info)->allocs->calc_size (obj);
-			if (offset + adv > len) {
+			off += ((RBinJavaCPTypeMetas *) obj->metas->type_info)->allocs->calc_size (obj);
+			if (off > bin->size) {
 				eprintf ("[X] r_bin_java: Error unable to parse remainder of classfile after Constant Pool Object: %d.\n", ord);
 				break;
 			}
@@ -2248,37 +2258,42 @@ R_API ut64 r_bin_java_parse_methods (RBinJavaObj *bin, const ut64 offset, const 
 	return adv;
 }
 
-R_API int r_bin_java_new_bin (RBinJavaObj *bin, ut64 loadaddr, Sdb *kv, const ut8 * buf, ut64 len) {
+R_API int r_bin_java_new_bin (RBinJavaObj *bin, ut64 loadaddr, Sdb *kv) {
 	R_BIN_JAVA_GLOBAL_BIN = bin;
 	bin->lines.count = 0;
 	bin->loadaddr = loadaddr;
 	r_bin_java_get_java_null_cp ();
 	bin->id = r_num_rand (UT32_MAX);
-	bin->kv = kv ? kv : sdb_new(NULL, NULL, 0);
+	bin->kv = kv ? kv : sdb_new (NULL, NULL, 0);
 	bin->AllJavaBinObjs = NULL;
-	return r_bin_java_load_bin (bin, buf, len);
+	return r_bin_java_load_bin (bin);
 }
 
-R_API int r_bin_java_load_bin (RBinJavaObj *bin, const ut8 * buf, ut64 buf_sz) {
+R_API int r_bin_java_load_bin (RBinJavaObj *bin) {
 	ut64 adv = 0;
+	int r;
+	bool ret;
+	//TODO global bin?? maybe is not necessary review this
 	R_BIN_JAVA_GLOBAL_BIN = bin;
 	if (!bin) return false;
 	r_bin_java_reset_bin_info (bin);
-	memcpy ((ut8*) &bin->cf, buf, 10);
+
+	r = r_buf_read_at (bin->b, 0, (ut8*)&bin->cf, sizeof (RBinJavaClass));
+	if (r < 1) return false;
 	if (memcmp (bin->cf.cafebabe, "\xCA\xFE\xBA\xBE", 4)) {
 		eprintf ("r_bin_java_new_bin: Invalid header (%02x %02x %02x %02x)\n",
 				bin->cf.cafebabe[0], bin->cf.cafebabe[1],
 				bin->cf.cafebabe[2], bin->cf.cafebabe[3]);
 		return false;
 	}
-	if (bin->cf.major[0]==bin->cf.major[1] && bin->cf.major[0]==0) {
+	if (bin->cf.major[0] == bin->cf.major[1] && bin->cf.major[0] == 0) {
 		eprintf ("Java CLASS with MACH0 header?\n");
 		return false;
 	}
-	adv += 8;
+	bin->cur_off = sizeof (RBinJavaClass) - 2;
 	// -2 so that the cp_count will be parsed
-	adv += r_bin_java_parse_cp_pool (bin, adv, buf, buf_sz);
-	if (adv > buf_sz) {
+	ret = r_bin_java_parse_cp_pool (bin);
+	if (!ret) {
 		eprintf ("[X] r_bin_java: Error unable to parse remainder of classfile after Constant Pool.\n");
 		return true;
 	}
@@ -2955,6 +2970,7 @@ R_API void* r_bin_java_free (RBinJavaObj* bin) {
 	// are formed then this will need to be updated
 	free (bin->cf2.flags_str);
 	free (bin->cf2.this_class_name);
+	r_buf_free (bin->b);
 	if (bin == R_BIN_JAVA_GLOBAL_BIN) R_BIN_JAVA_GLOBAL_BIN = NULL;
 	free (bin->file);
 	free (bin);
@@ -2964,7 +2980,11 @@ R_API void* r_bin_java_free (RBinJavaObj* bin) {
 R_API RBinJavaObj* r_bin_java_new_buf(RBuffer *buf, ut64 loadaddr, Sdb * kv) {
 	RBinJavaObj *bin = R_NEW0 (RBinJavaObj);
 	if (!bin) return NULL;
-	if (!r_bin_java_new_bin (bin, loadaddr, kv, buf->buf, buf->length))
+	bin->b = r_buf_new ();
+	bin->size = buf->length;
+	if (!r_buf_set_bytes (bin->b, buf->buf, bin->size))
+		return r_bin_java_free (bin);
+	if (!r_bin_java_new_bin (bin, loadaddr, kv))
 		return r_bin_java_free (bin);
 	return bin;
 }
@@ -4400,7 +4420,11 @@ R_API RBinJavaCPTypeObj* r_bin_java_unknown_cp_new (RBinJavaObj *bin, ut8* buffe
 	if (obj) {
 		memset (obj, 0, sizeof (RBinJavaCPTypeObj));
 		obj->tag = tag;
-		obj->metas = R_NEW0(RBinJavaMetaInfo);
+		obj->metas = R_NEW0 (RBinJavaMetaInfo);
+		if (!obj->metas) {
+			free (obj);
+			return NULL;
+		}
 		obj->metas->type_info = (void *)&R_BIN_JAVA_CP_METAS[R_BIN_JAVA_CP_UNKNOWN];
 	}
 	return obj;
@@ -7714,11 +7738,16 @@ R_API RBinJavaObj* r_bin_java_new (const char* file, ut64 loadaddr, Sdb * kv) {
 	bin->file = strdup (file);
 	if (!(buf = (ut8*)r_file_slurp (file, &bin->size)))
 		return r_bin_java_free (bin);
-	if (!r_bin_java_new_bin (bin, loadaddr, kv, buf, bin->size)){
-		r_bin_java_free (bin);
-		bin = NULL;
-	}
+	bin->b = r_buf_new ();
+	if (!bin->b) goto out;
+	if (!r_buf_set_bytes (bin->b, buf, bin->size)) goto out;
+	if (!r_bin_java_new_bin (bin, loadaddr, kv)) goto out;
 	free (buf);
+	return bin;
+out:
+	free (buf);
+	r_bin_java_free (bin);
+	bin = NULL;
 	return bin;
 }
 

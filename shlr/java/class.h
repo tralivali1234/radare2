@@ -716,6 +716,9 @@ typedef struct r_bin_java_obj_t {
 
 	ut64 loadaddr; // load address that is used to calc actual offset
 				// when multiple bins are loaded at once
+	RBuffer *b;
+	int cur_off; //will denote where to read from bin->b
+		    // perhaps is not a good apprach. It always must be synced
 	int size;
 	int calc_size;
 	char* file;
@@ -778,7 +781,7 @@ R_API RList* r_bin_java_get_symbols(RBinJavaObj* bin);
 R_API RList* r_bin_java_get_strings(RBinJavaObj* bin);
 R_API void* r_bin_java_free(RBinJavaObj* bin);
 R_API RBinJavaObj* r_bin_java_new(const char* file, ut64 baddr, Sdb * kv);
-R_API RBinJavaObj* r_bin_java_new_buf(struct r_buf_t* buf, ut64 baddr, Sdb * kv);
+R_API RBinJavaObj* r_bin_java_new_buf(RBuffer* buf, ut64 baddr, Sdb * kv);
 R_API int r_bin_java_valid_class (const ut8 * buf, ut64 buf_sz);
 
 // Stuff used to manage Java Class File Constant Information
