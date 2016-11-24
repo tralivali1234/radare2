@@ -14,6 +14,7 @@ R_API void r_bp_traptrace_free(void *ptr) {
 
 R_API RList *r_bp_traptrace_new() {
 	RList *list = r_list_new();
+	if (!list) return NULL;
 	list->free = &r_bp_traptrace_free;
 	return list;
 }
@@ -75,16 +76,16 @@ R_API int r_bp_traptrace_add(RBreakpoint *bp, ut64 from, ut64 to) {
 	if (len >= ST32_MAX)
 		return false;
 	buf = (ut8*) malloc ((int)len);
-	if (buf == NULL)
+	if (!buf)
 		return false;
 	trap = (ut8*) malloc ((int)len+4);
-	if (trap == NULL) {
+	if (!trap) {
 		free (buf);
 		return false;
 	}
 	bitlen = (len>>4)+1;
 	bits = malloc (bitlen);
-	if (bits == NULL) {
+	if (!bits) {
 		free (buf);
 		free (trap);
 		return false;
@@ -139,10 +140,9 @@ R_API void r_bp_traptrace_list(RBreakpoint *bp) {
 	RListIter *iter;
 	RBreakpointTrace *trace;
 	r_list_foreach (bp->traces, iter, trace) {
-		RBreakpointTrace *trace = r_list_iter_get (iter);
-		for (i=0; i<trace->bitlen; i++) {
+		for (i = 0; i < trace->bitlen; i++) {
 			if (R_BIT_CHK (trace->bits, i))
-				eprintf ("  - 0x%08"PFMT64x"\n", trace->addr+(i<<4));
+				eprintf ("  - 0x%08"PFMT64x"\n", trace->addr + (i<<4));
 		}
 	}
 }

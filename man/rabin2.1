@@ -1,11 +1,11 @@
-.Dd Oct 19, 2015
+.Dd Sep 29, 2016
 .Dt RABIN2 1
 .Sh NAME
 .Nm RABIN2
 .Nd Binary program info extractor
 .Sh SYNOPSIS
 .Nm rabin2
-.Op Fl AceghHiIsSMzlpRrLxvh
+.Op Fl AceghHiIsSMzlpRrLxvhqQV
 .Op Fl a Ar arch
 .Op Fl b Ar bits
 .Op Fl B Ar addr
@@ -19,9 +19,12 @@
 .Op Fl m Ar addr
 .Op Fl @ Ar addr
 .Op Fl n Ar str
+.Op Fl X Ar fmt file ...
 .Ar file
 .Sh DESCRIPTION
 This program allows you to get information about ELF/PE/MZ and CLASS files in a simple way.
+.Pp
+All those commandline flags are also available under the i command in radare2. Type i? for help.
 .Bl -tag -width Fl
 .It Fl @ Ar addr
 Show information (symbol, section, import) of the given address
@@ -45,16 +48,20 @@ Demangle symbol name (or - to read from stdin) for lang (cxx, swift, java, cxx, 
 Show entrypoints for disk and on-memory
 .It Fl f Ar subbin
 Select sub-binary architecture. Useful for fat-mach0 binaries
+.It Fl F Ar binfmt
+Force to use that bin plugin (ignore header check)
 .It Fl g
 Show all possible information
+.It Fl g Ar addr
+Load address . offset to header
 .It Fl h
 Show usage help message.
 .It Fl H
-Show header fields
+Show header fields (see ih command in r2)
 .It Fl I
-Show binary info
+Show binary info (iI in r2)
 .It Fl i
-Show imports (symbols imported from libraries)
+Show imports (symbols imported from libraries) (ii)
 .It Fl j
 Output in json
 .It Fl k Ar query
@@ -79,8 +86,18 @@ Output file/folder for write operations (out by default)
 Perform binary operation on target binary (dump, resize, change sections, ...) see '-O help' for more information
 .It Fl p
 Disable VA. Show physical addresses
+.It Fl P
+Show debug/pdb information
+.It Fl PP
+Download pdb file for binary
 .It Fl q
 Be quiet, just show fewer data
+.It Fl qq
+Show less info (no offset/size for -z for ex.)
+.It Fl Q
+Show load address used by dlopen (non-aslr libs)
+.It Fl r
+Radare output
 .It Fl R
 Show realocations
 .It Fl r
@@ -89,16 +106,24 @@ Show output in radare format
 Show exported symbols
 .It Fl S
 Show sections
+.It Fl u
+Unfiltered (no rename duplicated symbols/sections)
 .It Fl v
 Show version information
+.It Fl V
+Show binary version information
 .It Fl x
 Extract all sub binaries from a fat binary (f.ex: fatmach0)
+.It Fl X Ar format file ...
+Package a fat or zip containing all the files passed (fat, zip)
 .It Fl z
 Show strings inside .data section (like gnu strings does)
 .It Fl Z
 Guess size of binary program
 .It Fl zz
 Shows strings from raw bins
+.It Fl zzz
+Dump raw strings to stdout (for huge files)
 .El
 .Sh ENVIRONMENT
 .Pp
@@ -107,6 +132,8 @@ RABIN2_LANG same as r2 -e bin.lang for rabin2
 RABIN2_DEMANGLE demangle symbols
 .Pp
 RABIN2_MAXSTRBUF same as r2 -e bin.maxstrbuf for rabin2
+.Pp
+RABIN2_DEBASE64 try to decode all strings as base64 if possible
 .Pp
 RABIN2_STRFILTER same as r2 -e bin.strfilter for rabin2
 .Pp

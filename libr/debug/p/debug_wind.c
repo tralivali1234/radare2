@@ -29,7 +29,7 @@ static int r_debug_wind_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 	int ret = wind_read_reg(wctx, buf, size);
 	if (!ret || size != ret)
 		return -1;
-	r_reg_set_bytes (dbg->reg, R_REG_TYPE_ALL, buf, ret);
+	r_reg_read_regs (dbg->reg, buf, ret);
 	// Report as if no register has been written as we've already updated the arena here
 	return 0;
 }
@@ -73,8 +73,8 @@ static int r_debug_wind_wait (RDebug *dbg, int pid) {
 	kd_packet_t *pkt;
 	kd_stc_64 *stc;
 	int ret;
-	r_cons_break (wstatic_debug_break, dbg);
 	dbreak = 0;
+	r_cons_break_push (wstatic_debug_break, dbg);
 	for (;;) {
 		ret = wind_wait_packet (wctx, KD_PACKET_TYPE_STATE_CHANGE, &pkt);
 		if (dbreak) {
@@ -82,8 +82,9 @@ static int r_debug_wind_wait (RDebug *dbg, int pid) {
 			wind_break (wctx);
 			continue;
 		}
-		if (ret != KD_E_OK || !pkt)
+		if (ret != KD_E_OK || !pkt) {
 			break;
+		}
 		stc = (kd_stc_64 *)pkt->data;
 		// Handle exceptions only
 		if (stc->state == STATE_EXCEPTION) {
@@ -94,9 +95,12 @@ static int r_debug_wind_wait (RDebug *dbg, int pid) {
 			dbg->reason.signum = stc->state;
 			free (pkt);
 			break;
-		} else wind_continue (wctx);
+		} else {
+			wind_continue (wctx);
+		}
 		free (pkt);
 	}
+	r_cons_break_pop ();
 	// TODO : Set the faulty process as target
 
 	return true;
@@ -135,7 +139,7 @@ static int r_debug_wind_attach (RDebug *dbg, int pid) {
 	return true;
 }
 
-static int r_debug_wind_detach (int pid) {
+static int r_debug_wind_detach (RDebug *dbg, int pid) {
 	return true;
 }
 
@@ -177,6 +181,10 @@ static RList *r_debug_wind_pids (int pid) {
 
 	r_list_foreach(pids, it, p) {
 		RDebugPid *newpid = R_NEW0 (RDebugPid);
+		if (!newpid) {
+			r_list_free (ret);
+			return NULL;
+		}
 		newpid->path = strdup (p->name);
 		newpid->pid = p->uniqueid;
 		newpid->status = 's';

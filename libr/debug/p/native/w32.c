@@ -169,9 +169,48 @@ static HANDLE WINAPI (*w32_openprocess)(DWORD, BOOL, DWORD) = NULL;
 static BOOL WINAPI (*w32_queryfullprocessimagename)(HANDLE, DWORD, LPTSTR, PDWORD) = NULL;
 static DWORD WINAPI (*psapi_getmappedfilename)(HANDLE, LPVOID, LPTSTR, DWORD) = NULL;
 static NTSTATUS WINAPI (*w32_ntquerysysteminformation)(ULONG, PVOID, ULONG, PULONG) = NULL;
-static NTSTATUS WINAPI (*w32_ntduplicateobject)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG) =NULL;
+static NTSTATUS WINAPI (*w32_ntduplicateobject)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG) = NULL;
 static NTSTATUS WINAPI (*w32_ntqueryobject)(HANDLE, ULONG, PVOID, ULONG, PULONG) = NULL;
+// fpu access API
+static ut64 WINAPI (*w32_GetEnabledXStateFeatures)() = NULL;
+static BOOL WINAPI (*w32_InitializeContext)(PVOID, DWORD, PCONTEXT*, PDWORD) = NULL;
+static BOOL WINAPI (*w32_GetXStateFeaturesMask)(PCONTEXT Context, PDWORD64) = NULL;
+static PVOID WINAPI (*w32_LocateXStateFeature)(PCONTEXT Context, DWORD, PDWORD) = NULL;
+static BOOL WINAPI (*w32_SetXStateFeaturesMask)(PCONTEXT Context, DWORD64) = NULL;
+/*#if __MINGW64__
+#define CONTEXT_XSTATE                      (0x00100040)
+#define XSTATE_AVX                          (2)
+#define XSTATE_MASK_AVX                     (4)
+#else
+#define CONTEXT_XSTATE                      (0x00010040)
+#define XSTATE_AVX                          (2)
+#define XSTATE_MASK_AVX                     (4)
+#endif
+*/
 
+#ifndef XSTATE_GSSE
+#define XSTATE_GSSE 2
+#endif
+
+#ifndef XSTATE_LEGACY_SSE
+#define XSTATE_LEGACY_SSE 1
+#endif
+
+#ifndef XSTATE_MASK_GSSE
+#define XSTATE_MASK_GSSE (1LLU << (XSTATE_GSSE))
+#endif
+
+#undef CONTEXT_XSTATE
+#if defined(_M_X64)
+#define CONTEXT_XSTATE                      (0x00100040)
+#else
+#define CONTEXT_XSTATE                      (0x00010040)
+#endif
+#define XSTATE_AVX                          (XSTATE_GSSE)
+#define XSTATE_MASK_AVX                     (XSTATE_MASK_GSSE)
+#ifndef CONTEXT_ALL
+#define CONTEXT_ALL 1048607
+#endif
 static bool w32dbg_SeDebugPrivilege() {
 	/////////////////////////////////////////////////////////
 	//   Note: Enabling SeDebugPrivilege adapted from sample
@@ -184,7 +223,7 @@ static bool w32dbg_SeDebugPrivilege() {
 	if (!OpenProcessToken (GetCurrentProcess (),
 			TOKEN_ADJUST_PRIVILEGES, &hToken))
 		return false;
-		
+
 	if (!LookupPrivilegeValue (NULL, SE_DEBUG_NAME, &luidDebug)) {
 		CloseHandle (hToken);
 		return false;
@@ -248,9 +287,19 @@ static int w32_dbg_init() {
 		GetProcAddress (GetModuleHandle ("kernel32"), "GetProcessId");
 	w32_queryfullprocessimagename = (BOOL WINAPI (*)(HANDLE, DWORD, LPTSTR, PDWORD))
 		GetProcAddress (GetModuleHandle ("kernel32"), "QueryFullProcessImageNameA");
-
+	// api to retrieve YMM from w7 sp1
+	w32_GetEnabledXStateFeatures = (ut64 WINAPI (*) ())
+		GetProcAddress(GetModuleHandle ("kernel32"), "GetEnabledXStateFeatures");
+	w32_InitializeContext = (BOOL WINAPI (*) (PVOID, DWORD, PCONTEXT*, PDWORD))
+		GetProcAddress(GetModuleHandle ("kernel32"), "InitializeContext");
+	w32_GetXStateFeaturesMask = (BOOL WINAPI (*) (PCONTEXT Context, PDWORD64))
+		GetProcAddress(GetModuleHandle ("kernel32"), "GetXStateFeaturesMask");
+	w32_LocateXStateFeature = (PVOID WINAPI (*) (PCONTEXT Context, DWORD ,PDWORD))
+		GetProcAddress(GetModuleHandle ("kernel32"), "LocateXStateFeature");
+	w32_SetXStateFeaturesMask = (BOOL WINAPI (*) (PCONTEXT Context, DWORD64))
+		GetProcAddress(GetModuleHandle ("kernel32"), "SetXStateFeaturesMask");
 	lib = LoadLibrary ("psapi.dll");
-	if(lib == NULL) {
+	if(!lib) {
 		eprintf ("Cannot load psapi.dll. Aborting\n");
 		return false;
 	}
@@ -269,8 +318,8 @@ static int w32_dbg_init() {
 	w32_ntqueryobject = (NTSTATUS WINAPI (*)(HANDLE, ULONG, PVOID, ULONG, PULONG))
 		GetProcAddress(lib,"NtQueryObject");
 
-	if (w32_detach == NULL || w32_openthread == NULL || w32_dbgbreak == NULL ||
-	   gmbn == NULL || gmi == NULL) {
+	if (!w32_detach || !w32_openthread || !w32_dbgbreak ||
+	    !gmbn || !gmi) {
 		// OOPS!
 		eprintf ("debug_init_calls:\n"
 			"DebugActiveProcessStop: 0x%p\n"
@@ -294,12 +343,12 @@ static HANDLE w32_open_process (DWORD access, BOOL inherit, DWORD pid) {
 #if 0
 static HANDLE w32_t2h(pid_t tid) {
 	TH_INFO *th = get_th (tid);
-	if(th == NULL) {
+	if(!th) {
 		/* refresh thread list */
 		w32_dbg_threads (tid);
 
 		/* try to search thread */
-		if((th = get_th (tid)) == NULL)
+		if(!(th = get_th (tid)))
 			return NULL;
 	}
 	return th->ht;
@@ -324,7 +373,7 @@ static int w32_first_thread(int pid) {
 	THREADENTRY32 te32;
 	te32.dwSize = sizeof (THREADENTRY32);
 
-	if (w32_openthread == NULL) {
+	if (!w32_openthread) {
 		eprintf("w32_thread_list: no w32_openthread?\n");
 		return -1;
 	}
@@ -342,7 +391,7 @@ static int w32_first_thread(int pid) {
 		/* get all threads of process */
 		if (te32.th32OwnerProcessID == pid) {
 			thid = w32_openthread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
-			if (thid == NULL) {
+			if (!thid) {
 				print_lasterr ((char *)__FUNCTION__, "OpenThread");
 				goto err_load_th;
 			}
@@ -375,7 +424,7 @@ static int debug_exception_event (DEBUG_EVENT *de) {
 #if __MINGW64__
 	/* STATUS_WX86_BREAKPOINT */
 	case 0x4000001f:
-		eprintf ("(%d) WOW64 loaded.\n", de->dwProcessId);
+		eprintf ("(%d) WOW64 loaded.\n", (int)de->dwProcessId);
 		return 1;
 #endif
 	/* MS_VC_EXCEPTION */
@@ -438,7 +487,7 @@ static char *get_file_name_from_handle (HANDLE handle_file) {
 		CloseHandle (handle_file_map);
 		return NULL;
 	}
-		
+
 	TCHAR name[MAX_PATH];
 	TCHAR drive[3] = TEXT (" :");
 	BOOL found = FALSE;
@@ -493,7 +542,7 @@ static void r_debug_lstLibAdd(DWORD pid,LPVOID lpBaseOfDll, HANDLE hFile,char * 
 		lstLib = VirtualAlloc (0, PLIB_MAX * sizeof (LIB_ITEM), MEM_COMMIT, PAGE_READWRITE);
 	lstLibPtr = (PLIB_ITEM)lstLib;
 	for (x=0; x<PLIB_MAX; x++) {
-		if (lstLibPtr->hFile == NULL) {
+		if (!lstLibPtr->hFile) {
 			lstLibPtr->pid = pid;
 			lstLibPtr->hFile = hFile; //DBGEvent->u.LoadDll.hFile;
 			lstLibPtr->BaseOfDll = lpBaseOfDll;//DBGEvent->u.LoadDll.lpBaseOfDll;
@@ -508,7 +557,7 @@ static void r_debug_lstLibAdd(DWORD pid,LPVOID lpBaseOfDll, HANDLE hFile,char * 
 		}
 		lstLibPtr++;
 	}
-	eprintf("r_debug_lstLibAdd: Cant find slot\n");
+	eprintf("r_debug_lstLibAdd: Cannot find slot\n");
 }
 
 static void * r_debug_findlib(void * BaseOfDll) {
@@ -535,7 +584,7 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 	/* handle debug events */
 	do {
 		/* do not continue when already exited but still open for examination */
-		if (exited_already) {
+		if (exited_already == pid) {
 			return -1;
 		}
 		if (WaitForDebugEvent (&de, INFINITE) == 0) {
@@ -563,7 +612,7 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 				(int)de.u.ExitProcess.dwExitCode);
 			//debug_load();
 			next_event = 0;
-			exited_already = 1;
+			exited_already = pid;
 			ret = R_DEBUG_REASON_EXIT_PID;
 			break;
 		case CREATE_THREAD_DEBUG_EVENT:
@@ -587,13 +636,8 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 			if (dllname) {
 				free (dllname);
 			}
-			next_event = 1;
-		        return R_DEBUG_REASON_NEW_LIB;
-			/*
-			r_debug_native_continue (dbg, pid, tid, -1);
-			next_event = 1;
+			next_event = 0;
 			ret = R_DEBUG_REASON_NEW_LIB;
-			*/
 			break;
 		case UNLOAD_DLL_DEBUG_EVENT:
 			//eprintf ("(%d) Unloading library at %p\n", pid, de.u.UnloadDll.lpBaseOfDll);
@@ -605,13 +649,8 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 				if (dllname)
 					free(dllname);
 			}
-			next_event = 1;
-			return R_DEBUG_REASON_EXIT_LIB;
-                        /*
-			r_debug_native_continue (dbg, pid, tid, -1);
-			next_event = 1;
+			next_event = 0;
 			ret = R_DEBUG_REASON_EXIT_LIB;
-			*/
 			break;
 		case OUTPUT_DEBUG_STRING_EVENT:
 			eprintf ("(%d) Debug string\n", pid);
@@ -625,11 +664,25 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 			// XXX unknown ret = R_DEBUG_REASON_TRAP;
 			break;
 		case EXCEPTION_DEBUG_EVENT:
-			next_event = debug_exception_event (&de);
-			if (!next_event) {
-				return R_DEBUG_REASON_TRAP;
-			} else {
-				r_debug_native_continue (dbg, pid, tid, -1);
+			switch (de.u.Exception.ExceptionRecord.ExceptionCode) {
+			case EXCEPTION_BREAKPOINT:
+				ret = R_DEBUG_REASON_BREAKPOINT;
+				next_event = 0;
+				break;
+			case EXCEPTION_SINGLE_STEP:
+				ret = R_DEBUG_REASON_STEP;
+				next_event = 0;
+				break;
+			default:
+				if (!debug_exception_event (&de)) {
+					ret = R_DEBUG_REASON_TRAP;
+					next_event = 0;
+				}
+				else {
+					next_event = 1;
+					r_debug_native_continue (dbg, pid, tid, -1);
+				}
+
 			}
 			break;
 		default:
@@ -637,7 +690,6 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 			return -1;
 		}
 	} while (next_event);
-
 	return ret;
 }
 
@@ -669,7 +721,7 @@ RList *w32_thread_list (int pid, RList *list) {
 
         te32.dwSize = sizeof(THREADENTRY32);
 
-	if (w32_openthread == NULL) {
+	if (!w32_openthread) {
 		eprintf("w32_thread_list: no w32_openthread?\n");
 		return list;
 	}
@@ -693,7 +745,7 @@ RList *w32_thread_list (int pid, RList *list) {
  82         DWORD dwFlags;
 #endif
 			thid = w32_openthread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
-			if (thid == NULL) {
+			if (!thid) {
 				print_lasterr((char *)__FUNCTION__, "OpenThread");
                                 goto err_load_th;
 			}
@@ -710,7 +762,7 @@ static RDebugPid *build_debug_pid(PROCESSENTRY32 *pe) {
 	HANDLE process = w32_open_process (0x1000, //PROCESS_QUERY_LIMITED_INFORMATION,
 		FALSE, pe->th32ProcessID);
 
-	if (process == INVALID_HANDLE_VALUE || w32_queryfullprocessimagename == NULL) {
+	if (process == INVALID_HANDLE_VALUE || !w32_queryfullprocessimagename) {
 		return r_debug_pid_new (pe->szExeFile, pe->th32ProcessID, 's', 0);
 	}
 
@@ -748,7 +800,7 @@ RList *w32_pids (int pid, RList *list) {
 		if (show_all_pids ||
 			pe.th32ProcessID == pid ||
 			pe.th32ParentProcessID == pid) {
-	
+
 			RDebugPid *debug_pid = build_debug_pid (&pe);
 			if (debug_pid) {
 				r_list_append (list, debug_pid);
@@ -802,7 +854,7 @@ void w32_break_process (void *d) {
 		return;
 	}
 	lib = LoadLibrary ("kernel32.dll");
-	if (lib == NULL) {
+	if (!lib) {
 		print_lasterr ((char *)__FUNCTION__, "LoadLibrary");
 		CloseHandle (process);
 		return;
@@ -819,6 +871,205 @@ void w32_break_process (void *d) {
 	}
 	CloseHandle (process);
 	CloseHandle (lib);
+}
+
+static int GetAVX (HANDLE hThread, ut128 * xmm, ut128 * ymm) {
+	BOOL Success;
+	int nRegs = 0, Index = 0;
+	DWORD ContextSize = 0;
+	DWORD FeatureLength = 0;
+	ut64 FeatureMask = 0;
+	ut128 * Xmm = NULL;
+	ut128 * Ymm = NULL;
+	void * buffer = NULL;
+	PCONTEXT Context;
+	if (w32_GetEnabledXStateFeatures == (ut64 WINAPI (*) ())-1) {
+		return 0;
+	}
+	// Check for AVX extension
+	FeatureMask = w32_GetEnabledXStateFeatures();
+	if ((FeatureMask & XSTATE_MASK_AVX) == 0) {
+		return 0;
+	}
+	Success = w32_InitializeContext(NULL, CONTEXT_ALL | CONTEXT_XSTATE, NULL, &ContextSize);
+	if ((Success == TRUE) || (GetLastError() != ERROR_INSUFFICIENT_BUFFER)) {
+		return 0;
+	}
+	buffer = malloc(ContextSize);
+	if (buffer == NULL) {
+		return 0;
+	}
+	Success = w32_InitializeContext(buffer, CONTEXT_ALL | CONTEXT_XSTATE, &Context, &ContextSize);
+	if (Success == FALSE) {
+		free(buffer);
+		return 0;
+	}
+	Success = w32_SetXStateFeaturesMask(Context, XSTATE_MASK_AVX);
+	if (Success == FALSE) {
+		free(buffer);
+		return 0;
+	}
+	Success = GetThreadContext(hThread, Context);
+	if (Success == FALSE) {
+		free(buffer);
+		return 0;
+	}
+	Success = w32_GetXStateFeaturesMask(Context, &FeatureMask);
+	if (Success == FALSE) {
+		free(buffer);
+		return 0;
+	}
+	Xmm = (ut128 *)w32_LocateXStateFeature(Context, XSTATE_LEGACY_SSE, &FeatureLength);
+        nRegs = FeatureLength / sizeof(*Xmm);
+	for (Index = 0; Index < nRegs; Index++) {
+		ymm[Index].High = 0;
+		xmm[Index].High = 0;
+		ymm[Index].Low = 0;
+		xmm[Index].Low = 0;
+	}
+	if (Xmm != NULL) {
+		for (Index = 0; Index < nRegs; Index++) {
+			xmm[Index].High = Xmm[Index].High;
+			xmm[Index].Low = Xmm[Index].Low;
+		}
+	}
+	if ((FeatureMask & XSTATE_MASK_AVX) != 0) {
+		// check for AVX initialization and get the pointer.
+		Ymm = (ut128 *)w32_LocateXStateFeature(Context, XSTATE_AVX, NULL);
+		for (Index = 0; Index < nRegs; Index++) {
+			ymm[Index].High = Ymm[Index].High;
+			ymm[Index].Low = Ymm[Index].Low;
+		}
+	}
+	free(buffer);
+	return nRegs;
+}
+
+static void printwincontext(HANDLE hThread, CONTEXT * ctx) {
+	ut128 xmm[16];
+	ut128 ymm[16];
+	ut80 st[8];
+	ut64 mm[8];
+	ut16 top = 0;
+	int x = 0, nxmm = 0,nymm = 0;
+#if __MINGW64__
+	eprintf ("ControlWord   = %08x StatusWord   = %08x\n", ctx->FltSave.ControlWord, ctx->FltSave.StatusWord);
+	eprintf ("MxCsr         = %08x TagWord      = %08x\n", ctx->MxCsr, ctx->FltSave.TagWord);
+	eprintf ("ErrorOffset   = %08x DataOffset   = %08x\n", ctx->FltSave.ErrorOffset, ctx->FltSave.DataOffset);
+	eprintf ("ErrorSelector = %08x DataSelector = %08x\n", ctx->FltSave.ErrorSelector, ctx->FltSave.DataSelector);
+	for (x = 0; x < 8; x++) {
+		st[x].Low = ctx->FltSave.FloatRegisters[x].Low;
+		st[x].High = (ut16)ctx->FltSave.FloatRegisters[x].High;
+	}
+	top = (ctx->FltSave.StatusWord & 0x3fff) >> 11;
+	x = 0;
+	for (x = 0; x < 8; x++) {
+		mm[top] = ctx->FltSave.FloatRegisters[x].Low;
+		top++;
+		if (top > 7) {
+			top = 0;
+		}
+	}
+	for (x = 0; x < 16; x++) {
+		xmm[x].High = ctx->FltSave.XmmRegisters[x].High;
+		xmm[x].Low = ctx->FltSave.XmmRegisters[x].Low;
+	}
+	nxmm = 16;
+#else
+	eprintf ("ControlWord   = %08x StatusWord   = %08x\n", ctx->FloatSave.ControlWord, ctx->FloatSave.StatusWord);
+	eprintf ("MxCsr         = %08x TagWord      = %08x\n", *(ut32 *)&ctx->ExtendedRegisters[24], ctx->FloatSave.TagWord);
+	eprintf ("ErrorOffset   = %08x DataOffset   = %08x\n", ctx->FloatSave.ErrorOffset, ctx->FloatSave.DataOffset);
+	eprintf ("ErrorSelector = %08x DataSelector = %08x\n", ctx->FloatSave.ErrorSelector, ctx->FloatSave.DataSelector);
+	for (x = 0; x < 8; x++) {
+		st[x].High = (ut16) *((ut16 *)(&ctx->FloatSave.RegisterArea[x * 10] + 8));
+		st[x].Low = (ut64)  *((ut64 *)&ctx->FloatSave.RegisterArea[x * 10]);
+	}
+	top = (ctx->FloatSave.StatusWord & 0x3fff) >> 11;
+	for (x = 0; x < 8; x++) {
+		mm[top] = *((ut64 *)&ctx->FloatSave.RegisterArea[x * 10]);
+		top++;
+		if (top>7) {
+			top = 0;
+		}
+	}
+	for (x = 0; x < 8; x++) {
+		xmm[x] = (ut128)*((ut128 *)&ctx->ExtendedRegisters[(10 + x) * 16]);
+	}
+	nxmm = 8;
+#endif
+	// show fpu,mm,xmm regs
+	for (x = 0; x < 8; x++) {
+		// the conversin from long double to double only work for compilers
+		// with long double size >=10 bytes (also we lost 2 bytes of precision)
+		//   in mingw long double is 12 bytes size
+		//   in msvc long double is alias for double = 8 bytes size
+		//   in gcc long double is 10 bytes (correct representation)
+		eprintf ("ST%i %04x %016"PFMT64x" (%f)\n", x, st[x].High, st[x].Low, (double)(*((long double *)&st[x])));
+	}
+	for (x = 0; x < 8; x++) {
+		eprintf ("MM%i %016"PFMT64x"\n", x, mm[x]);
+	}
+	for (x = 0; x < nxmm; x++) {
+		eprintf ("XMM%i %016"PFMT64x" %016"PFMT64x"\n", x, xmm[x].High, xmm[x].Low);
+	}
+	// show Ymm regs
+	nymm = GetAVX(hThread, &xmm, &ymm);
+	if (nymm) {
+		for (x = 0; x < nymm; x++) {
+			eprintf ("Ymm%d: %016"PFMT64x" %016"PFMT64x" %016"PFMT64x" %016"PFMT64x"\n", x, ymm[x].High, ymm[x].Low, xmm[x].High, xmm[x].Low );
+		}
+	}
+}
+
+static int w32_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
+	CONTEXT ctx __attribute__ ((aligned (16)));
+	int showfpu = false;
+	int pid = dbg->pid;
+	int tid = dbg->tid;
+	HANDLE hThread = NULL;
+	if (type < -1) {
+		showfpu = true; // hack for debugging
+		type = -type;
+	}
+	hThread = w32_open_thread (pid, tid);
+	memset(&ctx, 0, sizeof (CONTEXT));
+	ctx.ContextFlags = CONTEXT_ALL ;
+	if (GetThreadContext (hThread, &ctx) == TRUE) {
+		if (type == R_REG_TYPE_GPR) {
+			if (size > sizeof (CONTEXT)) {
+				size = sizeof (CONTEXT);
+			}
+			memcpy (buf, &ctx, size);
+		} else {
+			size = 0;
+		}
+	} else {
+		eprintf ("GetThreadContext: %x\n", (int)GetLastError ());
+		size = 0;
+	}
+	if (showfpu) {
+		printwincontext (hThread, &ctx);
+	}
+	CloseHandle(hThread);
+	return size;
+}
+
+static int w32_reg_write (RDebug *dbg, int type, const ut8* buf, int size) {
+	BOOL ret = false;
+	HANDLE thread;
+	CONTEXT ctx __attribute__((aligned (16)));
+	thread = w32_open_thread (dbg->pid, dbg->tid);
+	ctx.ContextFlags = CONTEXT_ALL;
+	GetThreadContext (thread, &ctx);
+	if (type == R_REG_TYPE_GPR) {
+		if (size > sizeof (CONTEXT)) {
+			size = sizeof (CONTEXT);
+		}
+		memcpy (&ctx, buf, size);
+		ret = SetThreadContext (thread, &ctx)? true: false;
+	}
+	CloseHandle (thread);
+	return ret;
 }
 
 static RDebugInfo* w32_info (RDebug *dbg, const char *arg) {

@@ -5,7 +5,7 @@ Before reporting an issue with GitHub, be sure that:
 * you are using a clean installation
 * the issue was not already reported
 
-When the two conditions above are satisfied, feel free to submit an issue,
+When the above conditions are satisfied, feel free to submit an issue,
 trying to be as precise as possible. If you can, provide the problematic
 binary, the steps to reproduce the error and a backtrace in case of SEGFAULTs.
 Any information will help to fix the problem.
@@ -30,7 +30,7 @@ try to keep the codebase consistent and clean.
 * Tabs are used for indentation. In a switch statement, the
   cases are indentend at the switch level.
 
-```
+```c
 switch(n) {
 case 1:
 case 2:
@@ -45,7 +45,7 @@ default:
   or in a while of a do-while statement. Always use braces for if and while,
   except when the expressions are very simple and they can fit in a one-line.
 
-```
+```c
 if (a == b) {
 	...
 }
@@ -61,7 +61,7 @@ if (a == b) do_something ();
 if (a == b) do_something ();
 else do_something_else ();
 
-if (!ok) return R_FALSE;
+if (!ok) return false;
 
 if (!buf) goto err_buf;
 
@@ -92,10 +92,10 @@ if (a == b) {
 * Use early returns instead of if-else when you need to filter out some bad
   value at the start of a function.
 
-```
+```c
 int check(RCore *c, int a, int b) {
-	if (!c) return R_FALSE;
-	if (a < 0 || b < 1) return R_FALSE;
+	if (!c) return false;
+	if (a < 0 || b < 1) return false;
 
 	... /* do something else */
 }
@@ -103,10 +103,60 @@ int check(RCore *c, int a, int b) {
 
 * Use a space after most of the keyword and around operators.
 
-```
+```c
 a = b + 3;
 a = (b << 3) * 5;
 ```
+
+* Multiline ternary operator conditionals must be indented a-la JS way:
+
+```c
+- ret = over ?
+-         r_debug_step_over (dbg, 1) :
+-         r_debug_step (dbg, 1);
++ ret = over
++         ? r_debug_step_over (dbg, 1)
++         : r_debug_step (dbg, 1);
+```
+
+* Split long conditional expressions into small `static inline` functions to make them more readable:
+
+```c
++static inline bool inRange(RBreakpointItem *b, ut64 addr) {
++       return (addr >= b->addr && addr < (b->addr + b->size));
++}
++
++static inline bool matchProt(RBreakpointItem *b, int rwx) {
++       return (!rwx || (rwx && b->rwx));
++}
++
+ R_API RBreakpointItem *r_bp_get_in(RBreakpoint *bp, ut64 addr, int rwx) {
+        RBreakpointItem *b;
+        RListIter *iter;
+        r_list_foreach (bp->bps, iter, b) {
+-               if (addr >= b->addr && addr < (b->addr+b->size) && \
+-                       (!rwx || rwx&b->rwx))
++               if (inRange (b, addr) && matchProt (b, rwx)) {
+                        return b;
++               }
+        }
+        return NULL;
+ }
+```
+
+* Why return int vs enum
+
+The reason why many places in r2land functions return int instead of an enum type is because enums cant be OR'ed because it breaks the usage within a switch statement and also because swig cant handle that stuff.
+
+```
+r_core_wrap.cxx:28612:60: error: assigning to 'RRegisterType' from incompatible type 'long'
+  arg2 = static_cast< long >(val2); if (arg1) (arg1)->type = arg2; resultobj = SWIG_Py_Void(); return resultobj; fail:
+                                                           ^ ~~~~
+r_core_wrap.cxx:32103:61: error: assigning to 'RDebugReasonType' from incompatible type 'int'
+    arg2 = static_cast< int >(val2); if (arg1) (arg1)->type = arg2; resultobj = SWIG_Py_Void(); return resultobj; fail:
+                                                            ^ ~~~~
+3 warnings and 2 errors generated.
+````
 
 * Do not leave trailing whitespaces at the end of line
 

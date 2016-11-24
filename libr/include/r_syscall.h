@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2015 - pancake */
+/* radare - LGPL - Copyright 2009-2016 - pancake */
 
 #ifndef R2_SYSCALL_H
 #define R2_SYSCALL_H
@@ -9,7 +9,6 @@ extern "C" {
 
 #include <r_types.h>
 #include <r_db.h>
-#include <list.h>
 
 R_LIB_VERSION_HEADER (r_syscall);
 
@@ -56,7 +55,6 @@ typedef struct r_syscall_plugin_t {
 	int bits;
 	int nargs;
 	struct r_syscall_args_t *args;
-	struct list_head list;
 } RSyscallPlugin;
 
 typedef struct r_syscall_arch_plugin_t {
@@ -66,7 +64,6 @@ typedef struct r_syscall_arch_plugin_t {
 	int *bits;
 	int nargs;
 	struct r_syscall_args_t **args;
-	struct list_head list;
 } RSyscallArchPlugin;
 
 #ifdef R_API
@@ -82,6 +79,10 @@ R_API int r_syscall_get_num(RSyscall *ctx, const char *str);
 R_API const char *r_syscall_get_i(RSyscall *ctx, int num, int swi);
 R_API const char *r_syscall_reg(RSyscall *s, int idx, int num);
 R_API RList *r_syscall_list(RSyscall *ctx);
+R_API int r_syscall_get_swi(RSyscall *s);
+
+/* io */
+R_API const char *r_syscall_get_io(RSyscall *s, int ioport);
 #endif
 
 #ifdef __cplusplus

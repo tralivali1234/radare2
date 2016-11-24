@@ -55,7 +55,7 @@ static RList* entries(RBinFile *arch) {
 	if (!(ret = r_list_new ()))
 		return NULL;
 	ret->free = free;
-	if ((ptr = R_NEW (RBinAddr))) {
+	if ((ptr = R_NEW0 (RBinAddr))) {
 		ptr->paddr = 8*4;
 		ptr->vaddr = 8*4;// + baddr (arch);
 		r_list_append (ret, ptr);
@@ -66,17 +66,15 @@ static RList* entries(RBinFile *arch) {
 static RList* sections(RBinFile *arch) {
 	RList *ret = NULL;
 	RBinSection *ptr = NULL;
-	int big_endian = 0;
 	ut64 textsize, datasize, symssize, spszsize, pcszsize;
 	if (!arch->o->info) return NULL;
-	big_endian = arch->o->info->big_endian;
 
 	if (!(ret = r_list_new ()))
 		return NULL;
 	ret->free = free;
 
 	// add text segment
-	textsize = r_mem_get_num (arch->buf->buf+4, 4, big_endian);
+	textsize = r_mem_get_num (arch->buf->buf + 4, 4);
 	if (!(ptr = R_NEW0 (RBinSection)))
 		return ret;
 	strncpy (ptr->name, "text", R_BIN_SIZEOF_STRINGS);
@@ -85,9 +83,10 @@ static RList* sections(RBinFile *arch) {
 	ptr->paddr = 8*4;
 	ptr->vaddr = ptr->paddr;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	ptr->add = true;
 	r_list_append (ret, ptr);
 	// add data segment
-	datasize = r_mem_get_num (arch->buf->buf+8, 4, big_endian);
+	datasize = r_mem_get_num (arch->buf->buf+8, 4);
 	if (datasize>0) {
 		if (!(ptr = R_NEW0 (RBinSection)))
 			return ret;
@@ -97,11 +96,12 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_WRITABLE | R_BIN_SCN_MAP; // rw-
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// ignore bss or what
 	// add syms segment
-	symssize = r_mem_get_num (arch->buf->buf+16, 4, big_endian);
+	symssize = r_mem_get_num (arch->buf->buf+16, 4);
 	if (symssize) {
 		if (!(ptr = R_NEW0 (RBinSection)))
 			return ret;
@@ -111,10 +111,11 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// add spsz segment
-	spszsize = r_mem_get_num (arch->buf->buf+24, 4, big_endian);
+	spszsize = r_mem_get_num (arch->buf->buf+24, 4);
 	if (spszsize) {
 		if (!(ptr = R_NEW0 (RBinSection)))
 			return ret;
@@ -124,10 +125,11 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = symssize+datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// add pcsz segment
-	pcszsize = r_mem_get_num (arch->buf->buf+24, 4, big_endian);
+	pcszsize = r_mem_get_num (arch->buf->buf+24, 4);
 	if (pcszsize) {
 		if (!(ptr = R_NEW0 (RBinSection)))
 			return ret;
@@ -137,6 +139,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = spszsize+symssize+datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	return ret;
@@ -161,7 +164,7 @@ static RBinInfo* info(RBinFile *arch) {
 
 	if (!(bina = r_bin_p9_get_arch (arch->buf->buf, &bits, &big_endian)))
 		return NULL;
-	if ((ret = R_NEW0 (RBinInfo)) == NULL)
+	if (!(ret = R_NEW0 (RBinInfo)))
 		return NULL;
 	ret->file = strdup (arch->file);
 	ret->bclass = strdup ("program");
@@ -179,19 +182,17 @@ static RBinInfo* info(RBinFile *arch) {
 	return ret;
 }
 
-static int size(RBinFile *arch) {
+static ut64 size(RBinFile *arch) {
 	ut64 text, data, syms, spsz;
-	int big_endian;
 	if (!arch->o->info)
 		arch->o->info = info (arch);
 	if (!arch->o->info) return 0;
-	big_endian = arch->o->info->big_endian;
 	// TODO: reuse section list
-	text = r_mem_get_num (arch->buf->buf+4, 4, big_endian);
-	data = r_mem_get_num (arch->buf->buf+8, 4, big_endian);
-	syms = r_mem_get_num (arch->buf->buf+16, 4, big_endian);
-	spsz = r_mem_get_num (arch->buf->buf+24, 4, big_endian);
-	return text+data+syms+spsz+(6*4);
+	text = r_mem_get_num (arch->buf->buf + 4, 4);
+	data = r_mem_get_num (arch->buf->buf + 8, 4);
+	syms = r_mem_get_num (arch->buf->buf + 16, 4);
+	spsz = r_mem_get_num (arch->buf->buf + 24, 4);
+	return text + data + syms + spsz + (6*4);
 }
 
 #if !R_BIN_P9

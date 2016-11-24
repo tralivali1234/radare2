@@ -483,6 +483,14 @@ extern int bfd_flush (bfd *);
 extern int bfd_stat (bfd *, struct stat *);
 
 /* Deprecated old routines.  */
+#if 1
+#define bfd_read(BUF, ELTSIZE, NITEMS, ABFD)				\
+  (warn_deprecated ("bfd_read", NULL, NULL, __FUNCTION__),	\
+   bfd_bread ((BUF), (ELTSIZE) * (NITEMS), (ABFD)))
+#define bfd_write(BUF, ELTSIZE, NITEMS, ABFD)				\
+  (warn_deprecated ("bfd_write", NULL, NULL, __FUNCTION__),	\
+   bfd_bwrite ((BUF), (ELTSIZE) * (NITEMS), (ABFD)))
+#else
 #if __GNUC__
 #define bfd_read(BUF, ELTSIZE, NITEMS, ABFD)				\
   (warn_deprecated ("bfd_read", __FILE__, __LINE__, __FUNCTION__),	\
@@ -497,6 +505,7 @@ extern int bfd_stat (bfd *, struct stat *);
 #define bfd_write(BUF, ELTSIZE, NITEMS, ABFD)				\
   (warn_deprecated ("bfd_write", (const char *) 0, 0, (const char *) 0),\
    bfd_bwrite ((BUF), (ELTSIZE) * (NITEMS), (ABFD)))
+#endif
 #endif
 extern void warn_deprecated (const char *, const char *, int, const char *);
 
@@ -1584,7 +1593,7 @@ extern const struct bfd_symbol * const bfd_ind_symbol;
     }                                                  \
   while (0)
 #define bfd_section_removed_from_list(ABFD, S) \
-  ((S)->next == NULL ? (ABFD)->section_last != (S) : (S)->next->prev != (S))
+  ((S)->next ? (S)->next->prev != (S) : (ABFD)->section_last != (S))
 
 #define BFD_FAKE_SECTION(SEC, FLAGS, SYM, SYM_PTR, NAME, IDX)          \
   /* name, id,  index, next, prev, flags, user_set_vma,            */  \
@@ -1999,6 +2008,8 @@ enum bfd_architecture
 #define bfd_mach_xc16xs         3
   bfd_arch_xtensa,    /* Tensilica's Xtensa cores.  */
 #define bfd_mach_xtensa        1
+  bfd_arch_tricore,
+#define bfd_mach_tricore	4
    bfd_arch_maxq,     /* Dallas MAXQ 10/20 */
 #define bfd_mach_maxq10    10
 #define bfd_mach_maxq20    20

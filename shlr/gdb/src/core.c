@@ -1,4 +1,4 @@
-/* libgdbr - LGPL - Copyright 2014 - defragger */
+/* libgdbr - LGPL - Copyright 2014-2016 - defragger */
 
 #include "libgdbr.h"
 #include "core.h"
@@ -144,7 +144,6 @@ static registers_t arm32[] = {
 	{"",	0,	0}
 };
 
-
 static registers_t aarch64[] = {
 	{"x0",	0,	8},
 	{"x1",	8,	8},
@@ -216,85 +215,129 @@ static registers_t aarch64[] = {
 	{"fpcr",	784,	4},
 	{"",	0,	0}
 };
+
+static registers_t lm32[] = {
+	{"r0",	0,	4},
+	{"r1",	4,	4},
+	{"r2",	8,	4},
+	{"r3",	12,	4},
+	{"r4",	16,	4},
+	{"r5",	20,	4},
+	{"r6",	24,	4},
+	{"r7",	28,	4},
+	{"r8",	32,	4},
+	{"r9",	36,	4},
+	{"r10",	40,	4},
+	{"r11",	44,	4},
+	{"r12",	48,	4},
+	{"r13",	52,	4},
+	{"r14",	56,	4},
+	{"r15",	60,	4},
+	{"r16",	64,	4},
+	{"r17",	68,	4},
+	{"r18",	72,	4},
+	{"r19",	76,	4},
+	{"r20",	80,	4},
+	{"r21",	84,	4},
+	{"r22",	88,	4},
+	{"r23",	92,	4},
+	{"r24",	96,	4},
+	{"r25",	100,	4},
+	{"gp",	104,	4},
+	{"fp",	108,	4},
+	{"sp",	112,	4},
+	{"ra",	116,	4},
+	{"ea",	120,	4},
+	{"ba",	124,	4},
+	{"PC",	128,	4},
+	{"EID",	132,	4},
+	{"EBA",	136,	4},
+	{"DEBA",140,	4},
+	{"IE",	144,	4},
+	{"IM",	148,	4},
+	{"IP",	152,	4},
+	{"",	0,	0}
+};
+
 static registers_t mips[] = {
-    {"zero", 0,	0},
-    {"at", 4,	0},
-    {"v0", 8,	0},
-    {"v1", 12,	8},
-    {"a0", 16,	8},
-    {"a1", 20,	8},
-    {"a2", 24,	8},
-    {"a3", 28,	8},
-    {"t0", 32,	8},
-    {"t1", 36,	8},
-    {"t2", 40,	8},
-    {"t3", 44,	8},
-    {"t4", 48,	8},
-    {"t5", 52,	8},
-    {"t6", 56,	8},
-    {"t7", 60,	8},
-    {"s0", 64,	8},
-    {"s1", 68,	8},
-    {"s2", 72,	8},
-    {"s3", 76,	8},
-    {"s4", 80,	8},
-    {"s5", 84,	8},
-    {"s6", 88,	8},
-    {"s7", 92,	8},
-    {"t8", 96,	8},
-    {"t9", 100,	8},
-    {"k0", 104,	8},
-    {"k1", 108,	8},
-    {"gp", 112,	8},
-    {"sp", 116,	8},
-    {"s8", 120,	8},
-    {"ra", 124,	8},
-    {"sr", 128,	8},
-    {"lo", 132,	8},
-    {"hi", 134,	8},
-    {"bad", 140,	8},
-    {"cause", 144,	8},
-    {"pc", 148,	8},
-    {"f0", 152,	8},
-    {"f1", 156,	8},
-    {"f2", 160,	8},
-    {"f3", 164,	8},
-    {"f4", 168,	8},
-    {"f5", 172,	8},
-    {"f6", 176,	8},
-    {"f7", 180,	8},
-    {"f8", 184,	8},
-    {"f9", 188,	8},
-    {"f10", 192,	8},
-    {"f11", 196,	8},
-    {"f12", 200,	8},
-    {"f13", 204,	8},
-    {"f14", 208,	8},
-    {"f15", 212,	8},
-    {"f16", 216,	8},
-    {"f17", 220,	8},
-    {"f18", 224,	8},
-    {"f19", 228,	8},
-    {"f20", 232,	8},
-    {"f21", 236,	8},
-    {"f22", 240,	8},
-    {"f23", 244,	8},
-    {"f24", 248,	8},
-    {"f25", 252,	8},
-    {"f26", 256,	8},
-    {"f27", 260,	8},
-    {"f28", 264,	8},
-    {"f29", 268,	8},
-    {"f30", 272,	8},
-    {"f31", 276,	8},
-    {"fsr", 280,	8},
-    {"fir", 284,	8},
-    {"unknw", 288,	8},
+	{"zero", 0,	0},
+	{"at", 4,	0},
+	{"v0", 8,	0},
+	{"v1", 12,	8},
+	{"a0", 16,	8},
+	{"a1", 20,	8},
+	{"a2", 24,	8},
+	{"a3", 28,	8},
+	{"t0", 32,	8},
+	{"t1", 36,	8},
+	{"t2", 40,	8},
+	{"t3", 44,	8},
+	{"t4", 48,	8},
+	{"t5", 52,	8},
+	{"t6", 56,	8},
+	{"t7", 60,	8},
+	{"s0", 64,	8},
+	{"s1", 68,	8},
+	{"s2", 72,	8},
+	{"s3", 76,	8},
+	{"s4", 80,	8},
+	{"s5", 84,	8},
+	{"s6", 88,	8},
+	{"s7", 92,	8},
+	{"t8", 96,	8},
+	{"t9", 100,	8},
+	{"k0", 104,	8},
+	{"k1", 108,	8},
+	{"gp", 112,	8},
+	{"sp", 116,	8},
+	{"s8", 120,	8},
+	{"ra", 124,	8},
+	{"sr", 128,	8},
+	{"lo", 132,	8},
+	{"hi", 134,	8},
+	{"bad", 140,	8},
+	{"cause", 144,	8},
+	{"pc", 148,	8},
+	{"f0", 152,	8},
+	{"f1", 156,	8},
+	{"f2", 160,	8},
+	{"f3", 164,	8},
+	{"f4", 168,	8},
+	{"f5", 172,	8},
+	{"f6", 176,	8},
+	{"f7", 180,	8},
+	{"f8", 184,	8},
+	{"f9", 188,	8},
+	{"f10", 192,	8},
+	{"f11", 196,	8},
+	{"f12", 200,	8},
+	{"f13", 204,	8},
+	{"f14", 208,	8},
+	{"f15", 212,	8},
+	{"f16", 216,	8},
+	{"f17", 220,	8},
+	{"f18", 224,	8},
+	{"f19", 228,	8},
+	{"f20", 232,	8},
+	{"f21", 236,	8},
+	{"f22", 240,	8},
+	{"f23", 244,	8},
+	{"f24", 248,	8},
+	{"f25", 252,	8},
+	{"f26", 256,	8},
+	{"f27", 260,	8},
+	{"f28", 264,	8},
+	{"f29", 268,	8},
+	{"f30", 272,	8},
+	{"f31", 276,	8},
+	{"fsr", 280,	8},
+	{"fir", 284,	8},
+	{"unknw", 288,	8},
 	{"",	0,	0}
 };
 
 static registers_t avr[] = {
-    {"r0", 0, 1},
+	{"r0", 0, 1},
 	{"r1", 1, 1},
 	{"r2", 2, 1},
 	{"r3", 3, 1},
@@ -328,7 +371,7 @@ static registers_t avr[] = {
 	{"r31", 31, 1},
 	{"sreg", 32, 1},
 	{"sp", 33, 2},
-	//{"pc2", 35, 4},
+	{"pc2", 35, 4},
 	{"pc", 39, 4},
 	{"", 0, 0}
 };
@@ -336,56 +379,57 @@ static registers_t avr[] = {
 int gdbr_init(libgdbr_t* g) {
 	if (!g) return -1;
 	memset (g ,0 , sizeof (libgdbr_t));
-	g->send_buff = (char*) calloc (2500, sizeof (char));
+	g->send_max = 2500;
+	g->send_buff = (char*) calloc (g->send_max, 1);
 	if (!g->send_buff) return -1;
 	g->send_len = 0;
-	g->send_max = 2500;
-	g->read_buff = (char*) calloc (4096, sizeof (char));
+	g->read_max = 4096;
+	g->read_buff = (char*) calloc (g->read_max, 1);
 	if (!g->read_buff) {
-		free (g->send_buff);
+		R_FREE (g->send_buff);
 		return -1;
 	}
-	g->read_len = 0;
 	g->sock = r_socket_new (0);
 	g->last_code = MSG_OK;
-	g->read_max = 4096;
 	g->connected = 0;
 	g->data_len = 0;
-	g->data = calloc (4096, sizeof (char));
+	g->data_max = 4096;
+	g->data = calloc (g->data_max, 1);
 	if (!g->data) {
-		free (g->send_buff);
-		free (g->read_buff);
+		R_FREE (g->send_buff);
+		R_FREE (g->read_buff);
 		return -1;
 	}
-	g->data_max = 4096;
 	return 0;
 }
-
 
 int gdbr_set_architecture(libgdbr_t* g, uint8_t architecture) {
 	if (!g) return -1;
 	g->architecture = architecture;
 	switch (architecture) {
-		case ARCH_X86_32:
-			g->registers = x86_32;
-			break;
-		case ARCH_X86_64:
-			g->registers = x86_64;
-			break;
-		case ARCH_ARM_32:
-			g->registers = arm32;
-			break;
-		case ARCH_ARM_64:
-			g->registers = aarch64;
-			break;
+	case ARCH_X86_32:
+		g->registers = x86_32;
+		break;
+	case ARCH_X86_64:
+		g->registers = x86_64;
+		break;
+	case ARCH_ARM_32:
+		g->registers = arm32;
+		break;
+	case ARCH_ARM_64:
+		g->registers = aarch64;
+		break;
         case ARCH_MIPS:
-			g->registers = mips;
-			break;
-		case ARCH_AVR:
-			g->registers = avr;
-			break;
-		default:
-			fprintf (stderr, "Error unknown architecture set\n");
+		g->registers = mips;
+		break;
+	case ARCH_AVR:
+		g->registers = avr;
+		break;
+	case ARCH_LM32:
+		g->registers = lm32;
+		break;
+	default:
+		eprintf ("Error unknown architecture set\n");
 	}
 	return 0;
 }
@@ -396,26 +440,25 @@ int gdbr_cleanup(libgdbr_t* g) {
 	free (g->send_buff);
 	g->send_len = 0;
 	free (g->read_buff);
-	g->read_len = 0;
 	return 0;
 }
 
 int gdbr_connect(libgdbr_t* g, const char* host, int port) {
-	int ret;
 	const char *message = "qSupported:multiprocess+;qRelocInsn+";
 	char tmp[255];
+	int ret;
 	if (!g || !host) return -1;
-	ret = snprintf (tmp, sizeof(tmp)-1, "%d", port);
+	ret = snprintf (tmp, sizeof (tmp)-1, "%d", port);
 	if (!ret) return -1;
 	ret = r_socket_connect_tcp (g->sock, host, tmp, 200);
 	if (!ret) return -1;
+	read_packet (g);
 	g->connected = 1;
 	// TODO add config possibility here
-	ret = send_command(g, message);
-	if (ret < 0)
-		return ret;
-	read_packet(g);
-	return handle_connect(g);
+	ret = send_command (g, message);
+	if (ret < 0) return ret;
+	read_packet (g);
+	return handle_connect (g);
 }
 
 int gdbr_disconnect(libgdbr_t* g) {
@@ -432,8 +475,7 @@ int gdbr_read_registers(libgdbr_t* g) {
 	if (ret < 0)
 		return ret;
 
-	if (read_packet (g) > 0) {
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		return handle_g (g);
 	}
 	return -1;
@@ -451,8 +493,7 @@ int gdbr_read_memory(libgdbr_t* g, ut64 address, ut64 len) {
 	if (ret < 0)
 		return ret;
 
-	if (read_packet (g) > 0) { 
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		return handle_m (g);
 	}
 	return -1;
@@ -477,8 +518,7 @@ int gdbr_write_memory(libgdbr_t* g, ut64 address, const uint8_t* data, ut64 len)
 	if (ret < 0)
 		return ret;
 
-	if (read_packet (g) > 0) {
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		return handle_M (g);
 	}
 	return -1;
@@ -487,7 +527,6 @@ int gdbr_write_memory(libgdbr_t* g, ut64 address, const uint8_t* data, ut64 len)
 int gdbr_step(libgdbr_t* g, int thread_id) {
 	return send_vcont (g, CMD_C_STEP, thread_id);
 }
-
 
 int gdbr_continue(libgdbr_t* g, int thread_id) {
 	return send_vcont (g, CMD_C_CONT, thread_id);
@@ -505,8 +544,7 @@ int gdbr_send_command(libgdbr_t* g, char* command) {
 	free (cmd);
 	if (ret < 0) return ret;
 
-	if (read_packet (g) > 0) {
-		parse_packet (g, 1);
+	if (read_packet (g) >= 0) {
 		return handle_cmd (g);
 	}
 	return -1;
@@ -540,8 +578,7 @@ int gdbr_write_register(libgdbr_t* g, int index, char* value, int len) {
 	pack_hex (value, len, (command + ret));
 	if (send_command (g, command) < 0)
 		return -1;
-	if (read_packet (g) > 0) {
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		handle_P (g);
 	}
 	return 0;
@@ -554,13 +591,13 @@ int gdbr_write_reg(libgdbr_t* g, const char* name, char* value, int len) {
 	int i = 0;
 	if (!g) return -1;
 	while (g->registers[i].size > 0) {
-		if (strcmp (g->registers[i].name, name) == 0) {
+		if (!strcmp (g->registers[i].name, name)) {
 			break;
 		}
 		i++;
 	}
 	if (g->registers[i].size == 0) {
-		fprintf(stderr, "Error registername <%s> not found in profile\n", name);
+		eprintf ("Error registername <%s> not found in profile\n", name);
 		return -1;
 	}
 	if (P) {
@@ -590,11 +627,11 @@ int gdbr_write_registers(libgdbr_t* g, char* registers) {
 	if (!buff)
 		return -1;
 	memcpy (buff, registers, len);
-	reg = strtok(buff, ",");
+	reg = strtok (buff, ",");
 	while ( reg != NULL ) {
 		char* name_end = strchr (reg, '=');
 		if (name_end == NULL) {
-			fprintf (stderr, "Malformed argument: %s\n", reg);
+			eprintf ("Malformed argument: %s\n", reg);
 			free (buff);
 			return -1;
 		}
@@ -661,15 +698,14 @@ int send_vcont(libgdbr_t* g, const char* command, int thread_id) {
 	int ret;
 	if (!g) return -1;
 	if (thread_id < 0) {
-		ret = snprintf (tmp, 255, "%s;%s", CMD_C, command);
+		ret = snprintf (tmp, sizeof (tmp) - 1, "%s;%s", CMD_C, command);
 	} else {
-		ret = snprintf (tmp, 255, "%s;%s:%x", CMD_C, command, thread_id);
+		ret = snprintf (tmp, sizeof (tmp) - 1, "%s;%s:%x", CMD_C, command, thread_id);
 	}
 	if (ret < 0) return ret;
 	ret = send_command (g, tmp);
 	if (ret < 0) return ret;
-	if (read_packet (g) > 0) { 
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		return handle_cont (g);
 	}
 	return 0;
@@ -701,8 +737,7 @@ int set_bp(libgdbr_t* g, ut64 address, const char* conditions, enum Breakpoint t
 	ret = send_command (g, tmp);
 	if (ret < 0) return ret;
 
-	if (read_packet (g) > 0) {
-		parse_packet (g, 0);
+	if (read_packet (g) >= 0) {
 		return handle_setbp (g);
 	}
 	return 0;
@@ -744,34 +779,38 @@ int remove_bp(libgdbr_t* g, ut64 address, enum Breakpoint type) {
 	default:
 		break;
 	}
-	if (ret < 0) return ret;
+	if (ret < 0) {
+		return ret;
+	}
 	ret = send_command (g, tmp);
-	if (ret < 0) return ret;
-
-	if (read_packet (g) > 0) {
-		parse_packet (g, 0);
+	if (ret < 0) {
+		return ret;
+	}
+	if (read_packet (g) >= 0) {
 		return handle_removebp (g);
 	}
 	return 0;
 }
 
 int send_ack(libgdbr_t* g) {
-	if (!g) return -1;
-	g->send_buff[0] = '+';
-	g->send_len = 1;
-	send_packet (g);
-	return 0;
+	if (g) {
+		g->send_buff[0] = '+';
+		g->send_len = 1;
+		send_packet (g);
+		return 0;
+	}
+	return -1;
 }
 
 int send_command(libgdbr_t* g, const char* command) {
 	uint8_t checksum;
 	int ret;
 
-	if (!g || !command)
+	if (!g || !command) {
 		return -1;
-
+	}
 	checksum = cmd_checksum (command);
-	ret = snprintf(g->send_buff, g->send_max,
+	ret = snprintf (g->send_buff, g->send_max,
 		"$%s#%.2x", command, checksum);
 	if (ret >= 0) {
 		g->send_len = ret;

@@ -6,7 +6,7 @@
 
 #include <r_lib.h>
 #include <r_util.h>
-#include <r_flags.h>
+#include <r_flag.h>
 #include <r_anal.h>
 #include <r_parse.h>
 
@@ -56,7 +56,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 				}
 				newstr[k]='\0';
 			}
-			return R_TRUE;
+			return true;
 		}
 	}
 
@@ -69,7 +69,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		}
 	}
 
-	return R_FALSE;
+	return false;
 }
 
 struct r_parse_plugin_t r_parse_plugin_z80_pseudo = {

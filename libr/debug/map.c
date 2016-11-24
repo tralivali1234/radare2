@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2015 - pancake */
+/* radare - LGPL - Copyright 2009-2016 - pancake */
 
 #include <r_debug.h>
 #include <r_list.h>
@@ -9,8 +9,9 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 	bool notfirst = false;
 	RListIter *iter;
 	RDebugMap *map;
-	if (!dbg) return;
-
+	if (!dbg) {
+		return;
+	}
 	switch (rad) {
 	case 'j':
 		dbg->cb_printf ("[");
@@ -56,18 +57,51 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 			free (name);
 		}
 		break;
+	case 'q':
+		r_list_foreach (dbg->maps, iter, map) {
+			char *name = r_str_newf ("%s.%s", map->name,
+				r_str_rwx_i (map->perm));
+			r_name_filter (name, 0);
+			dbg->cb_printf ("0x%016"PFMT64x" - 0x%016"PFMT64x" %6s %5s %s\n",
+				map->addr, map->addr_end,
+				r_num_units (buf, map->addr_end - map->addr),
+				r_str_rwx_i (map->perm), name);
+			free (name);
+		}
+		r_list_foreach (dbg->maps_user, iter, map) {
+			char *name = r_str_newf ("%s.%s", map->name,
+				r_str_rwx_i (map->perm));
+			r_name_filter (name, 0);
+			dbg->cb_printf ("f map.%s 0x%08"PFMT64x" 0x%08"PFMT64x"\n",
+				name, map->addr_end - map->addr, map->addr);
+			free (name);
+		}
+		break;
 	default:
 		fmtstr = dbg->bits& R_SYS_BITS_64?
-			"sys %04s 0x%016"PFMT64x" %c 0x%016"PFMT64x" %c %s %s %s\n":
-			"sys %04s 0x%08"PFMT64x" %c 0x%08"PFMT64x" %c %s %s %s\n";
+			"sys %04s 0x%016"PFMT64x" %c 0x%016"PFMT64x" %c %s %s %s%s%s\n":
+			"sys %04s 0x%08"PFMT64x" %c 0x%08"PFMT64x" %c %s %s %s%s%s\n";
 		r_list_foreach (dbg->maps, iter, map) {
+			const char *flagname = dbg->corebind.getName
+				? dbg->corebind.getName (dbg->corebind.core, map->addr) : NULL;
+			if (!flagname || !*flagname) {
+				flagname = "";
+			} else {
+				if (!strncmp (flagname, "map.", 4)) {
+					if (!strncmp (flagname + 4, map->name, 4)) {
+						flagname = "";
+					}
+				}
+			}
 			r_num_units (buf, map->size);
 			dbg->cb_printf (fmtstr,
 				buf, map->addr, (addr>=map->addr && addr<map->addr_end)?'*':'-',
 				map->addr_end, map->user?'u':'s',
 				r_str_rwx_i (map->perm),
 				map->file?map->file:"?",
-				map->name);
+				map->name,
+				*flagname? " ; ": "", 
+				flagname);
 		}
 		fmtstr = dbg->bits& R_SYS_BITS_64?
 			"usr %04s 0x%016"PFMT64x" - 0x%016"PFMT64x" %c %x %s %s\n":
@@ -83,9 +117,9 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 	}
 }
 
-static void print_debug_map_ascii_art(RList *maps, ut64 addr, int use_color, PrintfCallback cb_printf, int bits) {
+static void print_debug_map_ascii_art(RList *maps, ut64 addr, int use_color, PrintfCallback cb_printf, int bits, int cons_width) {
 	ut64 mul, min = -1, max = 0;
-	int width = r_cons_get_size (NULL) - 80;
+	int width = cons_width - 80;
 	RListIter *iter;
 	RDebugMap *map;
 	if (width < 1) width = 30;
@@ -98,16 +132,21 @@ static void print_debug_map_ascii_art(RList *maps, ut64 addr, int use_color, Pri
 	mul = (max - min) / width;
 	if (min != -1 && mul != 0) {
 		const char *c = "", *c_end = "";
-		char buf[56];
 		const char *fmtstr;
+		char buf[56];
 		int j;
 		r_list_foreach (maps, iter, map) {
 			r_num_units (buf, map->size);
 			if (use_color) {
 				c_end = Color_RESET;
-				if (map->perm & 1) c = Color_GREEN;
-				if (map->perm & 2) c = Color_RED;
-				else { c = "" ;  c_end = ""; }
+				if (map->perm & 2) {
+					c = Color_RED;
+				} else if (map->perm & 1) {
+					c = Color_GREEN;
+				} else {
+					c = "";
+					c_end = "";
+				}
 			} else {
 				c = "";
 				c_end = "";
@@ -137,26 +176,27 @@ static void print_debug_map_ascii_art(RList *maps, ut64 addr, int use_color, Pri
 	}
 }
 
-R_API void r_debug_map_list_visual(RDebug *dbg, ut64 addr, int use_color) {
+R_API void r_debug_map_list_visual(RDebug *dbg, ut64 addr, int use_color, int cons_cols) {
 	if (dbg) {
 		if (dbg->maps) {
 			print_debug_map_ascii_art (dbg->maps, addr,
 				use_color, dbg->cb_printf,
-				dbg->bits);
+				dbg->bits, cons_cols);
 		}
 		if (dbg->maps_user) {
 			print_debug_map_ascii_art (dbg->maps_user,
 				addr, use_color,
-				dbg->cb_printf, dbg->bits);
+				dbg->cb_printf, dbg->bits, cons_cols);
 		}
 	}
 }
 
 R_API RDebugMap *r_debug_map_new(char *name, ut64 addr, ut64 addr_end, int perm, int user) {
 	RDebugMap *map;
-	if (name == NULL || addr >= addr_end) {
+	/* range could be 0k on OpenBSD, it's a honeypot */
+	if (!name || addr > addr_end) {
 		eprintf ("r_debug_map_new: error assert(\
-			%"PFMT64x">=%"PFMT64x")\n", addr, addr_end);
+			%"PFMT64x">%"PFMT64x")\n", addr, addr_end);
 		return NULL;
 	}
 	map = R_NEW0 (RDebugMap);

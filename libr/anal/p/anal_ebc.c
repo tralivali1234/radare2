@@ -1,5 +1,4 @@
-/* radare - LGPL - Copyright 2012-2013 - pancake
-	2013 - Fedor Sakharov <fedor.sakharov@gmail.com> */
+/* radare - LGPL - Copyright 2012-2013 - pancake, fedor.sakharov */
 
 #include <string.h>
 #include <r_types.h>
@@ -62,7 +61,7 @@ static int ebc_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) 
 	ebc_command_t cmd;
 	ut8 opcode = buf[0] & EBC_OPCODE_MASK;
 
-	if (op == NULL)
+	if (!op)
 		return 2;
 
 	memset(op, 0, sizeof (RAnalOp));

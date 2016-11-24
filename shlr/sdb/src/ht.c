@@ -44,8 +44,6 @@
  * free to avoid exponential performance degradation as the hash table fills
  */
 
-static ut32 deleted_data;
-
 static const struct {
 	ut32 max_entries, size, rehash;
 } hash_sizes[] = {
@@ -82,9 +80,10 @@ static const struct {
 	{ 2147483648ul,	2362232233ul,	2362232231ul}
 };
 
-#define entry_is_free(x) (!x || !x->data)
-#define entry_is_deleted(x) x->data==&deleted_data
-#define entry_is_present(x) (x->data && x->data != &deleted_data)
+#define DELETED_HASH ((ut32)~0)
+#define entry_is_free(x) (!x->hash && !x->data)
+#define entry_is_deleted(x) (x->hash == DELETED_HASH && !x->data)
+#define entry_is_present(x) (x->data || (x->hash && x->hash != DELETED_HASH))
 
 /**
  * Finds a hash table entry with the given key and hash of that key.
@@ -191,22 +190,23 @@ void ht_set(SdbHash *ht, ut32 hash, void *data) {
  */
 int ht_insert(SdbHash *ht, ut32 hash, void *data, SdbListIter *iter) {
 	ut32 hash_address;
-	if (!ht || !data)
+	if (!ht || !data) {
 		return 0;
-
-	if (ht->entries >= ht->max_entries)
+	}
+	if (ht->entries >= ht->max_entries) {
 		ht_rehash (ht, ht->size_index + 1);
-	else if (ht->deleted_entries + ht->entries >= ht->max_entries)
+	} else if (ht->deleted_entries + ht->entries >= ht->max_entries) {
 		ht_rehash (ht, ht->size_index);
+	}
 
 	hash_address = hash % ht->size;
 	do {
 		SdbHashEntry *entry = ht->table + hash_address;
 		ut32 double_hash;
-
 		if (!entry_is_present (entry)) {
-			if (entry_is_deleted (entry))
+			if (entry_is_deleted (entry)) {
 				ht->deleted_entries--;
+			}
 			entry->hash = hash;
 			entry->data = data;
 			entry->iter = rehash? iter: ls_append (ht->list, data);
@@ -215,8 +215,9 @@ int ht_insert(SdbHash *ht, ut32 hash, void *data, SdbListIter *iter) {
 		}
 
 		double_hash = hash % ht->rehash;
-		if (double_hash == 0)
+		if (!double_hash) {
 			double_hash = 1;
+		}
 		hash_address = (hash_address + double_hash) % ht->size;
 	} while (hash_address != hash % ht->size);
 
@@ -233,7 +234,8 @@ void ht_delete_entry(SdbHash *ht, SdbHashEntry *entry) {
 		ls_delete (ht->list, entry->iter);
 		entry->iter = NULL;
 	}
-	entry->data = (void *) &deleted_data;
+	entry->hash = DELETED_HASH;
+	entry->data = NULL;
 	ht->entries--;
 	ht->deleted_entries++;
 }

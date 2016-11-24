@@ -2,6 +2,7 @@
 #define TYPES_H
 
 #include <sys/types.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -9,7 +10,7 @@
 #define eprintf(x,y...) fprintf(stderr,x,##y)
 
 #ifndef SDB_API
-#if defined(__GNUC__)
+#if defined(__GNUC__) && __GNUC__ >= 4
 #define SDB_API __attribute__((visibility("default")))
 #else
 #define SDB_API
@@ -45,11 +46,13 @@
 #include <unistd.h>
 
 #ifndef UNUSED
-#ifdef __GNUC__
-#define UNUSED	__attribute__((__unused__))
-#else
-#define UNUSED
-#endif
+#  define UNUSED
+#  ifdef __GNUC__
+#    if __GNUC__ >= 4
+#      undef UNUSED
+#      define UNUSED __attribute__((__unused__))
+#    endif
+#  endif
 #endif
 
 #ifndef ut8

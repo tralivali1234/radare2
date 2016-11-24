@@ -20,9 +20,8 @@
 
 #include "tcc.h"
 
-/* callback pointers */
+/* callback pointer */
 ST_DATA char **tcc_cb_ptr;
-ST_DATA void (*tcc_cb)(const char *, char **);
 
 /********************************************************/
 /* global variables */
@@ -662,10 +661,14 @@ static void type_to_str(char *buf, int buf_size,
         goto no_var;
     case VT_PTR:
         s = type->ref;
-        pstrcpy(buf1, sizeof(buf1), "*");
-        if (varstr)
-            pstrcat(buf1, sizeof(buf1), varstr);
-        type_to_str(buf, buf_size, &s->type, buf1);
+        if (t & VT_ARRAY) {
+            type_to_str(buf, buf_size, &s->type, NULL);
+        } else {
+            pstrcpy(buf1, sizeof(buf1), "*");
+            if (varstr)
+                pstrcat(buf1, sizeof(buf1), varstr);
+            type_to_str(buf, buf_size, &s->type, buf1);
+        }
         goto no_var;
     }
     if (varstr) {
@@ -1005,12 +1008,15 @@ static void struct_decl(CType *type, int u)
 			char b[1024];
 			char *varstr = get_tok_str (v, NULL);
 			type_to_str (b, sizeof(b), &type1, NULL);
-			tcc_appendf ("%s=struct\n", name);
-			tcc_appendf ("[+]struct.%s=%s\n",
-				name, varstr);
-			/* compact form */
-			tcc_appendf ("struct.%s.%s=%s,%d,%d\n",
-				name,varstr,b,offset,arraysize);
+			{
+				const char *ctype = (a == TOK_UNION)? "union": "struct";
+				tcc_appendf ("%s=%s\n", name, ctype);
+				tcc_appendf ("[+]%s.%s=%s\n",
+						ctype, name, varstr);
+				/* compact form */
+				tcc_appendf ("%s.%s.%s=%s,%d,%d\n",
+						ctype, name,varstr,b,offset,arraysize);
+			}
 #if 0
 			printf ("struct.%s.%s.type=%s\n", name, varstr, b);
 			printf ("struct.%s.%s.offset=%d\n", name, varstr, offset);
@@ -1627,7 +1633,7 @@ ST_FUNC void unary(void)
         /* fall thru */
     case TOK___FUNC__:
         {
-            void *ptr = NULL;
+            // void *ptr = NULL;
             int len;
             /* special function name identifier */
             len = strlen(funcname) + 1;
@@ -1636,7 +1642,8 @@ ST_FUNC void unary(void)
             mk_pointer(&type);
             type.t |= VT_ARRAY;
             type.ref->c = len;
-            memcpy(ptr, funcname, len);
+            // XXX ptr is NULL HERE WTF
+            // memcpy(ptr, funcname, len);
             next();
         }
         break;

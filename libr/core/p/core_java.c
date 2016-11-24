@@ -1,4 +1,4 @@
-/* radare - Apache - Copyright 2014-2015 - dso, pancake */
+/* radare - Apache - Copyright 2014-2016 - dso, pancake */
 
 #include <r_types.h>
 #include <r_lib.h>
@@ -1185,7 +1185,7 @@ static int r_cmd_java_get_all_access_flags_value (const char *cmd) {
 	}
 
 	r_list_foreach (the_list, iter, str) {
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 	}
 	r_list_free (the_list);
 	return true;
@@ -1251,7 +1251,7 @@ static int r_cmd_java_handle_flags_str (RCore *core, const char *cmd) {
 			case 'f': r_cons_printf ("Field Access Flags String: "); break;
 			case 'c': r_cons_printf ("Class Access Flags String: "); break;
 		}
-		r_cons_printf ("%s\n", flags_str);
+		r_cons_println (flags_str);
 		free (flags_str);
 		res = true;
 	}
@@ -1298,7 +1298,7 @@ static int r_cmd_java_handle_flags_str_at (RCore *core, const char *cmd) {
 			case 'f': r_cons_printf ("Field Access Flags String: "); break;
 			case 'c': r_cons_printf ("Class Access Flags String: "); break;
 		}
-		r_cons_printf ("%s\n", flags_str);
+		r_cons_println (flags_str);
 		free (flags_str);
 		res = true;
 	}
@@ -1396,26 +1396,26 @@ static int r_cmd_java_call(void *user, const char *input) {
 	RCore *core = (RCore *) user;
 	int res = false;
 	ut32 i = 0;
-	IFDBG r_cons_printf ("Function call made: %s\n", input);
-	if (strncmp (input, "java",4)) return false;
-	else if (strncmp (input, "java ",5)) {
+	if (strncmp (input, "java", 4)) {
+		return false;
+	}
+	if (input[4] != ' ') {
 		return r_cmd_java_handle_help (core, input);
 	}
-
-	for (; i <END_CMDS; i++) {
+	for (; i < END_CMDS; i++) {
 		//IFDBG r_cons_printf ("Checking cmd: %s %d %s\n", JAVA_CMDS[i].name, JAVA_CMDS[i].name_len, p);
 		IFDBG r_cons_printf ("Checking cmd: %s %d\n", JAVA_CMDS[i].name, strncmp (input+5, JAVA_CMDS[i].name, JAVA_CMDS[i].name_len));
-		if (!strncmp (input+5, JAVA_CMDS[i].name, JAVA_CMDS[i].name_len)) {
-			const char *cmd = input+5+JAVA_CMDS[i].name_len;
+		if (!strncmp (input + 5, JAVA_CMDS[i].name, JAVA_CMDS[i].name_len)) {
+			const char *cmd = input + 5 + JAVA_CMDS[i].name_len;
 			if (*cmd && *cmd == ' ') cmd++;
 			//IFDBG r_cons_printf ("Executing cmd: %s (%s)\n", JAVA_CMDS[i].name, cmd+5+JAVA_CMDS[i].name_len );
-
 			res =  JAVA_CMDS[i].handler (core, cmd);
 			break;
 		}
 	}
-
-	if (res == false) res = r_cmd_java_handle_help (core, input);
+	if (!res) {
+		res = r_cmd_java_handle_help (core, input);
+	}
 	return true;
 }
 
@@ -1483,7 +1483,7 @@ static int r_cmd_java_print_json_definitions( RBinJavaObj *obj ) {
 	DsoJsonObj *json_obj = r_bin_java_get_bin_obj_json (obj);
 	char *str = dso_json_obj_to_str (json_obj);
 	dso_json_obj_del (json_obj); // XXX memleak
-	r_cons_printf ("%s\n", str);
+	r_cons_println (str);
 	return true;
 }
 
@@ -1563,7 +1563,7 @@ static RBinJavaObj * r_cmd_java_get_bin_obj(RAnal *anal) {
 static int r_cmd_java_resolve_cp_idx (RBinJavaObj *obj, ut16 idx) {
 	if (obj && idx){
 		char * str = r_bin_java_resolve_without_space (obj, idx);
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 		free (str);
 	}
 	return true;
@@ -1572,7 +1572,7 @@ static int r_cmd_java_resolve_cp_idx (RBinJavaObj *obj, ut16 idx) {
 static int r_cmd_java_resolve_cp_type (RBinJavaObj *obj, ut16 idx) {
 	if (obj && idx){
 		char * str = r_bin_java_resolve_cp_idx_type (obj, idx);
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 		free (str);
 	}
 	return true;
@@ -1581,7 +1581,7 @@ static int r_cmd_java_resolve_cp_type (RBinJavaObj *obj, ut16 idx) {
 static int r_cmd_java_resolve_cp_idx_b64 (RBinJavaObj *obj, ut16 idx) {
 	if (obj && idx){
 		char * str = r_bin_java_resolve_b64_encode (obj, idx) ;
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 		free (str);
 	}
 	return true;
@@ -1601,7 +1601,7 @@ static int r_cmd_java_resolve_cp_address (RBinJavaObj *obj, ut16 idx) {
 static int r_cmd_java_resolve_cp_to_key (RBinJavaObj *obj, ut16 idx) {
 	if (obj && idx){
 		char * str = r_bin_java_resolve_cp_idx_to_string (obj, idx) ;
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 		free (str);
 	}
 	return true;
@@ -1662,7 +1662,7 @@ static int r_cmd_java_print_field_num_name (RBinJavaObj *obj) {
 	char * str;
 	RListIter *iter = NULL;
 	r_list_foreach (the_list, iter, str) {
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 	}
 	r_list_free (the_list);
 	return true;
@@ -1673,7 +1673,7 @@ static int r_cmd_java_print_method_num_name (RBinJavaObj *obj) {
 	char * str;
 	RListIter *iter = NULL;
 	r_list_foreach (the_list, iter, str) {
-		r_cons_printf ("%s\n", str);
+		r_cons_println (str);
 	}
 	r_list_free (the_list);
 	return true;
@@ -1698,7 +1698,7 @@ static int UNUSED_FUNCTION(r_cmd_java_print_field_count) (RBinJavaObj *obj) {
 static int r_cmd_java_print_field_name (RBinJavaObj *obj, ut16 idx) {
 	char * res = r_bin_java_get_field_name (obj, idx);
 	if (res) {
-		r_cons_printf ("%s\n", res);
+		r_cons_println (res);
 	} else {
 		eprintf ("Error: Field or Method @ index (%d) not found in the RBinJavaObj.\n", idx);
 	}
@@ -1725,7 +1725,7 @@ static int _(r_cmd_java_print_method_count)(RBinJavaObj *obj) {
 static int r_cmd_java_print_method_name (RBinJavaObj *obj, ut16 idx) {
 	char * res = r_bin_java_get_method_name (obj, idx);
 	if (res) {
-		r_cons_printf ("%s\n", res);
+		r_cons_println (res);
 	} else {
 		eprintf ("Error: Field or Method @ index (%d) not found in the RBinJavaObj.\n", idx);
 	}
@@ -1789,7 +1789,7 @@ static int r_cmd_java_handle_list_code_references (RCore *core, const char *inpu
 	fmt = "addr:0x%"PFMT64x" method_name:\"%s\", op:\"%s\" type:\"%s\" info:\"%s\"\n";
 
 	r_list_foreach (anal->fcns, fcn_iter, fcn) {
-		ut8 do_this_one = func_addr == -1  || (fcn->addr <= func_addr && func_addr <= fcn->addr + fcn->size);
+		ut8 do_this_one = func_addr == -1 || r_anal_fcn_is_in_offset (fcn, func_addr);
 		if (!do_this_one) continue;
 		r_list_foreach (fcn->bbs, bb_iter, bb) {
 			char *operation = NULL, *type = NULL;
@@ -1895,7 +1895,7 @@ static int r_cmd_java_handle_yara_code_extraction_refs (RCore *core, const char 
 	if (!p) return res;
 
 	n = *p ? r_cmd_java_strtok (p, ' ', -1) : NULL;
-	name = n && p && p != n ? malloc (n-p+2) : NULL;
+	name = n && p && p != n ? malloc (n - p + 2) : NULL;
 
 	if (!name) return res;
 
@@ -1933,8 +1933,10 @@ static int r_cmd_java_handle_insert_method_ref (RCore *core, const char *input) 
 	ut32 cn_sz = 0, n_sz = 0, d_sz = 0;
 	int res = false;
 
-	if (!bin) return res;
-	else if (!anal || !anal->fcns || r_list_length (anal->fcns) == 0) {
+	if (!bin) {
+		return res;
+	}
+	if (!anal || !anal->fcns || r_list_length (anal->fcns) == 0) {
 		eprintf ("Unable to access the current analysis, perform 'af' for function analysis.\n");
 		return true;
 	}
@@ -1960,7 +1962,7 @@ static int r_cmd_java_handle_insert_method_ref (RCore *core, const char *input) 
 	//memset (name, 0, n_sz);
 	//memcpy (name, p, n-p);
 
-	p = n+1;
+	p = n + 1;
 	n =  p && *p ? r_cmd_java_strtok (p, ' ', -1) : NULL;
 	if (n) {
 		descriptor = n && p && p != n ? malloc (n-p+1) : NULL;
@@ -2028,7 +2030,6 @@ static int r_cmd_java_handle_print_exceptions (RCore *core, const char *input) {
 			free (class_info);
 		}
 	}
-
 	return true;
 }
 
@@ -2038,8 +2039,6 @@ RCorePlugin r_core_plugin_java = {
 	.desc = "Suite of java commands, java help for more info",
 	.license = "Apache",
 	.call = r_cmd_java_call,
-	.deinit = NULL,
-	.init = NULL,
 };
 
 #ifndef CORELIB

@@ -12,7 +12,7 @@ typedef struct {
 #define RIOW32_HANDLE(x) (((RIOW32*)x)->hnd)
 
 static int w32__write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	if (fd == NULL || fd->data == NULL)
+	if (!fd || !fd->data)
 		return -1;
 	return WriteFile (RIOW32_HANDLE (fd), buf, count, NULL, NULL);
 }
@@ -70,7 +70,7 @@ RIOPlugin r_io_plugin_w32 = {
         .open = w32__open,
         .close = w32__close,
 	.read = w32__read,
-        .plugin_open = w32__plugin_open,
+        .check = w32__plugin_open,
 	.lseek = w32__lseek,
 	.system = NULL, // w32__system,
 	.write = w32__write,

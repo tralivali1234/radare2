@@ -38,7 +38,7 @@ static const char * const *riscv_fpr_names = riscv_fpr_names_abi;
 static int init = 0;
 
 static void arg_p (char *buf, unsigned long val, const char* const* array, size_t size) {
-	const char *s = val >= size || array[val] == NULL ? "unknown" : array[val];
+	const char *s = val >= size || array[val] ? array[val] : "unknown";
 	sprintf (buf+strlen (buf), "%s", s);
 }
 
@@ -302,7 +302,7 @@ riscv_disassemble(RAsm *a, RAsmOp *rop, insn_t word, int xlen) {
 			continue;
 		}
 
-		if (isdigit (op->subset[0]) && atoi(op->subset) != xlen ) {
+		if (isdigit ((ut8)op->subset[0]) && atoi(op->subset) != xlen ) {
 			continue;
 		}
 
@@ -321,7 +321,9 @@ riscv_disassemble(RAsm *a, RAsmOp *rop, insn_t word, int xlen) {
 static int
 riscv_dis(RAsm *a, RAsmOp *rop, const ut8 *buf, ut64 len) {
 	insn_t insn;
-
+	if (len < 4) {
+		return -1;
+	}
 	memcpy (&insn, buf, 4);
 	riscv_disassemble (a, rop, insn, a->bits);
 

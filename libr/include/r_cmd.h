@@ -3,7 +3,6 @@
 
 #include <r_types.h>
 #include <r_util.h>
-#include "list.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -108,6 +107,7 @@ R_API void r_cmd_macro_init(RCmdMacro *mac);
 R_API int r_cmd_macro_add(RCmdMacro *mac, const char *name);
 R_API int r_cmd_macro_rm(RCmdMacro *mac, const char *_name);
 R_API void r_cmd_macro_list(RCmdMacro *mac);
+R_API void r_cmd_macro_meta(RCmdMacro *mac);
 R_API int r_cmd_macro_call(RCmdMacro *mac, const char *name);
 R_API int r_cmd_macro_break(RCmdMacro *mac, const char *value);
 

@@ -7,6 +7,7 @@
 static RFSFile* fs_posix_open(RFSRoot *root, const char *path) {
 	FILE *fd;
 	RFSFile *file = r_fs_file_new (root, path);
+	if (!file) return NULL;
 	file->ptr = NULL;
 	file->p = root->p;
 	fd = r_sandbox_fopen (path, "r");
@@ -21,7 +22,7 @@ static RFSFile* fs_posix_open(RFSRoot *root, const char *path) {
 	return file;
 }
 
-static boolt fs_posix_read(RFSFile *file, ut64 addr, int len) {
+static bool fs_posix_read(RFSFile *file, ut64 addr, int len) {
 	free (file->data);
 	file->data = (void*)r_file_slurp_range (file->name, 0, len, NULL);
 	return false;
@@ -37,10 +38,21 @@ static RList *fs_posix_dir(RFSRoot *root, const char *path, int view /*ignored*/
 	struct stat st;
 	struct dirent *de;
 	DIR *dir = opendir (path);
-	if (!dir) return NULL;
+	if (!dir) {
+		return NULL;
+	}
 	list = r_list_new ();
+	if (!list) {
+		closedir (dir);
+		return NULL;
+	}
 	while ((de = readdir (dir))) {
 		RFSFile *fsf = r_fs_file_new (NULL, de->d_name);
+		if (!fsf) {
+			r_list_free (list);
+			closedir (dir);
+			return NULL;
+		}
 		fsf->type = 'f';
 		snprintf (fullpath, sizeof (fullpath)-1, "%s/%s", path, de->d_name);
 		if (!stat (fullpath, &st)) {
@@ -75,3 +87,11 @@ struct r_fs_plugin_t r_fs_plugin_posix = {
 	.mount = fs_posix_mount,
 	.umount = fs_posix_umount,
 };
+
+#ifndef CORELIB
+struct r_lib_struct_t radare_plugin = {
+        .type = R_LIB_TYPE_FS,
+        .data = &r_asm_plugin_posix,
+        .version = R2_VERSION
+};
+#endif

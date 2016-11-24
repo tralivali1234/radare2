@@ -29,7 +29,7 @@ static void memory_error_func(int status, bfd_vma memaddr, struct disassemble_in
 
 static void print_address(bfd_vma address, struct disassemble_info *info) {
 	char tmp[32];
-	if (buf_global == NULL)
+	if (!buf_global)
 		return;
 	sprintf (tmp, "0x%08"PFMT64x"", (ut64)address);
 	strcat (buf_global, tmp);
@@ -38,7 +38,7 @@ static void print_address(bfd_vma address, struct disassemble_info *info) {
 static int buf_fprintf(void *stream, const char *format, ...) {
 	va_list ap;
 	char tmp[1024];
-	if (buf_global == NULL)
+	if (!buf_global)
 		return 0;
 	va_start (ap, format);
 	vsnprintf (tmp, sizeof (tmp), format, ap);
@@ -52,7 +52,8 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	if (len<4) return -1;
 	buf_global = op->buf_asm;
 	Offset = a->pc;
-	memcpy (bytes, buf, 4); // TODO handle thumb
+	// disasm inverted
+	r_mem_swapendian (bytes, buf, 4); // TODO handle thumb
 
 	/* prepare disassembler */
 	memset (&disasm_obj,'\0', sizeof (struct disassemble_info));
@@ -80,12 +81,10 @@ RAsmPlugin r_asm_plugin_sparc_gnu = {
 	.name = "sparc.gnu",
 	.arch = "sparc",
 	.bits = 32|64,
+	.endian = R_SYS_ENDIAN_BIG | R_SYS_ENDIAN_LITTLE,
 	.license = "GPL3",
 	.desc = "Scalable Processor Architecture",
-	.init = NULL,
-	.fini = NULL,
 	.disassemble = &disassemble,
-	.assemble = NULL
 };
 
 #ifndef CORELIB

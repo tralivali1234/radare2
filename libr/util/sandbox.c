@@ -1,16 +1,10 @@
-/* radare - LGPL - Copyright 2012-2015 - pancake */
+/* radare - LGPL - Copyright 2012-2016 - pancake */
 
 #include <r_util.h>
 #include <signal.h>
 
-#if __IPHONE_8_0 && TARGET_OS_IPHONE
-#define LIBC_HAVE_SYSTEM 0
-#else
-#define LIBC_HAVE_SYSTEM 1
-#endif
-
-static int enabled = 0;
-static int disabled = 0;
+static bool enabled = false;
+static bool disabled = false;
 
 /**
  * This function verifies that the given path is allowed. Paths are allowed only if they don't
@@ -54,11 +48,17 @@ R_API int r_sandbox_check_path (const char *path) {
 #if __UNIX__
 	if (readlink (path, &ch, 1) != -1) return 0;
 #endif
-	return R_TRUE;
+	return true;
 }
 
-R_API int r_sandbox_disable (int e) {
+R_API bool r_sandbox_disable (bool e) {
 	if (e) {
+#if LIBC_HAVE_PLEDGE
+		if (enabled) {
+			eprintf ("sandbox mode couldn't be disabled when pledged\n");
+			return enabled;
+		}
+#endif
 		disabled = enabled;
 		enabled = 0;
 	} else {
@@ -67,9 +67,18 @@ R_API int r_sandbox_disable (int e) {
 	return enabled;
 }
 
-R_API int r_sandbox_enable (int e) {
-	if (enabled) return R_TRUE;
-	return (enabled = !!e);
+R_API bool r_sandbox_enable (bool e) {
+	if (enabled) {
+		return true;
+	}
+	enabled = !!e;
+#if LIBC_HAVE_PLEDGE
+	if (enabled && pledge ("stdio rpath tty prot_exec", NULL) == -1) {
+		eprintf ("sandbox: pledge call failed\n");
+		exit (1);
+	}
+#endif
+	return enabled;
 }
 
 R_API int r_sandbox_system (const char *x, int n) {
@@ -77,6 +86,7 @@ R_API int r_sandbox_system (const char *x, int n) {
 		eprintf ("sandbox: system call disabled\n");
 		return -1;
 	}
+#if LIBC_HAVE_FORK
 #if LIBC_HAVE_SYSTEM
 	if (n) return system (x);
 	return execl ("/bin/sh", "sh", "-c", x, (const char*)NULL);
@@ -120,12 +130,13 @@ R_API int r_sandbox_system (const char *x, int n) {
 	execl ("/bin/sh", "sh", "-c", x, (const char*)NULL);
 	exit (1);
 #endif
+#endif
 	return -1;
 }
 
-R_API int r_sandbox_creat (const char *path, int mode) {
+R_API bool r_sandbox_creat (const char *path, int mode) {
 	if (enabled) {
-		return -1;
+		return false;
 #if 0
 		if (mode & O_CREAT) return -1;
 		if (mode & O_RDWR) return -1;
@@ -133,20 +144,46 @@ R_API int r_sandbox_creat (const char *path, int mode) {
 			return -1;
 #endif
 	}
-	return creat (path, mode);
+	int fd = open (path, O_CREAT | O_TRUNC | O_WRONLY, mode);
+	if (fd != -1) {
+		close (fd);
+		return true;
+	}
+	return false;
 }
 
 static char *expand_home(const char *p) {
-	if (*p=='~')
+	if (*p == '~') {
 		return r_str_home (p);
+	}
 	return strdup (p);
 }
 
+R_API int r_sandbox_lseek (int fd, ut64 addr, int whence) {
+	if (enabled) {
+		return -1;
+	}
+	return lseek (fd, (off_t)addr, whence);
+}
+
+R_API int r_sandbox_read (int fd, ut8* buf, int len) {
+	return enabled? -1 : read (fd, buf, len);
+}
+
+R_API int r_sandbox_write (int fd, const ut8* buf, int len) {
+	return enabled? -1 : write (fd, buf, len);
+}
+
+R_API int r_sandbox_close (int fd) {
+	return enabled? -1 : close (fd);
+}
+
+/* perm <-> mode */
 R_API int r_sandbox_open (const char *path, int mode, int perm) {
-	int ret;
-	char *epath;
-	if (!path) return -1;
-	epath = expand_home (path);
+	if (!path) {
+		return -1;
+	}
+	char *epath = expand_home (path);
 #if __WINDOWS__
 	mode |= O_BINARY;
 #endif
@@ -158,7 +195,7 @@ R_API int r_sandbox_open (const char *path, int mode, int perm) {
 			return -1;
 		}
 	}
-	ret = open (epath, mode, perm);
+	int ret = open (epath, mode, perm);
 	free (epath);
 	return ret;
 }
@@ -199,8 +236,10 @@ R_API int r_sandbox_kill(int pid, int sig) {
 	// XXX: fine-tune. maybe we want to enable kill for child?
 	if (enabled) return -1;
 #if __UNIX__
-	if (pid>0) return kill (pid, sig);
-	eprintf ("r_sandbox_kill: Better not to kill pids <= 0.\n");
+	if (pid > 0) {
+		return kill (pid, sig);
+	}
+	// eprintf ("r_sandbox_kill: Better not to kill pids <= 0.\n");
 #endif
 	return -1;
 }
@@ -209,19 +248,21 @@ R_API DIR* r_sandbox_opendir (const char *path) {
 	if (!path)
 		return NULL;
 	if (r_sandbox_enable (0)) {
-		if (path && !r_sandbox_check_path (path))
+		if (path && !r_sandbox_check_path (path)) {
 			return NULL;
+		}
 	}
 	return opendir (path);
 }
 
 R_API int r_sys_stop () {
-	if (enabled) return R_FALSE;
-	int pid = r_sys_getpid ();
+	int pid;
+	if (enabled) {
+		return false;
+	}
+	pid = r_sys_getpid ();
 #ifndef SIGSTOP
 #define SIGSTOP 19
 #endif
-	if (!r_sandbox_kill (pid, SIGSTOP))
-		return R_TRUE;
-	return R_FALSE;
+	return (!r_sandbox_kill (pid, SIGSTOP));
 }

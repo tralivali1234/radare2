@@ -107,6 +107,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->paddr = 0;
 	ptr->vaddr = ptr->paddr;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+	ptr->add = true;
 	r_list_append (ret, ptr);
 
 	/* rarvm code */
@@ -116,6 +117,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->vsize = ptr->size = sz - 0x9a;
 	ptr->vaddr = ptr->paddr = 0x9a;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	ptr->add = true;
 	r_list_append (ret, ptr);
 	return ret;
 }
@@ -167,7 +169,7 @@ static RBinInfo* info(RBinFile *arch) {
 	return ret;
 }
 
-static int size(RBinFile *arch) {
+static ut64 size(RBinFile *arch) {
 	// TODO: walk rar structures and guess size here...
 	return 0x9a+128; // XXX
 }

@@ -32,6 +32,11 @@ R_LIB_VERSION_HEADER(r_socket);
 #ifndef MSG_DONTWAIT
 #define MSG_DONTWAIT 0
 #endif
+#ifndef SD_BOTH
+#define SD_RECEIVE  0
+#define SD_SEND 1
+#define SD_BOTH 2
+#endif
 
 typedef struct {
 	int magic;
@@ -65,7 +70,7 @@ typedef struct r_socket_t {
 #ifdef R_API
 R_API RSocket *r_socket_new_from_fd (int fd);
 R_API RSocket *r_socket_new (int is_ssl);
-R_API int r_socket_connect (RSocket *s, const char *host, const char *port, int proto, unsigned int timeout);
+R_API bool r_socket_connect (RSocket *s, const char *host, const char *port, int proto, unsigned int timeout);
 #define r_socket_connect_tcp(a,b,c,d) r_socket_connect(a,b,c,R_SOCKET_PROTO_TCP,d)
 #define r_socket_connect_udp(a,b,c,d) r_socket_connect(a,b,c,R_SOCKET_PROTO_UDP,d)
 #if __UNIX__
@@ -76,7 +81,7 @@ R_API int r_socket_port_by_name(const char *name);
 R_API int r_socket_close_fd (RSocket *s);
 R_API int r_socket_close (RSocket *s);
 R_API int r_socket_free (RSocket *s);
-R_API int r_socket_listen (RSocket *s, const char *port, const char *certfile);
+R_API bool r_socket_listen (RSocket *s, const char *port, const char *certfile);
 R_API RSocket *r_socket_accept (RSocket *s);
 R_API int r_socket_block_time (RSocket *s, int block, int sec);
 R_API int r_socket_flush (RSocket *s);
@@ -88,7 +93,8 @@ R_API void r_socket_printf (RSocket *s, const char *fmt, ...);
 R_API int r_socket_read (RSocket *s, ut8 *read, int len);
 R_API int r_socket_read_block (RSocket *s, unsigned char *buf, int len);
 R_API int r_socket_gets (RSocket *s, char *buf, int size);
-R_API int r_socket_is_connected (RSocket *);
+R_API ut8* r_socket_slurp(RSocket *s, int *len);
+R_API bool r_socket_is_connected (RSocket *);
 
 /* process */
 typedef struct r_socket_proc_t {
@@ -116,6 +122,7 @@ typedef struct r_socket_http_request {
 	char *host;
 	char *agent;
 	char *method;
+	char *referer;
 	ut8 *data;
 	int data_length;
 } RSocketHTTPRequest;
@@ -138,7 +145,6 @@ enum {
 	RAP_RMT_WRITE,
 	RAP_RMT_SEEK,
 	RAP_RMT_CLOSE,
-	RAP_RMT_SYSTEM,
 	RAP_RMT_CMD,
 	RAP_RMT_REPLY = 0x80,
 	RAP_RMT_MAX = 4096
@@ -147,7 +153,7 @@ enum {
 typedef struct r_socket_rap_server_t {
 	RSocket *fd;
 	char port[5];
-	ut8 buf[4101];					//This should be used as a static buffer for everything done by the server
+	ut8 buf[RAP_RMT_MAX + 32]; //This should be used as a static buffer for everything done by the server
 	rap_server_open open;
 	rap_server_seek seek;
 	rap_server_read read;
@@ -155,7 +161,7 @@ typedef struct r_socket_rap_server_t {
 	rap_server_cmd system;
 	rap_server_cmd cmd;
 	rap_server_close close;
-	void *user;					//Always first arg for callbacks
+	void *user; //Always first arg for callbacks
 } RSocketRapServer;
 
 R_API RSocketRapServer *r_socket_rap_server_new (int is_ssl, const char *port);
@@ -163,7 +169,7 @@ R_API RSocketRapServer *r_socket_rap_server_create (const char *pathname);
 R_API void r_socket_rap_server_free (RSocketRapServer *rap_s);
 R_API int r_socket_rap_server_listen (RSocketRapServer *rap_s, const char *certfile);
 R_API RSocket* r_socket_rap_server_accept (RSocketRapServer *rap_s);
-R_API int r_socket_rap_server_continue (RSocketRapServer *rap_s);
+R_API bool r_socket_rap_server_continue (RSocketRapServer *rap_s);
 
 /* run.c */
 #define R_RUN_PROFILE_NARGS 512
@@ -191,6 +197,7 @@ typedef struct r_run_profile_t {
 	int _maxproc;
 	int _maxfd;
 	int _r2sleep;
+	int _execve;
 	char *_setuid;
 	char *_seteuid;
 	char *_setgid;
@@ -199,6 +206,7 @@ typedef struct r_run_profile_t {
 	char *_connect;
 	char *_listen;
 	int _timeout;
+	int _timeout_sig;
 	int _nice;
 } RRunProfile;
 

@@ -1,10 +1,26 @@
 include ../../../global.mk
 F=
-F+= linux-x86-32
-F+= linux-x86-64
-F+= darwin-x86-64
-F+= windows-x86-32
-F+= windows-x86-64
+F+= types
+F+= types-16
+F+= types-32
+F+= types-64
+F+= types-windows
+F+= types-x86-windows-32
+F+= types-x86-windows-64
+F+= types-linux
+F+= types-x86-osx-64
+F+= cc-x86-64
+F+= cc-x86-32
+F+= cc-mips-32
+F+= cc-m68k-32
+F+= cc-sparc-32
+F+= cc-arm-64
+F+= cc-arm-32
+F+= cc-avr-8
+F+= cc-powerpc-32
+F+= cc-powerpc-64
+F+= cc-xtensa-32
+F+= cc-riscv-64
 
 include $(TOP)/config-user.mk
 HOST_CC?=gcc
@@ -18,6 +34,8 @@ else
 BUILD_EXT_EXE=
 endif
 SDB=$(SDBPATH)/sdb${BUILD_EXT_EXE}
+
+FCNSIGNPATH=${DESTDIR}${DATADIR}/radare2/${VERSION}/fcnsign
 
 all: ${SDB}
 	@$(MAKE) compile
@@ -48,14 +66,14 @@ ${SDB}:
 .PHONY: all clean install install-symlink symstall
 
 install: ${F_SDB}
-	-rm -rf "${DESTDIR}${LIBDIR}/radare2/${VERSION}/fcnsign"
-	mkdir -p "${DESTDIR}${LIBDIR}/radare2/${VERSION}/fcnsign"
-	cp -f *.sdb "${DESTDIR}${LIBDIR}/radare2/${VERSION}/fcnsign"
+	-rm -rf "${FCNSIGNPATH}"
+	mkdir -p "${FCNSIGNPATH}"
+	cp -f *.sdb "${FCNSIGNPATH}"
 
 CWD=$(shell pwd)
 symstall install-symlink: ${F_SDB}
-	mkdir -p "${DESTDIR}${LIBDIR}/radare2/${VERSION}/fcnsign"
-	for FILE in *.sdb ; do ln -fs "${CWD}/$$FILE" "${DESTDIR}${LIBDIR}/radare2/${VERSION}/fcnsign/$$FILE" ; done
+	mkdir -p "${FCNSIGNPATH}"
+	for FILE in *.sdb ; do ln -fs "${CWD}/$$FILE" "${FCNSIGNPATH}/$$FILE" ; done
 
 uninstall:
-	rm -rf "${DESTDIR}${LIBDIR}/radare2/fcnsign"
+	rm -rf "${FCNSIGNPATH}"

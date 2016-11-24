@@ -1,15 +1,17 @@
 BIN=radare2
 BINDEPS=r_core r_parse r_search r_cons r_config
 BINDEPS+=r_bin r_debug r_anal r_reg r_bp r_io r_fs
-BINDEPS+=r_lang r_asm r_syscall r_db r_hash
-BINDEPS+=r_magic r_socket r_flags r_util r_egg r_crypto
+BINDEPS+=r_lang r_asm r_syscall r_hash
+BINDEPS+=r_magic r_socket r_flag r_egg r_crypto r_util
 
 # Apple Sign #
-CERTID=org.radare.radare2
+CERTID?=org.radare.radare2
 BUNDLE=org.radare.radare2
 MACSDK=macosx10.10
 ENTITL=radare2.xcent
 #ENTITL=radare2.xml
+#CFLAGS+=-flto
+#LDFLAGS+=-flto
 
 FOOD_LIBS=$(addprefix ../../libr/,$(subst r_,,$(BINDEPS)))
 SIGN_LIBS=$(addsuffix /libr_*.dylib,$(FOOD_LIBS))
@@ -64,3 +66,5 @@ include ../../libr/socket/deps.mk
 include ../../shlr/zip/deps.mk
 include ../../shlr/gdb/deps.mk
 include ../../shlr/java/deps.mk
+include ../../shlr/bochs/deps.mk
+include ../../shlr/qnx/deps.mk

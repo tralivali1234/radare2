@@ -6,7 +6,7 @@
 
 #include <r_lib.h>
 #include <r_util.h>
-#include <r_flags.h>
+#include <r_flag.h>
 #include <r_anal.h>
 #include <r_parse.h>
 
@@ -175,7 +175,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 				}
 				newstr[k]='\0';
 			}
-			return R_TRUE;
+			return true;
 		}
 	}
 
@@ -188,7 +188,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		}
 	}
 
-	return R_FALSE;
+	return false;
 }
 
 static int parse(RParse *p, const char *data, char *str) {
@@ -204,12 +204,12 @@ static int parse(RParse *p, const char *data, char *str) {
 	||  !strcmp (data, "nop")
 	||  !strcmp (data, "DEPRECATED")) {
 		str[0] = 0;
-		return R_TRUE;
+		return true;
 	}
 	
 	// malloc can be slow here :?
-	if ((buf = malloc (len+1)) == NULL)
-		return R_FALSE;
+	if (!(buf = malloc (len+1)))
+		return false;
 	memcpy (buf, data, len+1);
 
 	r_str_chop (buf);
@@ -221,7 +221,7 @@ static int parse(RParse *p, const char *data, char *str) {
 		w3[0]='\0';
 		w4[0]='\0';
 		ptr = strchr (buf, ' ');
-		if (ptr == NULL)
+		if (!ptr)
 			ptr = strchr (buf, '\t');
 		if (ptr) {
 			*ptr = '\0';
@@ -302,7 +302,7 @@ static int parse(RParse *p, const char *data, char *str) {
 		}
 	}
 	free (buf);
-	return R_TRUE;
+	return true;
 }
 
 struct r_parse_plugin_t r_parse_plugin_dalvik_pseudo = {

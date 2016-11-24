@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2015 - pancake */
+/* radare2 - LGPL - Copyright 2013-2016 - pancake */
 
 #include <r_asm.h>
 #include <r_lib.h>
@@ -26,23 +26,29 @@ static bool the_end(void *p) {
 
 static int check_features(RAsm *a, cs_insn *insn);
 
+#include "cs_mnemonics.c"
+
 static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	static int omode = 0;
 	int mode, ret;
 	ut64 off = a->pc;
 
-	mode = (a->bits==64)? CS_MODE_64: 
-		(a->bits==32)? CS_MODE_32:
-		(a->bits==16)? CS_MODE_16: 0;
+	mode =  (a->bits == 64)? CS_MODE_64: 
+		(a->bits == 32)? CS_MODE_32:
+		(a->bits == 16)? CS_MODE_16: 0;
 	if (cd && mode != omode) {
 		cs_close (&cd);
 		cd = 0;
 	}
-	op->size = 0;
+	if (op) {
+		op->size = 0;
+	}
 	omode = mode;
 	if (cd == 0) {
 		ret = cs_open (CS_ARCH_X86, mode, &cd);
-		if (ret) return 0;
+		if (ret) {
+			return 0;
+		}
 	}
 	if (a->features && *a->features) {
 		cs_option (cd, CS_OPT_DETAIL, CS_OPT_ON);
@@ -58,12 +64,17 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	} else {
 		cs_option (cd, CS_OPT_SYNTAX, CS_OPT_SYNTAX_INTEL);
 	}
-	op->size = 1;
+	if (op) {
+		op->size = 1;
+	} else {
+		return true;
+	}
 #if USE_ITER_API
 	{
 		size_t size = len;
-		if (insn == NULL)
+		if (!insn) {
 			insn = cs_malloc (cd);
+		}
 		insn->size = 1;
 		memset (insn, 0, insn->size);
 		n = cs_disasm_iter (cd, (const uint8_t**)&buf, &size, (uint64_t*)&off, insn);
@@ -71,7 +82,9 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 #else
 	n = cs_disasm (cd, (const ut8*)buf, len, off, 1, &insn);
 #endif
-	op->size = 0;
+	if (op) {
+		op->size = 0;
+	}
 	if (a->features && *a->features) {
 		if (!check_features (a, insn)) {
 			op->size = insn->size;
@@ -111,10 +124,10 @@ RAsmPlugin r_asm_plugin_x86_cs = {
 	.license = "BSD",
 	.arch = "x86",
 	.bits = 16|32|64,
-	.init = NULL,
+	.endian = R_SYS_ENDIAN_LITTLE,
 	.fini = the_end,
+	.mnemonics = mnemonics,
 	.disassemble = &disassemble,
-	.assemble = NULL,
 	.features = "vm,3dnow,aes,adx,avx,avx2,avx512,bmi,bmi2,cmov,"
 		"f16c,fma,fma4,fsgsbase,hle,mmx,rtm,sha,sse1,sse2,"
 		"sse3,sse41,sse42,sse4a,ssse3,pclmul,xop"
@@ -123,17 +136,24 @@ RAsmPlugin r_asm_plugin_x86_cs = {
 static int check_features(RAsm *a, cs_insn *insn) {
 	const char *name;
 	int i;
-	if (!insn || !insn->detail)
+	if (!insn || !insn->detail) {
 		return 1;
-	for (i=0; i< insn->detail->groups_count; i++) {
+	}
+	for (i = 0; i < insn->detail->groups_count; i++) {
 		int id = insn->detail->groups[i];
-		if (id<128) continue;
-		if (id == X86_GRP_MODE32)
+		if (id < 128) {
 			continue;
-		if (id == X86_GRP_MODE64)
+		}
+		if (id == X86_GRP_MODE32) {
 			continue;
+		}
+		if (id == X86_GRP_MODE64) {
+			continue;
+		}
 		name = cs_group_name (cd, id);
-		if (!name) return 1;
+		if (!name) {
+			return 1;
+		}
 		if (!strstr (a->features, name)) {
 			return 0;
 		}
@@ -142,7 +162,7 @@ static int check_features(RAsm *a, cs_insn *insn) {
 }
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ASM,
 	.data = &r_asm_plugin_x86_cs,
 	.version = R2_VERSION

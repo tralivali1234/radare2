@@ -238,7 +238,7 @@ static void rcc_element(REgg *egg, char *str) {
 		else
 		if (mode == NORMAL) {
 			if (!atoi (str)) {
-				if (dstvar == NULL) /* return string */
+				if (!dstvar) /* return string */
 					dstvar = strdup (".fix0");
 				rcc_pushstr (egg, str, 1);
 			}
@@ -316,7 +316,7 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 	char *oldstr = NULL, *str = NULL, foo[32], *q, *ret = NULL;
 
 	delta += stackfixed; // XXX can be problematic
-	if (_str == NULL)
+	if (!_str)
 		return NULL; /* fix segfault, but not badparsing */
 	/* XXX memory leak */
 	ret = str = oldstr = strdup (skipspaces (_str));
@@ -604,7 +604,7 @@ emit->while_end (egg, get_frame_label (context-1));
 				emit->branch (egg, b, g, e, n, varsize, str);
 				if (CTX>0) {
 					/* XXX .. */
-				} else eprintf ("FUCKING CASE\n");
+				}
 				rcc_reset_callname ();
 			} //else eprintf ("Unknown statement (%s)(%s)\n", cn, elem);
 		} // handle '{ ..'
@@ -616,6 +616,9 @@ static int parsedatachar(REgg *egg, char c) {
 	char *str;
 	int i, j;
 
+	if (!dstval) {
+		return 0;
+	}
 	/* skip until '{' */
 	if (c == '{') { /* XXX: repeated code!! */
 		rcc_context (egg, 1);
@@ -625,9 +628,10 @@ static int parsedatachar(REgg *egg, char c) {
 		/* capture value between parenthesis foo@data(NNN) { ... } */
 		if (c==')') {
 			stackframe = atoi (dstval);
-eprintf ("STACKTRAF %d\n", stackframe);
 			ndstval = 0;
-		} else dstval[ndstval++] = c;
+		} else {
+			dstval[ndstval++] = c;
+		}
 		return 0;
 	}
 	/* capture body */
@@ -658,7 +662,7 @@ eprintf ("STACKTRAF %d\n", stackframe);
 				ndstval = 0;
 				CTX = 0;
 				return 1;
-			} else eprintf ("FUCK FUCK\n");
+			}
 		}
 	}
 	dstval[ndstval++] = c;
@@ -685,7 +689,7 @@ static int parseinlinechar(REgg *egg, char c) {
 			slurp = 0;
 			mode = NORMAL;
 			inlinectr = 0;
-			if (dstvar == NULL && dstval == syscallbody) {
+			if (!dstvar && dstval == syscallbody) {
 				dstval = NULL;
 				return 1;
 			} else
@@ -699,7 +703,8 @@ static int parseinlinechar(REgg *egg, char c) {
 				R_FREE (dstvar);
 				R_FREE (dstval);
 				return 1;
-			} else eprintf ("FUCK FUCK\n");
+			}
+			eprintf ("Parse error\n");
 		}
 	}
 	dstval[ndstval++] = c;
@@ -819,7 +824,7 @@ static void rcc_next(REgg *egg) {
 							for (q=s; *q; q++)
 								r_egg_lang_parsechar (egg, *q);
 							free (s);
-						} else eprintf ("Cant get @syscall payload\n");
+						} else eprintf ("Cannot get @syscall payload\n");
 					}
 					docall = 0;
 					break;

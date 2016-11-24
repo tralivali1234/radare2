@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2015 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2016 - nibble, pancake */
 
 #include <r_lib.h>
 #include <r_types.h>
@@ -188,6 +188,7 @@ int x86_udis86_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len)
 	ud_set_input_buffer (&u, data, len);
 	ud_disassemble (&u);
 
+	op->id = u.mnemonic;
 	oplen = op->size = ud_insn_len (&u);
 	r_strbuf_init (&op->esil);
 	if (anal->decode && (handler = udis86_esil_get_handler (u.mnemonic))) {
@@ -473,22 +474,6 @@ int x86_udis86_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len)
 			break;
 		default:
 			op->type = R_ANAL_OP_TYPE_JMP;
-#if 0
-{
-ut16 a = (op->lval.ptr.seg & 0xFFFF);
-ut16 b = (op->lval.ptr.off);
-switch (op->size) {
-case 32:
-	sprintf (src, "%04x:%04x", a, b & 0xFFFF);
-	break;
-case 48:
-	sprintf (src, "%04x:%04x", a, b);
-	break;
-default:
-	eprintf ("FUCK YOU\n");
-}
-}
-#endif
 			if (u.operand[0].type==UD_OP_PTR) {
 				op->jump = getval (&u.operand[0]);
 			} else {
@@ -690,30 +675,65 @@ static int set_reg_profile(RAnal *anal) {
 		 "=A3	rdx\n"
 		 "# no profile defined for x86-64\n"
 		 "gpr	r15	.64	0	0\n"
+		 "gpr	r15d	.32	0	0\n"
+		 "gpr	r15w	.16	0	0\n"
+		 "gpr	r15b	.8	0	0\n"
 		 "gpr	r14	.64	8	0\n"
+		 "gpr	r14d	.32	8	0\n"
+		 "gpr	r14w	.16	8	0\n"
+		 "gpr	r14b	.8	8	0\n"
 		 "gpr	r13	.64	16	0\n"
+		 "gpr	r13d	.32	16	0\n"
+		 "gpr	r13w	.16	16	0\n"
+		 "gpr	r13b	.8	16	0\n"
 		 "gpr	r12	.64	24	0\n"
+		 "gpr	r12d	.32	24	0\n"
+		 "gpr	r12w	.16	24	0\n"
+		 "gpr	r12b	.8	24	0\n"
 		 "gpr	rbp	.64	32	0\n"
 		 "gpr	ebp	.32	32	0\n"
+		 "gpr	bp	.16	32	0\n"
+		 "gpr	bpl	.8	32	0\n"
 		 "gpr	rbx	.64	40	0\n"
 		 "gpr	ebx	.32	40	0\n"
 		 "gpr	bx	.16	40	0\n"
-		 "gpr	bh	.8	41	0\n"
 		 "gpr	bl	.8	40	0\n"
 		 "gpr	r11	.64	48	0\n"
+		 "gpr	r11d	.32	48	0\n"
+		 "gpr	r11w	.16	48	0\n"
+		 "gpr	r11b	.8	48	0\n"
 		 "gpr	r10	.64	56	0\n"
+		 "gpr	r10d	.32	56	0\n"
+		 "gpr	r10w	.16	56	0\n"
+		 "gpr	r10b	.8	56	0\n"
 		 "gpr	r9	.64	64	0\n"
+		 "gpr	r9d	.32	64	0\n"
+		 "gpr	r9w	.16	64	0\n"
+		 "gpr	r9b	.8	64	0\n"
 		 "gpr	r8	.64	72	0\n"
+		 "gpr	r8d	.32	72	0\n"
+		 "gpr	r8w	.16	72	0\n"
+		 "gpr	r8b	.8	72	0\n"
 		 "gpr	rax	.64	80	0\n"
 		 "gpr	eax	.32	80	0\n"
+		 "gpr	ax	.16	80	0\n"
+		 "gpr	al	.8	80	0\n"
 		 "gpr	rcx	.64	88	0\n"
 		 "gpr	ecx	.32	88	0\n"
+		 "gpr	cx	.16	88	0\n"
+		 "gpr	cl	.8	88	0\n"
 		 "gpr	rdx	.64	96	0\n"
 		 "gpr	edx	.32	96	0\n"
+		 "gpr	dx	.16	96	0\n"
+		 "gpr	dl	.8	96	0\n"
 		 "gpr	rsi	.64	104	0\n"
 		 "gpr	esi	.32	104	0\n"
+		 "gpr	si	.16	104	0\n"
+		 "gpr	sil	.8	104	0\n"
 		 "gpr	rdi	.64	112	0\n"
 		 "gpr	edi	.32	112	0\n"
+		 "gpr	di	.16	112	0\n"
+		 "gpr	dil	.8	112	0\n"
 		 "gpr	oeax	.64	120	0\n"
 		 "gpr	rip	.64	128	0\n"
 		 "seg	cs	.64	136	0\n"
@@ -748,7 +768,7 @@ static int set_reg_profile(RAnal *anal) {
 	return r_reg_set_profile_string (anal->reg, p);
 }
 
-struct r_anal_plugin_t r_anal_plugin_x86_udis = {
+RAnalPlugin r_anal_plugin_x86_udis = {
 	.name = "x86.udis",
 	.desc = "X86 analysis plugin (udis86 backend)",
 	.license = "LGPL3",
@@ -760,7 +780,7 @@ struct r_anal_plugin_t r_anal_plugin_x86_udis = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ANAL,
 	.data = &r_anal_plugin_x86_udis,
 	.version = R2_VERSION

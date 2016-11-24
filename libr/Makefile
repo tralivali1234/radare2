@@ -12,8 +12,8 @@ PREFIX?=${PWD}/../prefix
 PWD=$(shell pwd)
 
 LIBS0=util hash
-LIBS1=reg cons db magic bp search config socket
-LIBS2=syscall lang io crypto flags
+LIBS1=socket reg cons magic bp search config
+LIBS2=syscall lang io crypto flag
 LIBS3=fs anal bin
 LIBS4=parse
 LIBS5=asm debug
@@ -39,15 +39,34 @@ endif
 
 # looks hacky :D
 #AR=arm-linux-androideabi-ar
+
 libr.a:
+	rm -rf .libr
+	mkdir .libr
+	for FILE in */libr_*.a ../shlr/*/*.a ; do \
+		mkdir -p .libr/$$FILE ; \
+		cp -f $$FILE .libr/$$FILE ; \
+		(cd .libr/$$FILE ; ${AR} x *.a ; rm -f *.a ) ; \
+		done
+	cd .libr ; ${AR} qv libr.a `find * -iname *.o`
+	mv .libr/libr.a libr.a
+	${RANLIB} libr.a
+	rm -rf .libr
+
+__AR=xcrun --sdk iphoneos ar
+__RANLIB=xcrun --sdk iphoneos ranlib
+a:
 	rm -rf .libr
 	mkdir .libr
 	for FILE in */libr_*.a ; do \
 		mkdir -p .libr/$$FILE ; \
 		cp -f $$FILE .libr/$$FILE ; \
-		(cd .libr/$$FILE ; ${AR} x *.a ; rm -f *.a ) ; \
+		(cd .libr/$$FILE ; ${__AR} x *.a ; rm -f *.a ) ; \
 		done
-	${AR} qv libr.a `find .libr/ | grep '\\.o$$'`
+	cd .libr ; ${__AR} qv libr.a `find * -iname *.o`
+	mv .libr/libr.a libr.a
+	${__RANLIB} libr.a
+	lipo -info libr.a
 	rm -rf .libr
 
 gnu_libr.a: $(shell ls */libr_*.a 2>/dev/null)
@@ -89,6 +108,10 @@ install-includes:
 	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/sdb"
 	(cd include/sdb && for FILE in * ; do \
 		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/sdb/$$FILE" ; \
+	done)
+	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/r_util"
+	(cd include/r_util && for FILE in * ; do \
+		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_util/$$FILE" ; \
 	done)
 
 symstall install-symlink:

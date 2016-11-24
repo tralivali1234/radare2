@@ -1,14 +1,24 @@
-/* radare - LGPL - Copyright 2009-2015 - pancake */
+/* radare - LGPL - Copyright 2009-2016 - pancake */
+
+#include <string.h>
+#include "r_bin.h"
+#include "r_config.h"
+#include "r_cons.h"
+#include "r_core.h"
 
 #define PAIR_WIDTH 9
 // TODO: reuse implementation in core/bin.c
 static void pair(const char *a, const char *b) {
 	char ws[16];
 	int al = strlen (a);
-	if (!b) return;
+	if (!b) {
+		return;
+	}
 	memset (ws, ' ', sizeof (ws));
 	al = PAIR_WIDTH - al;
-	if (al<0) al = 0;
+	if (al < 0) {
+		al = 0;
+	}
 	ws[al] = 0;
 	r_cons_printf ("%s%s%s\n", a, ws, b);
 }
@@ -17,10 +27,10 @@ static bool demangle_internal(RCore *core, const char *lang, const char *s) {
 	char *res = NULL;
 	int type = r_bin_demangle_type (lang);
 	switch (type) {
-	case R_BIN_NM_CXX: res = r_bin_demangle_cxx (s); break;
+	case R_BIN_NM_CXX: res = r_bin_demangle_cxx (core->bin->cur, s, 0); break;
 	case R_BIN_NM_JAVA: res = r_bin_demangle_java (s); break;
 	case R_BIN_NM_OBJC: res = r_bin_demangle_objc (NULL, s); break;
-	case R_BIN_NM_SWIFT: res = r_bin_demangle_swift (s); break;
+	case R_BIN_NM_SWIFT: res = r_bin_demangle_swift (s, core->bin->demanglercmd); break;
 	case R_BIN_NM_DLANG: res = r_bin_demangle_plugin (core->bin, "dlang", s); break;
 	default:
 		r_bin_demangle_list (core->bin);
@@ -44,9 +54,9 @@ static int demangle(RCore *core, const char *s) {
 		return 1;
 	}
 	p = strdup (s);
-	q = p + (ss-s);
+	q = p + (ss - s);
 	*q = 0;
-	demangle_internal (core, p, q+1);
+	demangle_internal (core, p, q + 1);
 	free (p);
 	return 1;
 }
@@ -55,6 +65,7 @@ static int demangle(RCore *core, const char *s) {
 static void r_core_file_info (RCore *core, int mode) {
 	const char *fn = NULL;
 	int dbg = r_config_get_i (core->config, "cfg.debug");
+	bool io_cache = r_config_get_i (core->config, "io.cache");
 	RBinInfo *info = r_bin_get_info (core->bin);
 	RBinFile *binfile = r_core_bin_cur (core);
 	RCoreFile *cf = core->file;
@@ -95,11 +106,13 @@ static void r_core_file_info (RCore *core, int mode) {
 			if (fsz != UT64_MAX) {
 				r_cons_printf (",\"size\":%"PFMT64d, fsz);
 			}
+			r_cons_printf (",\"iorw\":%s", r_str_bool ( io_cache || \
+				cf->desc->flags & R_IO_WRITE ));
 			r_cons_printf (",\"mode\":\"%s\"", r_str_rwx_i (
 				cf->desc->flags & 7 ));
 			r_cons_printf (",\"obsz\":%"PFMT64d, (ut64)core->io->desc->obsz);
 			if (cf->desc->referer && *cf->desc->referer)
-				r_cons_printf ("\"referer\":\"%s\"", cf->desc->referer);
+				r_cons_printf (",\"referer\":\"%s\"", cf->desc->referer);
 		}
 		r_cons_printf (",\"block\":%d", core->blocksize);
 		if (binfile) {
@@ -123,6 +136,8 @@ static void r_core_file_info (RCore *core, int mode) {
 			if (fsz != UT64_MAX) {
 				pair ("size", sdb_fmt (0,"0x%"PFMT64x, fsz));
 			}
+			pair ("iorw", r_str_bool ( io_cache || \
+				cf->desc->flags & R_IO_WRITE ));
 			pair ("blksz", sdb_fmt (0, "0x%"PFMT64x,
 				(ut64)core->io->desc->obsz));
 			pair ("mode", r_str_rwx_i (cf->desc->flags & 7));
@@ -138,12 +153,14 @@ static void r_core_file_info (RCore *core, int mode) {
 static int bin_is_executable (RBinObject *obj){
 	RListIter *it;
 	RBinSection* sec;
-	if (obj->info->arch) {
-		return true;
-	}
-	r_list_foreach (obj->sections, it, sec){
-		if (R_BIN_SCN_EXECUTABLE & sec->srwx)
+	if (obj) {
+		if (obj->info && obj->info->arch) {
 			return true;
+		}
+		r_list_foreach (obj->sections, it, sec){
+			if (R_BIN_SCN_EXECUTABLE & sec->srwx)
+				return true;
+		}
 	}
 	return false;
 }
@@ -176,7 +193,7 @@ static void cmd_info_bin(RCore *core, int va, int mode) {
 
 static int cmd_info(void *data, const char *input) {
 	RCore *core = (RCore *)data;
-	int newline = r_config_get_i (core->config, "scr.interactive");
+	bool newline = r_config_get_i (core->config, "scr.interactive");
 	RBinObject *o = r_bin_cur_object (core->bin);
 	RCoreFile *cf = core->file;
 	int i, va = core->io->va || core->io->debug;
@@ -206,7 +223,7 @@ static int cmd_info(void *data, const char *input) {
 	}
 	while (*input) {
 		switch (*input) {
-		case 'b':
+		case 'b': // "ib"
 			{
 			ut64 baddr = r_config_get_i (core->config, "bin.baddr");
 			if (input[1]==' ')
@@ -216,7 +233,8 @@ static int cmd_info(void *data, const char *input) {
 			// plugin that will be used to load the bin (e.g. malloc://)
 			// TODO: Might be nice to reload a bin at a specified offset?
 			r_core_bin_reload (core, NULL, baddr);
-			r_core_block_read (core, 0);
+			r_core_block_read (core);
+			newline = false;
 			}
 			break;
 		case 'k':
@@ -226,33 +244,37 @@ static int cmd_info(void *data, const char *input) {
 			case 'v':
 				if (db) {
 					char *o = sdb_querys (db, NULL, 0, input+3);
-					if (o && *o) r_cons_printf ("%s", o);
+					if (o && *o) r_cons_print (o);
 					free (o);
 				}
+				break;
+			case '*':
+				r_core_bin_export_info_rad (core);
 				break;
 			case '.':
 			case ' ':
 				if (db) {
 					char *o = sdb_querys (db, NULL, 0, input+2);
-					if (o && *o) r_cons_printf ("%s", o);
+					if (o && *o) r_cons_print (o);
 					free (o);
 				}
 				break;
 			case '\0':
 				if (db) {
 					char *o = sdb_querys (db, NULL, 0, "*");
-					if (o && *o) r_cons_printf ("%s", o);
+					if (o && *o) r_cons_print (o);
 					free (o);
 				}
 				break;
 			case '?':
 			default:
 				eprintf ("Usage: ik [sdb-query]\n");
+				eprintf ("Usage: ik*    # load all header information\n");
 			}
 			goto done;
 			break;
 		case 'o':
-			 {
+			{
 				if (!cf) {
 					eprintf ("Core file not open\n");
 					return 0;
@@ -260,16 +282,16 @@ static int cmd_info(void *data, const char *input) {
 				const char *fn = input[1]==' '? input+2: cf->desc->name;
 				ut64 baddr = r_config_get_i (core->config, "bin.baddr");
 				r_core_bin_load (core, fn, baddr);
-			 }
+			}
 			break;
 	#define RBININFO(n,x,y) \
 	if (is_array) { \
-		if (is_array==1) is_array++; else r_cons_printf (","); \
+		if (is_array == 1) is_array++; else r_cons_printf (","); \
 		r_cons_printf ("\"%s\":",n); \
 	}\
 	r_core_bin_info (core, x, mode, va, NULL, y);
 		case 'A':
-			newline = 0;
+			newline = false;
 			if (input[1]=='j') {
 				r_cons_printf ("{");
 				r_bin_list_archs (core->bin, 'j');
@@ -285,7 +307,12 @@ static int cmd_info(void *data, const char *input) {
 			if ((input[1] == 'm' && input[2] == 'z') || !input[1]) {
 				RBININFO ("sections", R_CORE_BIN_ACC_SECTIONS, NULL);
 			} else  { //iS entropy,sha1
-				RBININFO ("sections", R_CORE_BIN_ACC_SECTIONS, input + 2);
+		        	if (mode == R_CORE_BIN_RADARE || mode == R_CORE_BIN_JSON || mode == R_CORE_BIN_SIMPLE) {
+		                    RBININFO ("sections", R_CORE_BIN_ACC_SECTIONS, input + 3);
+		                }
+		                else {
+		                    RBININFO ("sections", R_CORE_BIN_ACC_SECTIONS, input + 2);
+		                }
 				//we move input until get '\0'
 				while (*(++input));
 				//input-- because we are inside a while that does input++
@@ -293,10 +320,25 @@ static int cmd_info(void *data, const char *input) {
 				input--;
 			}
 			break;
+		case 'H':
 		case 'h': RBININFO ("fields", R_CORE_BIN_ACC_FIELDS, NULL); break;
 		case 'l': RBININFO ("libs", R_CORE_BIN_ACC_LIBS, NULL); break;
 		case 'L': r_bin_list (core->bin, input[1]=='j'); break;
-		case 's': RBININFO ("symbols", R_CORE_BIN_ACC_SYMBOLS, NULL); break;
+		case 's':
+			if (input[1] == '.') {
+				ut64 addr = core->offset + (core->print->cur_enabled? core->print->cur: 0);
+				RFlagItem *f = r_flag_get_at (core->flags, addr);
+				if (f) {
+					if (f->offset == addr || !f->offset)
+						r_cons_printf ("%s", f->name);
+					else r_cons_printf ("%s+%d", f->name, (int)(addr-f->offset));
+				}
+				input++;
+				break;
+			} else {
+					RBININFO ("symbols", R_CORE_BIN_ACC_SYMBOLS, NULL);
+				break;
+			}
 		case 'R':
 		case 'r': RBININFO ("relocs", R_CORE_BIN_ACC_RELOCS, NULL); break;
 		case 'd': RBININFO ("dwarf", R_CORE_BIN_ACC_DWARF, NULL); break;
@@ -305,34 +347,38 @@ static int cmd_info(void *data, const char *input) {
 		case 'e': RBININFO ("entries", R_CORE_BIN_ACC_ENTRIES, NULL); break;
 		case 'M': RBININFO ("main", R_CORE_BIN_ACC_MAIN, NULL); break;
 		case 'm': RBININFO ("memory", R_CORE_BIN_ACC_MEM, NULL); break;
+		case 'V': RBININFO ("versioninfo", R_CORE_BIN_ACC_VERSIONINFO, NULL); break;
+		case 'C': RBININFO ("signature", R_CORE_BIN_ACC_SIGNATURE, NULL); break;
 		case 'z':
-			if (input[1] == 'z') {
-				/* TODO: reimplement in C to avoid forks */
-				if (!core->file) {
-					eprintf ("Core file not open\n");
-					return 0;
-				}
-				char *ret;
+			if (input[1] == 'z') { //izz
 				switch (input[2]) {
 				case '*':
-					ret = r_sys_cmd_strf ("rabin2 -rzz '%s'", core->file->desc->name);
-					break;
-				case 'q':
-					ret = r_sys_cmd_strf ("rabin2 -qzz '%s'", core->file->desc->name);
+					mode = R_CORE_BIN_RADARE;
 					break;
 				case 'j':
-					ret = r_sys_cmd_strf ("rabin2 -jzz '%s'", core->file->desc->name);
+					mode = R_CORE_BIN_JSON;
 					break;
-				default:
-					ret = r_sys_cmd_strf ("rabin2 -zz '%s'", core->file->desc->name);
+				case 'q': //izzq
+					if (input[3] == 'q') { //izzqq
+						mode = R_CORE_BIN_SIMPLEST;
+						input++;
+					} else {
+						mode = R_CORE_BIN_SIMPLE;
+					}
+					break;
+				default: 
+					mode = R_CORE_BIN_PRINT;
 					break;
 				}
-				if (ret && *ret) {
-					r_cons_strcat (ret);
-				}
-				free (ret);
 				input++;
+				RBININFO ("strings", R_CORE_BIN_ACC_RAW_STRINGS, NULL);
 			} else {
+			    	if (input[1] == 'q') {
+					mode = (input[2] == 'q')
+						? R_CORE_BIN_SIMPLEST
+						: R_CORE_BIN_SIMPLE;
+					input++;
+				}
 				RBININFO ("strings", R_CORE_BIN_ACC_STRINGS, NULL);
 			}
 			break;
@@ -348,8 +394,9 @@ static int cmd_info(void *data, const char *input) {
 				int count = 0;
 				if (input[2] && obj) {
 					r_list_foreach (obj->classes, iter, cls) {
-						if (idx != count++)
+						if (idx != count++) {
 							continue;
+						}
 						switch (input[1]) {
 						case '*':
 							r_list_foreach (cls->methods, iter2, sym) {
@@ -420,7 +467,7 @@ static int cmd_info(void *data, const char *input) {
 			break;
 		case '?': {
 			const char * help_message[] = {
-				"Usage: i", "", "Get info from opened file",
+				"Usage: i", "", "Get info from opened file (see rabin2's manpage)",
 				"Output mode:", "", "",
 				"'*'", "", "Output in radare commands",
 				"'j'", "", "Output in json",
@@ -431,11 +478,12 @@ static int cmd_info(void *data, const char *input) {
 				"ia", "", "Show all info (imports, exports, sections..)",
 				"ib", "", "Reload the current buffer for setting of the bin (use once only)",
 				"ic", "", "List classes, methods and fields",
+				"iC", "", "Show signature info (entitlements, ...)",
 				"id", "", "Debug information (source lines)",
 				"iD", " lang sym", "demangle symbolname for given language",
 				"ie", "", "Entrypoint",
 				"iE", "", "Exports (global symbols)",
-				"ih", "", "Headers",
+				"ih", "", "Headers (alias for iH)",
 				"ii", "", "Imports",
 				"iI", "", "Binary info",
 				"ik", " [query]", "Key-value database from RBinObject",
@@ -447,8 +495,10 @@ static int cmd_info(void *data, const char *input) {
 				"ir|iR", "", "Relocs",
 				"is", "", "Symbols",
 				"iS ", "[entropy,sha1]", "Sections (choose which hash algorithm to use)",
+				"iV", "", "Display file version info",
 				"iz", "", "Strings in data sections",
 				"izz", "", "Search for Strings in the whole binary",
+				"iZ", "", "Guess size of binary program",
 				NULL
 				};
 				r_core_cmd_help (core, help_message);

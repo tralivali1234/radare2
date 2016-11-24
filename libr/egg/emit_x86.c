@@ -132,6 +132,7 @@ static void emit_string(REgg *egg, const char *dstvar, const char *str, int j) {
 
 	len = strlen (str);
 	s = malloc (len+4);
+	if (!s) return;
 	memcpy (s, str, len);
 	memset (s+len, 0, 4);
 
@@ -328,7 +329,7 @@ static void emit_branch(REgg *egg, char *b, char *g, char *e, char *n, int sz, c
 		}
 		arg = g+1;
 	}
-	if (arg == NULL) {
+	if (!arg) {
 		if (e) {
 			arg = e+1;
 			op = "jne";
@@ -359,6 +360,7 @@ static void emit_load(REgg *egg, const char *dst, int sz) {
 		case 'l':
 			r_egg_printf (egg, "  movl %s, %%"R_AX"\n", dst);
 			r_egg_printf (egg, "  movl (%%"R_AX"), %%"R_AX"\n");
+			break;
 		case 'b':
 			r_egg_printf (egg, "  movl %s, %%"R_AX"\n", dst);
 			r_egg_printf (egg, "  movzb (%%"R_AX"), %%"R_AX"\n");
@@ -373,6 +375,7 @@ static void emit_load(REgg *egg, const char *dst, int sz) {
 		case 'l':
 			r_egg_printf (egg, "  mov "R_AX", %s\n", dst);
 			r_egg_printf (egg, "  mov "R_AX", ["R_AX"]\n");
+			break;
 		case 'b':
 			r_egg_printf (egg, "  mov "R_AX", %s\n", dst);
 			r_egg_printf (egg, "  movz "R_AX", ["R_AX"]\n");
@@ -398,12 +401,12 @@ static void emit_mathop(REgg *egg, int ch, int vs, int type, const char *eq, con
 	default:  op = "mov"; break;
 	}
 	if (attsyntax) {
-		if (eq == NULL) eq = "%"R_AX;
-		if (p == NULL) p = "%"R_AX;
+		if (!eq) eq = "%"R_AX;
+		if (!p) p = "%"R_AX;
 		r_egg_printf (egg, "  %s%c %c%s, %s\n", op, vs, type, eq, p);
 	} else {
-		if (eq == NULL) eq = R_AX;
-		if (p == NULL) p = R_AX;
+		if (!eq) eq = R_AX;
+		if (!p) p = R_AX;
 	// TODO:
 #if 0
 		eprintf ("TYPE = %c\n", type);

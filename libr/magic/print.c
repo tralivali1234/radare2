@@ -58,7 +58,7 @@ void file_mdump(struct r_magic *m) {
 		(void) eprintf ("(%s,",
 			       /* Note: type is unsigned */
 			       (m->in_type < file_nnames) ? 
-					file_names[m->in_type] : "*bad*");
+					magic_file_names[m->in_type] : "*bad*");
 		if (m->in_op & FILE_OPINVERSE)
 			(void) fputc('~', stderr);
 		(void) eprintf ("%c%u),",
@@ -68,7 +68,7 @@ void file_mdump(struct r_magic *m) {
 	}
 	(void) eprintf (" %s%s", (m->flag & UNSIGNED) ? "u" : "",
 		       /* Note: type is unsigned */
-		       (m->type < file_nnames) ? file_names[m->type] : "*bad*");
+		       (m->type < file_nnames) ? magic_file_names[m->type] : "*bad*");
 	if (m->mask_op & FILE_OPINVERSE)
 		(void) fputc('~', stderr);
 
@@ -208,7 +208,7 @@ const char *file_fmttime(ut32 v, int local) {
 			struct tm *tm1;
 			(void)time(&now);
 			tm1 = localtime(&now);
-			if (tm1 == NULL)
+			if (!tm1)
 				return "*Invalid time*";
 			daylight = tm1->tm_isdst;
 		}
@@ -217,7 +217,7 @@ const char *file_fmttime(ut32 v, int local) {
 		if (daylight)
 			t += 3600;
 		tm = gmtime(&t);
-		if (tm == NULL)
+		if (!tm)
 			return "*Invalid time*";
 		pp = asctime (tm);
 	}

@@ -1,15 +1,20 @@
 include ../../global.mk
 
 NAME=r_asm
-DEPS=r_util r_parse r_db r_syscall r_lang
+DEPS=r_syscall r_lang r_util r_parse
+DEPS+=r_flag r_cons r_reg
 CFLAGS+=-DCORELIB -Iarch/include -Iarch -I../../shlr
 CURDIR=p/
 
 include $(TOP)/libr/config.mk
 
+ifeq ($(WITHNONPIC),1)
+# do not statically link capstone when creating libars
+else
 include p/capstone.mk
 LDFLAGS+=${CS_LDFLAGS}
 LINK+=$(SHLR)/java/libr_java.a
+endif
 
 .PHONY: all plugins
 

@@ -97,7 +97,7 @@ RPN UDIS86_ESIL (lea,   "%s,%s,=", src, dst);
 RPN UDIS86_ESIL (movzx, "%s,%s,=", src, dst); // not working? try 0fb63d55380000
 RPN UDIS86_ESIL (mov,   "%s,%s,=", src, dst);
 //  UDIS86_ESIL (push,  "%s-=%d,%d[%s]=%s", info->sp, info->regsz, info->regsz, info->sp, dst);
-RPN UDIS86_ESIL (push,  "%d,%s,-=,%s,%s,=[%d]", info->regsz, info->sp, dst, info->sp, info->regsz);
+RPN UDIS86_ESIL (push,  "%s,%d,%s,-=,%s,=[%d]", dst, info->regsz, info->sp, info->sp, info->regsz);
 
 //  UDIS86_ESIL (pop,   "%s=%d[%s],%s+=%d", dst, info->regsz, info->sp, info->sp, info->regsz);
 RPN UDIS86_ESIL (pop,   "%s,[%d],%s,=,%d,%s,+=",
@@ -255,7 +255,7 @@ UDis86Esil udis86_esil_callback_table[ UD_MAX_MNEMONIC_CODE ] = {
 };
 
 UDis86Esil * udis86_esil_get_handler (enum ud_mnemonic_code code) {
-	if (udis86_esil_callback_table[code].callback == NULL)
+	if (!udis86_esil_callback_table[code].callback)
 		return NULL;
 	return udis86_esil_callback_table + code;
 }

@@ -1,7 +1,7 @@
 #!/bin/sh
 
 BUILD=1
-PREFIX="/data/data/org.radare2.installer/radare2"
+PREFIX="/data/data/org.radare.radare2installer/radare2"
 
 type pax
 [ $? != 0 ] && exit 1
@@ -155,11 +155,22 @@ rm -f ${HERE}/${D}/${LIBDIR}/*.a
 rm -rf ${HERE}/${D}/${DATADIR}/radare2/*/www/*/node_modules
 rm -rf ${HERE}/${D}/${PREFIX}/include
 eval `grep ^VERSION= ${HERE}/config-user.mk`
-WWWROOT="/data/data/org.radare2.installer/radare2/share/radare2/${VERSION}/www"
-ln -fs ${WWWROOT} ${HERE}/${D}/data/data/org.radare2.installer/www
-mkdir -p "${WWWROOT}"
-cp -rf ${HERE}/shlr/www/* "${WWWROOT}"
-chmod -R o+rx ${HERE}/${D}/data/data/org.radare2.installer/www
+WWWROOT="/data/data/org.radare.radare2installer/radare2/share/radare2/${VERSION}/www"
+WWWWOOT="${HERE}/${D}/data/data/org.radare.radare2installer/www"
+WWWSOOT="${HERE}/${D}/data/data/org.radare.radare2installer/radare2/share/radare2/${VERSION}/www"
+echo WWWROOT="${WWWROOT}"
+echo WWWROOT="${WWWWOOT}"
+echo WWWROOT="${WWWSOOT}"
+(
+	rm -rf "${WWWWOOT}"
+	mkdir -p "${WWWWOOT}"
+	mv "${WWWSOOT}"/* "${WWWWOOT}"
+	# pax doesnt like symlinks when making it compatible with the java tar
+	#cd "${WWWWOOT}/.."
+	#ln -fs "../radare2/share/radare2/${VERSION}/www" www
+	#ln -fs "${WWWROOT}" "${WWWWOOT}"
+)
+chmod -R o+rx "${WWWWOOT}"
 cd ${D}
 find $HERE/$D | grep www
 sleep 4
@@ -184,3 +195,4 @@ echo `pwd`"/${D}.tar.gz"
 echo `pwd`"/${D}-${D2}.tar.gz"
 
 adb push `pwd`"/${D}-${D2}.tar.gz" /sdcard/radare2-android.tar.gz || true
+exit 0

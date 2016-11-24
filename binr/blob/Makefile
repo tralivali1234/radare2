@@ -10,8 +10,11 @@ CFLAGS+=-pie -fPIC -fPIE
 LDFLAGS+=-pie
 endif
 SHLR=../../shlr
+
 include ../../config-user.mk
 include ../../shlr/zip/deps.mk
+include ../../shlr/bochs/deps.mk
+include ../../shlr/qnx/deps.mk
 
 ifneq (${ANDROID},1)
 ifneq (${OSTYPE},linux)
@@ -26,7 +29,6 @@ CFLAGS=-I../../libr/include/
 ifeq ($(WITHNONPIC),1)
 LDFLAGS+=../../libr/io/libr_io.a
 LDFLAGS+=../../libr/asm/libr_asm.a
-LDFLAGS+=../../libr/db/libr_db.a
 LDFLAGS+=../../libr/egg/libr_egg.a
 LDFLAGS+=../../libr/core/libr_core.a
 LDFLAGS+=../../libr/crypto/libr_crypto.a
@@ -36,7 +38,7 @@ LDFLAGS+=../../libr/fs/libr_fs.a
 LDFLAGS+=../../libr/magic/libr_magic.a
 LDFLAGS+=../../libr/cons/libr_cons.a
 LDFLAGS+=../../libr/syscall/libr_syscall.a
-LDFLAGS+=../../libr/flags/libr_flags.a
+LDFLAGS+=../../libr/flag/libr_flag.a
 LDFLAGS+=../../libr/reg/libr_reg.a
 LDFLAGS+=../../libr/debug/libr_debug.a
 LDFLAGS+=../../libr/search/libr_search.a
@@ -63,11 +65,10 @@ LDFLAGS+=-L../../libr/bin -lr_bin
 LDFLAGS+=-L../../libr/reg -lr_reg
 LDFLAGS+=-L../../libr/asm -lr_asm
 LDFLAGS+=-L../../libr/egg -lr_egg
-LDFLAGS+=-L../../libr/db -lr_db
 LDFLAGS+=-L../../libr/core -lr_core
 LDFLAGS+=-L../../libr/anal -lr_anal
 LDFLAGS+=-L../../libr/crypto -lr_crypto
-LDFLAGS+=-L../../libr/flags -lr_flags
+LDFLAGS+=-L../../libr/flag -lr_flag
 LDFLAGS+=-L../../libr/parse -lr_parse
 LDFLAGS+=-L../../libr/fs -lr_fs
 LDFLAGS+=-L../../libr/magic -lr_magic

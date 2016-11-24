@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2015 - pancake */
+/* radare2 - LGPL - Copyright 2013-2016 - pancake */
 
 #include <r_asm.h>
 #include <r_lib.h>
@@ -6,11 +6,13 @@
 #define R_IPI static
 #include "../arch/mips/mipsasm.c"
 
+static csh cd = 0;
+#include "cs_mnemonics.c"
+
 static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
-	csh handle;
 	cs_insn* insn;
 	int mode, n, ret = -1;
-	mode = a->big_endian? CS_MODE_BIG_ENDIAN: CS_MODE_LITTLE_ENDIAN;
+	mode = (a->big_endian)? CS_MODE_BIG_ENDIAN: CS_MODE_LITTLE_ENDIAN;
 	if (a->cpu && *a->cpu) {
 		if (!strcmp (a->cpu, "micro")) {
 			mode |= CS_MODE_MICRO;
@@ -20,23 +22,38 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 			mode |= CS_MODE_MIPS3;
 		}
 	}
-	mode |= (a->bits==64)? CS_MODE_64: CS_MODE_32;
-	memset (op, 0, sizeof (RAsmOp));
-	op->size = 4;
-	ret = cs_open (CS_ARCH_MIPS, mode, &handle);
-	if (ret) goto fin;
+	mode |= (a->bits == 64)? CS_MODE_64: CS_MODE_32;
+	if (op) {
+		memset (op, 0, sizeof (RAsmOp));
+		op->size = 4;
+	}
+	if (cd != 0) {
+		cs_close (&cd);
+	}
+	ret = cs_open (CS_ARCH_MIPS, mode, &cd);
+	if (ret) {
+		goto fin;
+	}
 	if (a->syntax == R_ASM_SYNTAX_REGNUM) {
-		cs_option (handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_NOREGNAME);
-	} else cs_option (handle, CS_OPT_SYNTAX, CS_OPT_SYNTAX_DEFAULT);
-	cs_option (handle, CS_OPT_DETAIL, CS_OPT_OFF);
-	n = cs_disasm (handle, (ut8*)buf, len, a->pc, 1, &insn);
-	if (n<1) {
+		cs_option (cd, CS_OPT_SYNTAX, CS_OPT_SYNTAX_NOREGNAME);
+	} else {
+		cs_option (cd, CS_OPT_SYNTAX, CS_OPT_SYNTAX_DEFAULT);
+	}
+	cs_option (cd, CS_OPT_DETAIL, CS_OPT_OFF);
+	if (!op) {
+		return 0;
+	}
+	n = cs_disasm (cd, (ut8*)buf, len, a->pc, 1, &insn);
+	if (n < 1) {
 		strcpy (op->buf_asm, "invalid");
 		op->size = 4;
 		goto beach;
-	} else ret = 4;
-	if (insn->size<1)
+	} else {
+		ret = 4;
+	}
+	if (insn->size < 1) {
 		goto beach;
+	}
 	op->size = insn->size;
 	snprintf (op->buf_asm, R_ASM_BUFSIZE, "%s%s%s",
 		insn->mnemonic, insn->op_str[0]? " ": "",
@@ -44,15 +61,22 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	// remove the '$'<registername> in the string
 	r_str_replace_char (op->buf_asm, '$', 0);
 	cs_free (insn, n);
-	beach:
-	cs_close (&handle);
-	fin:
+beach:
+	// cs_close (&cd);
+fin:
 	return op->size;
 }
 
 static int assemble(RAsm *a, RAsmOp *op, const char *str) {
 	int ret = mips_assemble (str, a->pc, op->buf);
-	r_mem_copyendian (op->buf, op->buf, 4, !a->big_endian);
+	if (a->big_endian) {
+		ut8 tmp = op->buf[0];
+		op->buf[0] = op->buf[3];
+		op->buf[3] = tmp;
+		tmp = op->buf[1];
+		op->buf[1] = op->buf[2];
+		op->buf[2] = tmp;
+	}
 	return ret;
 }
 
@@ -63,10 +87,10 @@ RAsmPlugin r_asm_plugin_mips_cs = {
 	.arch = "mips",
 	.cpus = "gp64,micro,r6,v3",
 	.bits = 16|32|64,
-	.init = NULL,
-	.fini = NULL,
+	.endian = R_SYS_ENDIAN_LITTLE | R_SYS_ENDIAN_BIG,
 	.disassemble = &disassemble,
-	.assemble = assemble
+	.mnemonics = mnemonics,
+	.assemble = &assemble
 };
 
 #ifndef CORELIB

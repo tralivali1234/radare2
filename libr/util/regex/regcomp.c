@@ -146,12 +146,6 @@ R_API int r_regex_match (const char *pattern, const char *flags, const char *tex
 		return 0;
 	}
 	ret = r_regex_exec (&rx, text, 0, 0, re_flags);
-	if (!ret) {
-eprintf ("OK! (%s)\n", text);
-		if (!strstr (text, "raxq")) {
-			eprintf ("FALSE POSITIVE with (%s)\n", pattern);
-		}
-	}
 	r_regex_fini (&rx);
 	return ret? 0: 1;
 #if 0
@@ -169,6 +163,7 @@ R_API RRegex *r_regex_new (const char *pattern, const char *flags) {
 	if (r_regex_comp (&rx, pattern, r_regex_flags (flags)))
 		return NULL;
 	r = malloc (sizeof (RRegex));
+	if (!r) return NULL;
 	memcpy (r, &rx, sizeof (RRegex));
 	return r;
 }
@@ -193,7 +188,7 @@ R_API void r_regex_fini(RRegex *preg) {
 		return;			/* nice to complain, but hard */
 
 	g = preg->re_g;
-	if (g == NULL || g->magic != MAGIC2)	/* oops again */
+	if (!g || g->magic != MAGIC2)	/* oops again */
 		return;
 	preg->re_magic = 0;		/* mark it invalid */
 	g->magic = 0;			/* mark it invalid */
@@ -226,31 +221,32 @@ R_API int r_regex_comp(RRegex *preg, const char *pattern, int cflags) {
 #	define	GOODFLAGS(f)	((f)&~R_REGEX_DUMP)
 #endif
 
-	cflags = GOODFLAGS(cflags);
-	if ((cflags&R_REGEX_EXTENDED) && (cflags&R_REGEX_NOSPEC))
+	cflags = GOODFLAGS (cflags);
+	if ((cflags & R_REGEX_EXTENDED) && (cflags & R_REGEX_NOSPEC))
 		return R_REGEX_INVARG;
 
-	if (cflags&R_REGEX_PEND) {
+	if (cflags & R_REGEX_PEND) {
 		if (preg->re_endp < pattern)
 			return(R_REGEX_INVARG);
 		len = preg->re_endp - pattern;
-	} else len = strlen((char *)pattern);
+	} else len = strlen ((char *)pattern);
 
 	/* do the mallocs early so failure handling is easy */
-	g = (struct re_guts *)calloc(sizeof(struct re_guts) + (NC-1),sizeof(cat_t));
-	if (g == NULL)
+	g = (struct re_guts *)calloc (sizeof (struct re_guts) + (NC - 1), sizeof (cat_t));
+	if (!g) {
 		return R_REGEX_ESPACE;
+	}
 	preg->re_flags = cflags;
-	p->ssize = len/(size_t)2*(size_t)3 + (size_t)1;	/* ugh */
-	p->strip = (sop *)calloc(p->ssize, sizeof(sop));
+	p->ssize = len / (size_t)2 * (size_t)3 + (size_t)1;	/* ugh */
+	p->strip = (sop *)calloc (p->ssize, sizeof(sop));
 	if (!p->strip) {
-		free((char *)g);
+		free ((char *)g);
 		return R_REGEX_ESPACE;
 	}
 	p->slen = 0;
-	if (p->strip == NULL) {
-		free((char *)g);
-		return(R_REGEX_ESPACE);
+	if (!p->strip) {
+		free ((char *)g);
+		return R_REGEX_ESPACE;
 	}
 
 	/* set things up */
@@ -687,7 +683,7 @@ static void p_bracket(struct parse *p) {
 		return;
 	}
 
-	if ((cs = allocset(p)) == NULL) {
+	if (!(cs = allocset(p))) {
 		/* allocset did set error status in p */
 		return;
 	}
@@ -736,7 +732,7 @@ static void p_bracket(struct parse *p) {
 			mcinvert(p, cs);
 	}
 
-	assert(cs->multis == NULL);		/* xxx */
+	assert(!cs->multis);		/* xxx */
 
 	if (nch(p, cs) == 1) {		/* optimize singleton sets */
 		ordinary(p, firstch(p, cs));
@@ -823,7 +819,7 @@ static void p_b_cclass(struct parse *p, cset *cs) {
 	for (cp = cclasses; cp->name != NULL; cp++)
 		if (strncmp(cp->name, sp, len) == 0 && cp->name[len] == '\0')
 			break;
-	if (cp->name == NULL) {
+	if (!cp->name) {
 		/* oops, didn't find it */
 		SETERROR(R_REGEX_ECTYPE);
 		return;
@@ -1076,12 +1072,12 @@ static cset * allocset(struct parse *p) {
 		nbytes = nc / CHAR_BIT * css;
 
 		ptr = (cset *)realloc((char *)p->g->sets, nc * sizeof(cset));
-		if (ptr == NULL)
+		if (!ptr)
 			goto nomem;
 		p->g->sets = ptr;
 
 		ptr = (ut8 *)realloc((char *)p->g->setbits, nbytes);
-		if (ptr == NULL)
+		if (!ptr)
 			goto nomem;
 		p->g->setbits = ptr;
 
@@ -1091,7 +1087,7 @@ static cset * allocset(struct parse *p) {
 		(void) memset((char *)p->g->setbits + (nbytes - css), 0, css);
 	}
 	/* XXX should not happen */
-	if (p->g->sets == NULL || p->g->setbits == NULL)
+	if (!p->g->sets || !p->g->setbits)
 		goto nomem;
 
 	cs = &p->g->sets[no];
@@ -1203,7 +1199,7 @@ static void mcadd( struct parse *p, cset *cs, char *cp) {
 
 	cs->smultis += strlen(cp) + 1;
 	np = realloc(cs->multis, cs->smultis);
-	if (np == NULL) {
+	if (!np) {
 		if (cs->multis)
 			free(cs->multis);
 		cs->multis = NULL;
@@ -1223,7 +1219,7 @@ static void mcadd( struct parse *p, cset *cs, char *cp) {
  */
 /* ARGSUSED */
 static void mcinvert(struct parse *p, cset *cs) {
-	assert(cs->multis == NULL);	/* xxx */
+	assert(!cs->multis);	/* xxx */
 }
 
 /*
@@ -1234,7 +1230,7 @@ static void mcinvert(struct parse *p, cset *cs) {
  */
 /* ARGSUSED */
 static void mccase(struct parse *p, cset *cs) {
-	assert(cs->multis == NULL);	/* xxx */
+	assert(!cs->multis);	/* xxx */
 }
 
 /*
@@ -1406,7 +1402,7 @@ enlarge(struct parse *p, sopno size)
 		return;
 
 	sp = (sop *)realloc(p->strip, size*sizeof(sop));
-	if (sp == NULL) {
+	if (!sp) {
 		SETERROR(R_REGEX_ESPACE);
 		return;
 	}
@@ -1422,7 +1418,7 @@ stripsnug(struct parse *p, struct re_guts *g)
 {
 	g->nstates = p->slen;
 	g->strip = (sop *)realloc((char *)p->strip, p->slen * sizeof(sop));
-	if (g->strip == NULL) {
+	if (!g->strip) {
 		SETERROR(R_REGEX_ESPACE);
 		g->strip = p->strip;
 	}
@@ -1496,7 +1492,7 @@ findmust(struct parse *p, struct re_guts *g)
 
 	/* turn it into a character string */
 	g->must = malloc((size_t)g->mlen + 1);
-	if (g->must == NULL) {		/* argh; just forget it */
+	if (!g->must) {		/* argh; just forget it */
 		g->mlen = 0;
 		return;
 	}

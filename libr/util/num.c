@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2015 - pancake */
+/* radare - LGPL - Copyright 2007-2016 - pancake */
 
 #if __WINDOWS__ && MINGW32 && !__CYGWIN__
 #include <stdlib.h>
@@ -6,32 +6,6 @@
 
 #include <r_util.h>
 #define R_NUM_USE_CALC 1
-
-R_API ut16 r_num_ntohs (ut16 foo) {
-#if LIL_ENDIAN
-	ut8 *p = (ut8*)&foo;
-	foo = p[1] | p[0]<<8;
-#endif
-	return foo;
-}
-
-#define __htonq(x) (\
-        (((x) & 0xff00000000000000LL) >> 56)  | \
-        (((x) & 0x00ff000000000000LL) >> 40)  | \
-        (((x) & 0x0000ff0000000000LL) >> 24)  | \
-        (((x) & 0x000000ff00000000LL) >> 8)   | \
-        (((x) & 0x00000000ff000000LL) << 8)   | \
-        (((x) & 0x0000000000ff0000LL) << 24)  | \
-        (((x) & 0x000000000000ff00LL) << 40)  | \
-        (((x) & 0x00000000000000ffLL) << 56))
-
-R_API ut64 r_num_htonq(ut64 value) {
-        ut64 ret = value;
-#if LIL_ENDIAN
-        r_mem_copyendian ((ut8*)&ret, (ut8*)&value, 8, 0);
-#endif
-        return ret;
-}
 
 R_API void r_num_irand() {
 	srand (r_sys_now ());
@@ -48,7 +22,7 @@ R_API int r_num_rand(int max) {
 }
 
 R_API void r_num_minmax_swap(ut64 *a, ut64 *b) {
-	if (*a>*b) {
+	if (*a > *b) {
 		ut64 tmp = *a;
 		*a = *b;
 		*b = tmp;
@@ -63,17 +37,20 @@ R_API void r_num_minmax_swap_i(int *a, int *b) {
 	}
 }
 
-R_API RNum *r_num_new(RNumCallback cb, void *ptr) {
-	RNum *num = R_NEW (RNum);
-	if (!num) return NULL;
+R_API RNum *r_num_new(RNumCallback cb, RNumCallback2 cb2, void *ptr) {
+	RNum *num = R_NEW0 (RNum);
+	if (!num) {
+		return NULL;
+	}
 	num->value = 0LL;
 	num->callback = cb;
+	num->cb_from_value = cb2;
 	num->userptr = ptr;
 	return num;
 }
 
 R_API void r_num_free(RNum *num) {
-	free (num);
+	R_FREE (num);
 }
 
 #define KB (1024)
@@ -98,6 +75,20 @@ R_API char *r_num_units(char *buf, ut64 num) {
 		snprintf (buf, 31, "%.0f%c", fnum, unit);
 	}
 	return buf;
+}
+
+R_API const char *r_num_get_name(RNum *num, ut64 n) {
+	if (num->cb_from_value) {
+		int ok = 0;
+		const char *msg = num->cb_from_value (num, n, &ok);
+		if (msg && *msg) {
+			return msg;
+		}
+		if (ok) {
+			return msg;
+		}
+	}
+	return NULL;
 }
 
 // TODO: try to avoid the use of sscanf
@@ -285,34 +276,39 @@ R_API ut64 r_num_math(RNum *num, const char *str) {
 			}
 			group[0] = '(';
 			p = group+1;
-			if (r_str_delta (p, '(', ')')<0) {
+			if (r_str_delta (p, '(', ')') < 0) {
 				char *p2 = strchr (p, '(');
 				if (p2 != NULL) {
 					*p2 = '\0';
 					ret = r_num_op (op, ret, r_num_math_internal (num, p));
 					ret = r_num_op (op, ret, r_num_math (num, p2+1));
-					p = p2+1; 
+					p = p2+1;
 					continue;
-				} else eprintf ("WTF!\n");
-			} else ret = r_num_op (op, ret, r_num_math_internal (num, p));
-		} else ret = r_num_op (op, ret, r_num_math_internal (num, p));
+				}
+				eprintf ("WTF!\n");
+			} else {
+				ret = r_num_op (op, ret, r_num_math_internal (num, p));
+			}
+		} else {
+			ret = r_num_op (op, ret, r_num_math_internal (num, p));
+		}
 	} while (0);
 
-	if (num != NULL)
+	if (num) {
 		num->value = ret;
+	}
 	free (os);
 	return ret;
 #endif
 }
 
-R_API int r_num_is_float(struct r_num_t *num, const char *str) {
-	// TODO: also support 'f' terminated strings
-	return (strchr (str, '.') != NULL)? R_TRUE:R_FALSE;
+R_API int r_num_is_float(RNum *num, const char *str) {
+	return (IS_NUMBER (*str) && (strchr (str, '.') || str[strlen (str) - 1] == 'f'));
 }
 
-R_API double r_num_get_float(struct r_num_t *num, const char *str) {
+R_API double r_num_get_float(RNum *num, const char *str) {
 	double d = 0.0f;
-	sscanf (str, "%lf", &d);
+	(void) sscanf (str, "%lf", &d);
 	return d;
 }
 
@@ -359,7 +355,7 @@ R_API int r_num_to_trits (char *out, ut64 num) {
 	i++;
 	memmove (out, &out[i], j);
 	out[j] = '\0';
-	return R_TRUE;
+	return true;
 }
 
 R_API ut64 r_num_chs (int cylinder, int head, int sector, int sectorsize) {
@@ -434,26 +430,50 @@ R_API ut64 r_num_get_input_value(RNum *num, const char *input_value) {
 	return value;
 }
 
-R_API char* r_num_as_string(RNum *___, ut64 n) {
-	char str[10];
-	int stri, ret = 0;
+#define NIBBLE_TO_HEX(n) (((n) & 0xf) > 9 ? 'a' + ((n) & 0xf) - 10 : '0' + ((n) & 0xf))
+static int escape_char(char* dst, char byte) {
+	const char escape_map[] = "abtnvfr";
+	if (byte >= 7 && byte <= 13) {
+		*(dst++) = '\\';
+		*(dst++) = escape_map [byte - 7];
+		*dst = 0;
+		return 2;
+	} else if (byte) {
+		*(dst++) = '\\';
+		*(dst++) = 'x';
+		*(dst++) = NIBBLE_TO_HEX (byte >> 4);
+		*(dst++) = NIBBLE_TO_HEX (byte);
+		*dst = 0;
+		return 4;
+	}
+	return 0;
+}
+
+R_API char* r_num_as_string(RNum *___, ut64 n, bool printable_only) {
+	char str[34]; // 8 byte * 4 chars in \x?? format
+	int stri, ret = 0, off = 0;
 	int len = sizeof (ut64);
 	ut64 num = n;
 	str[stri=0] = 0;
 	while (len--) {
 		char ch = (num & 0xff);
-		if (ch>=33 && ch <127) {
+		if (ch >= 32 && ch < 127) {
 			str[stri++] = ch;
 			str[stri] = 0;
+		} else if (!printable_only && (off = escape_char (str + stri, ch)) != 0) {
+			stri += off;
 		} else {
 			if (ch)
 				return NULL;
 		}
-		ret |= (num&0xff);
+		ret |= (num & 0xff);
 		num >>= 8;
 	}
-	if (ret)
+	if (ret) {
 		return strdup (str);
+	} else if (!printable_only) {
+		return strdup ("\\0");
+	}
 	return NULL;
 }
 

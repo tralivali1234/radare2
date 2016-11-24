@@ -6,11 +6,7 @@ typedef int integer_t;
 
 // NOTE(eddyb) the following have been slightly modified to work under radare.
 
-#include "mach/machine.h"
-#include "mach/vm_prot.h"
-#include "mach-o/loader.h"
-#include "mach-o/nlist.h"
-#include "mach-o/fat.h"
+#include "mach0_defines.h"
 
 // HACK(eddyb) everything below is from the old mach0_specs.h, should replace
 // with proper original definitions.
@@ -194,13 +190,17 @@ struct arm_thread_state64 {
 
 struct cache_header {
 	char version[16];
-	ut32 baseaddroff;
-	ut32 unk2;
+	ut32 baseaddroff; //mappingOffset
+	ut32 mappingCount;
 	ut32 startaddr;
 	ut32 numlibs;
-
 	ut64 dyldaddr;
-	//ut64 codesignoff;
+	ut64 codeSignatureOffset;
+	ut64 codeSignatureSize;
+	ut64 slideInfoOffset;
+	ut64 slideInfoSize;
+	ut64 localSymbolsOffset;
+	ut64 localSymbolsSize;
 };
 
 #endif

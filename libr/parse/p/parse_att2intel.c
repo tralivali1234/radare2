@@ -6,7 +6,7 @@
 
 #include <r_lib.h>
 #include <r_util.h>
-#include <r_flags.h>
+#include <r_flag.h>
 #include <r_anal.h>
 #include <r_parse.h>
 
@@ -49,7 +49,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 				}
 				newstr[k]='\0';
 			}
-			return R_TRUE;
+			return true;
 		}
 	}
 
@@ -62,7 +62,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		}
 	}
 
-	return R_FALSE;
+	return false;
 }
 
 static int parse(RParse *p, const char *data, char *str) {
@@ -75,6 +75,7 @@ static int parse(RParse *p, const char *data, char *str) {
 
 	// malloc can be slow here :?
 	buf = strdup (data);
+	if (!buf) return false;
 	r_str_trim_head (buf);
 
 	ptr = strchr (buf, '#');
@@ -85,7 +86,7 @@ static int parse(RParse *p, const char *data, char *str) {
 	if (*buf == '.' || buf[strlen(buf)-1] == ':') {
 		free (buf);
 		strcpy (str, data);
-		return R_TRUE;
+		return true;
 	}
 	r_str_replace_char (buf, '$', 0);
 	r_str_replace_char (buf, '%', 0);
@@ -115,7 +116,7 @@ static int parse(RParse *p, const char *data, char *str) {
 	if (*buf) {
 		*w0 = *w1 = *w2 = *w3 = 0;
 		ptr = strchr (buf, ' ');
-		if (ptr == NULL)
+		if (!ptr)
 			ptr = strchr (buf, '\t');
 		if (ptr) {
 			*ptr = '\0';
@@ -150,7 +151,7 @@ static int parse(RParse *p, const char *data, char *str) {
 		}
 	}
 	free (buf);
-	return R_TRUE;
+	return true;
 }
 
 struct r_parse_plugin_t r_parse_plugin_att2intel = {

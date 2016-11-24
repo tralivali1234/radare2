@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2013 - pancake */
+/* radare - LGPL - Copyright 2009-2016 - pancake */
 
 #include <r_cons.h>
 #include <unistd.h>
@@ -14,15 +14,26 @@ static int backup_fdn = 1;
 #endif
 
 R_API int r_cons_pipe_open(const char *file, int fdn, int append) {
-	int fd = r_sandbox_open (file,
+	char *targetFile;
+	if (fdn < 1) {
+		return -1;
+	}
+	if (!strncmp (file, "~/", 2) || !strncmp (file, "~\\", 2)) {
+		targetFile = r_str_home (file + 2);
+	} else {
+		targetFile = strdup (file);
+	}
+	int fd = r_sandbox_open (targetFile,
 		O_BINARY | O_RDWR | O_CREAT | (append? O_APPEND: O_TRUNC), 0644);
 	if (fd==-1) {
 		eprintf ("r_cons_pipe_open: Cannot open file '%s'\n", file);
+		free (targetFile);
 		return -1;
 	}// else eprintf ("%s created\n", file);
-	if (backup_fd != -1)
+	if (backup_fd != -1) {
 		close (backup_fd);
-	backup_fdn = (fdn>0)? fdn: 1;
+	}
+	backup_fdn = fdn;
 #if __WINDOWS__ && !__CYGWIN__
 	backup_fd = 2002-(fd-2); // windows xp has 2048 as limit fd
 	if (_dup2 (fdn, backup_fd) == -1) {
@@ -32,10 +43,12 @@ R_API int r_cons_pipe_open(const char *file, int fdn, int append) {
 	if (dup2 (fdn, backup_fd) == -1) {
 #endif
 		eprintf ("Cannot dup stdout to %d\n", backup_fd);
+		free (targetFile);
 		return -1;
 	}
 	close (fdn);
 	dup2 (fd, fdn);
+	free (targetFile);
 	return fd;
 }
 

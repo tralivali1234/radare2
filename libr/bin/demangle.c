@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2015 - pancake */
+/* radare - LGPL - Copyright 2011-2016 - pancake */
 
 #include <r_bin.h>
 #include <cxx/demangle.h>
@@ -109,14 +109,15 @@ R_API char *r_bin_demangle_msvc(const char *str) {
 	SDemangler *mangler = 0;
 
 	create_demangler (&mangler);
+	if (!mangler) return NULL;
 	if (init_demangler (mangler, (char *)str) == eDemanglerErrOK) {
-		mangler->demangle(mangler, &out/*demangled_name*/);
+		mangler->demangle (mangler, &out/*demangled_name*/);
 	}
 	free_demangler (mangler);
 	return out;
 }
 
-R_API char *r_bin_demangle_cxx(const char *str) {
+R_API char *r_bin_demangle_cxx(RBinFile *binfile, const char *str, ut64 vaddr) {
 	char *out;
 	// DMGL_TYPES | DMGL_PARAMS | DMGL_ANSI | DMGL_VERBOSE
 	// | DMGL_RET_POSTFIX | DMGL_TYPES;
@@ -131,10 +132,10 @@ R_API char *r_bin_demangle_cxx(const char *str) {
 		"imp.",
 		NULL
 	};
-	if (str[0]==str[1] && *str=='_') {
+	if (str[0] == str[1] && *str == '_') {
 		str++;
 	} {
-		for (i=0; prefixes[i]; i++) {
+		for (i = 0; prefixes[i]; i++) {
 			int plen = strlen (prefixes[i]);
 			if (!strncmp (str, prefixes[i], plen)) {
 				str += plen;
@@ -148,11 +149,21 @@ R_API char *r_bin_demangle_cxx(const char *str) {
 	/* TODO: implement a non-gpl alternative to c++v3 demangler */
 	out = NULL;
 #endif
-
 	if (out) {
 		r_str_replace_char (out, ' ', 0);
 	}
-
+	{
+		/* extract class/method information */
+		char *nerd = (char*)r_str_last (out, "::");
+		if (nerd && *nerd) {
+			*nerd = 0;
+			RBinSymbol *sym = r_bin_class_add_method (binfile, out, nerd + 2, 0);
+			if (sym) {
+				sym->vaddr = vaddr;
+			}
+			*nerd = ':';
+		}
+	}
 	return out;
 }
 
@@ -164,23 +175,27 @@ R_API char *r_bin_demangle_objc(RBinFile *binfile, const char *sym) {
 	int i, nargs = 0;
 	const char *type = NULL;
 
-	if (!binfile || !sym)
+	if (!binfile || !sym) {
 		return NULL;
+	}
 	if (binfile && binfile->o && binfile->o->classes) {
 		binfile = NULL;
 	}
-
 	/* classes */
 	if (!strncmp (sym, "_OBJC_Class_", 12)) {
 		ret = r_str_newf ("class %s", sym + 12);
-		if (binfile) r_bin_class_new (binfile, sym + 12,
-					NULL, R_BIN_CLASS_PUBLIC);
+		if (binfile) {
+			r_bin_class_new (binfile, sym + 12,
+				NULL, R_BIN_CLASS_PUBLIC);
+		}
 		return ret;
 	}
 	if (!strncmp (sym, "_OBJC_CLASS_$_", 14)) {
 		ret = r_str_newf ("class %s", sym + 14);
-		if (binfile) r_bin_class_new (binfile, sym + 14,
-					NULL, R_BIN_CLASS_PUBLIC);
+		if (binfile) {
+			r_bin_class_new (binfile, sym + 14,
+				NULL, R_BIN_CLASS_PUBLIC);
+		}
 		return ret;
 	}
 	/* fields */
@@ -191,7 +206,7 @@ R_API char *r_bin_demangle_objc(RBinFile *binfile, const char *sym) {
 		type = "field";
 		if (p) {
 			*p = 0;
-			name = strdup (p+1);
+			name = strdup (p + 1);
 		} else {
 			name = NULL;
 		}
@@ -229,6 +244,7 @@ R_API char *r_bin_demangle_objc(RBinFile *binfile, const char *sym) {
 		args = strstr (clas, "__");
 		if (!args) {
 			free (clas);
+			free (name);
 			return NULL;
 		}
 		*args = 0;
@@ -266,7 +282,10 @@ R_API char *r_bin_demangle_objc(RBinFile *binfile, const char *sym) {
 			}
 			if (type && name && *name) {
 				ret = r_str_newf ("%s int  %s::%s(%s)", type, clas, name, args);
-				if (binfile) r_bin_class_add_method (binfile, clas, name, nargs);
+				if (binfile) {
+					r_bin_class_add_method (binfile, clas, name, nargs);
+
+				}
 			}
 		}
 	}
@@ -343,15 +362,30 @@ R_API int r_bin_lang_type(RBinFile *binfile, const char *def, const char *sym) {
 	return type;
 }
 
-R_API char *r_bin_demangle (RBinFile *binfile, const char *def, const char *str) {
+R_API char *r_bin_demangle(RBinFile *binfile, const char *def, const char *str, ut64 vaddr) {
 	int type = -1;
-	RBin *bin = binfile->rbin;
+	RBin *bin;
+	if (!binfile || !str || !*str) {
+		return NULL;
+	}
+	bin = binfile->rbin;
+	if (!strncmp (str, "sym.", 4)) {
+		str += 4;
+	}
 	if (!strncmp (str, "imp.", 4)) {
 		str += 4;
 	}
 	if (!strncmp (str, "__", 2)) {
-		type = R_BIN_NM_CXX;
-		str++;
+		if (str[2] == 'T') {
+			type = R_BIN_NM_SWIFT;
+		} else {
+			type = R_BIN_NM_CXX;
+		//	str++;
+		}
+	}
+	// if str is sym. or imp. when str+=4 str points to the end so just return
+	if (!*str) {
+		return NULL;
 	}
 	if (type == -1) {
 		type = r_bin_lang_type (binfile, def, str);
@@ -359,10 +393,10 @@ R_API char *r_bin_demangle (RBinFile *binfile, const char *def, const char *str)
 	switch (type) {
 	case R_BIN_NM_JAVA: return r_bin_demangle_java (str);
 	/* rust uses the same mangling as c++ and appends a uniqueid */
-	case R_BIN_NM_RUST: return r_bin_demangle_cxx (str);
-	case R_BIN_NM_CXX: return r_bin_demangle_cxx (str);
+	case R_BIN_NM_RUST: return r_bin_demangle_cxx (binfile, str, vaddr);
 	case R_BIN_NM_OBJC: return r_bin_demangle_objc (NULL, str);
-	case R_BIN_NM_SWIFT: return r_bin_demangle_swift (str);
+	case R_BIN_NM_SWIFT: return r_bin_demangle_swift (str, bin->demanglercmd);
+	case R_BIN_NM_CXX: return r_bin_demangle_cxx (binfile, str, vaddr);
 	case R_BIN_NM_DLANG: return r_bin_demangle_plugin (bin, "dlang", str);
 	}
 	return NULL;

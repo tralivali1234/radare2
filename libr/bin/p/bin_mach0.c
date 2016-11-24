@@ -1,28 +1,44 @@
-/* radare - LGPL - Copyright 2009-2015 - pancake */
+/* radare - LGPL - Copyright 2009-2016 - pancake */
 
 #include <r_types.h>
 #include <r_util.h>
 #include <r_lib.h>
 #include <r_bin.h>
 #include "mach0/mach0.h"
-
 #include "objc/mach0_classes.h"
+
+extern RBinWrite r_bin_write_mach0;
 
 static int check(RBinFile *arch);
 static int check_bytes(const ut8 *buf, ut64 length);
 static RBinInfo* info(RBinFile *arch);
 
 static Sdb* get_sdb (RBinObject *o) {
-	if (!o) return NULL;
+	if (!o) {
+		return NULL;
+	}
 	struct MACH0_(obj_t) *bin = (struct MACH0_(obj_t) *) o->bin_obj;
-	if (bin && bin->kv) return bin->kv;
+	if (bin && bin->kv) {
+		return bin->kv;
+	}
 	return NULL;
+}
+
+static char *entitlements(RBinFile *arch) {
+	struct MACH0_(obj_t) *bin;
+	if (!arch || !arch->o) {
+	    return NULL;
+	}
+	bin = arch->o->bin_obj;
+	return (char *)bin->signature;
 }
 
 static void * load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
 	struct MACH0_(obj_t) *res = NULL;
 	RBuffer *tbuf = NULL;
-	if (!buf || sz == 0 || sz == UT64_MAX) return NULL;
+	if (!buf || !sz || sz == UT64_MAX) {
+		return NULL;
+	}
 	tbuf = r_buf_new();
 	r_buf_set_bytes (tbuf, buf, sz);
 	res = MACH0_(new_buf) (tbuf);
@@ -71,14 +87,17 @@ static RList* entries(RBinFile *arch) {
 	RBinObject *obj = arch ? arch->o : NULL;
 	struct addr_t *entry = NULL;
 
-	if (!obj || !obj->bin_obj || !(ret = r_list_new ()))
+	if (!obj || !obj->bin_obj || !(ret = r_list_new ())) {
 		return NULL;
+	}
 	ret->free = free;
-	if (!(entry = MACH0_(get_entrypoint) (obj->bin_obj)))
+	if (!(entry = MACH0_(get_entrypoint) (obj->bin_obj))) {
 		return ret;
+	}
 	if ((ptr = R_NEW0 (RBinAddr))) {
 		ptr->paddr = entry->offset + obj->boffset;
-		ptr->vaddr = entry->addr; //
+		ptr->vaddr = entry->addr;
+		ptr->haddr = entry->haddr;
 		r_list_append (ret, ptr);
 	}
 	free (entry);
@@ -101,11 +120,24 @@ static RList* sections(RBinFile *arch) {
 		if (!(ptr = R_NEW0 (RBinSection)))
 			break;
 		strncpy (ptr->name, (char*)sections[i].name, R_BIN_SIZEOF_STRINGS);
+		if (strstr (ptr->name, "la_symbol_ptr")) {
+#ifndef R_BIN_MACH064
+			const int sz = 4;
+#else
+			const int sz = 8;
+#endif
+			int len = sections[i].size / sz;
+			ptr->format = r_str_newf ("Cd %d[%d]", sz, len);
+		}
 		ptr->name[R_BIN_SIZEOF_STRINGS] = 0;
+		if (strstr (ptr->name, "_cstring")) {
+			ptr->is_data = true;
+		}
 		ptr->size = sections[i].size;
 		ptr->vsize = sections[i].size;
 		ptr->paddr = sections[i].offset + obj->boffset;
 		ptr->vaddr = sections[i].addr;
+		ptr->add = true;
 		if (ptr->vaddr == 0)
 			ptr->vaddr = ptr->paddr;
 		ptr->srwx = sections[i].srwx | R_BIN_SCN_MAP;
@@ -143,11 +175,12 @@ static RList* symbols(RBinFile *arch) {
 		ptr->name = strdup ((char*)symbols[i].name);
 		ptr->forwarder = r_str_const ("NONE");
 		ptr->bind = r_str_const ((symbols[i].type == R_BIN_MACH0_SYMBOL_TYPE_LOCAL)?
-			"LOCAL":"GLOBAL");
+			"LOCAL": "GLOBAL");
 		ptr->type = r_str_const ("FUNC");
 		ptr->vaddr = symbols[i].addr;
-		ptr->paddr = symbols[i].offset+obj->boffset;
+		ptr->paddr = symbols[i].offset + obj->boffset;
 		ptr->size = symbols[i].size;
+		ptr->bits = wordsize;
 		if (wordsize == 16) {
 			// if thumb, hint non-thumb symbols
 			if (!(ptr->paddr & 1)) {
@@ -166,7 +199,7 @@ static RList* symbols(RBinFile *arch) {
 		ut64 value = 0, address = 0;
 		const ut8* temp = bin->func_start;
 		const ut8* temp_end = bin->func_start + bin->func_size;
-		while (*temp && temp+3 < temp_end) {
+		while (temp+3 < temp_end && *temp) {
 			temp = r_uleb128_decode (temp, NULL, &value);
 			address += value;
 			ptr = R_NEW0 (RBinSymbol);
@@ -250,7 +283,6 @@ static RList* relocs(RBinFile *arch) {
 	if (arch && arch->o) {
 		bin = arch->o->bin_obj;
 	}
-
 	if (!obj || !obj->bin_obj || !(ret = r_list_newf (free)))
 		return NULL;
 	ret->free = free;
@@ -326,15 +358,13 @@ static RBinInfo* info(RBinFile *arch) {
 	ret->arch = MACH0_(get_cputype) (arch->o->bin_obj);
 	ret->machine = MACH0_(get_cpusubtype) (arch->o->bin_obj);
 	ret->type = MACH0_(get_filetype) (arch->o->bin_obj);
+	ret->big_endian = MACH0_(is_big_endian) (arch->o->bin_obj);
 	ret->bits = 32;
-	ret->big_endian = 0;
 	if (arch && arch->o && arch->o->bin_obj) {
 		ret->has_crypto = ((struct MACH0_(obj_t)*)
 			arch->o->bin_obj)->has_crypto;
 		ret->bits = MACH0_(get_bits) (arch->o->bin_obj);
-		ret->big_endian = MACH0_(is_big_endian) (arch->o->bin_obj);
 	}
-
 	ret->has_va = true;
 	ret->has_pi = MACH0_(is_pie) (arch->o->bin_obj);
 	return ret;
@@ -345,7 +375,6 @@ static int check(RBinFile *arch) {
 	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
 	ut64 sz = arch ? r_buf_size (arch->buf): 0;
 	return check_bytes (bytes, sz);
-
 }
 
 static int check_bytes(const ut8 *buf, ut64 length) {
@@ -368,13 +397,18 @@ typedef struct r_bin_create_t {
 #endif
 
 static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, int dlen) {
+	const bool use_pagezero = true;
+	const bool use_main = true;
+	const bool use_dylinker = true;
+	const bool use_libsystem = true;
 	ut32 filesize, codeva, datava;
 	ut32 ncmds, cmdsize, magiclen;
 	ut32 p_codefsz = 0, p_codeva = 0, p_codesz = 0, p_codepa = 0;
 	ut32 p_datafsz = 0, p_datava = 0, p_datasz = 0, p_datapa = 0;
 	ut32 p_cmdsize = 0, p_entry = 0, p_tmp = 0;
 	ut32 baddr = 0x1000;
-	int is_arm = !strcmp (bin->cur->o->info->arch, "arm");
+
+	bool is_arm = strstr (bin->cur->o->info->arch, "arm");
 	RBuffer *buf = r_buf_new ();
 #ifndef R_BIN_MACH064
 	if (bin->cur->o->info->bits == 64) {
@@ -392,22 +426,33 @@ static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, in
 
 	/* MACH0 HEADER */
 	B ("\xce\xfa\xed\xfe", 4); // header
+// 64bit header	B ("\xce\xfa\xed\xfe", 4); // header
 	if (is_arm) {
 		D (12); // cpu type (arm)
 		D (3); // subtype (all?)
 	} else {
 		/* x86-32 */
 		D (7); // cpu type (x86)
+// D(0x1000007); // x86-64
 		D (3); // subtype (i386-all)
 	}
 	D (2); // filetype (executable)
 
-	if (data && dlen>0) {
+	if (data && dlen > 0) {
 		ncmds = 3;
 		cmdsize = 0;
 	} else {
 		ncmds = 2;
 		cmdsize = 0;
+	}
+	if (use_pagezero) {
+		ncmds++;
+	}
+	if (use_dylinker) {
+		ncmds++;
+		if (use_libsystem) {
+			ncmds++;
+		}
 	}
 
 	/* COMMANDS */
@@ -415,7 +460,23 @@ static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, in
 	p_cmdsize = buf->length;
 	D (-1); // cmdsize
 	D (0); // flags
+	// D (0x01200085); // alternative flags found in some a.out..
 	magiclen = buf->length;
+
+	if (use_pagezero) {
+		/* PAGEZERO */
+		D (1);   // cmd.LC_SEGMENT
+		D (56); // sizeof (cmd)
+		WZ (16, "__PAGEZERO");
+		D (0); // vmaddr
+		D (0x00001000); // vmsize XXX
+		D (0); // fileoff
+		D (0); // filesize
+		D (0); // maxprot
+		D (0); // initprot
+		D (0); // nsects
+		D (0); // flags
+	}
 
 	/* TEXT SEGMENT */
 	D (1);   // cmd.LC_SEGMENT
@@ -438,14 +499,14 @@ static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, in
 	D (-1);
 	p_codepa = buf->length; // code - baddr
 	D (-1); //_start-0x1000);
-	D (2); // align
+	D (0); // align // should be 2 for 64bit
 	D (0); // reloff
 	D (0); // nrelocs
 	D (0); // flags
 	D (0); // reserved
-	D (0);
+	D (0); // ??
 
-	if (data && dlen>0) {
+	if (data && dlen > 0) {
 		/* DATA SEGMENT */
 		D (1);   // cmd.LC_SEGMENT
 		D (124); // sizeof (cmd)
@@ -478,44 +539,86 @@ static RBuffer* create(RBin* bin, const ut8 *code, int clen, const ut8 *data, in
 		D (0); // reserved
 		D (0);
 	}
+	if (use_dylinker) {
+		const char *dyld = "/usr/lib/dyld";
+		const int dyld_len = strlen (dyld) + 1;
+		D(0xe); /* LC_DYLINKER */
+		D((4 * 3) + dyld_len);
+		D(dyld_len - 2);
+		WZ(dyld_len, dyld); // path
 
-	/* THREAD STATE */
-	D (5); // LC_UNIXTHREAD
-	D (80); // sizeof (cmd)
-	if (is_arm) {
-		/* arm */
-		D (1); // i386-thread-state
-		D (17); // thread-state-count
-		p_entry = buf->length + (16*sizeof (ut32));
-		Z (17 * sizeof (ut32));
-		// mach0-arm has one byte more
-	} else {
-		/* x86-32 */
-		D (1); // i386-thread-state
-		D (16); // thread-state-count
-		p_entry = buf->length + (10*sizeof (ut32));
-		Z (16 * sizeof (ut32));
+		if (use_libsystem) {
+			/* add libSystem at least ... */
+			const char *lib = "/usr/lib/libSystem.B.dylib";
+			const int lib_len = strlen (lib) + 1;
+			D(0xc); /* LC_LOAD_DYLIB */
+			D(28 + lib_len); // cmdsize
+			D(28); // offset where the lib string start
+			D(0x2);
+			D(0x1);
+			D(0x1);
+			D(0x04ca0a01); // tstamp
+			WZ(lib_len, lib);
+		}
 	}
 
-	cmdsize = buf->length - magiclen;
+	if (use_main) {
+		/* LC_MAIN */
+		D (0x80000028);   // cmd.LC_MAIN
+		D (24); // sizeof (cmd)
+		D (baddr + 0x10); // entryoff
+		D (0); // stacksize
+		D (0); // ???
+		D (0); // ???
+		p_entry = buf->length + (6 * sizeof (ut32));
+	} else {
+		/* THREAD STATE */
+		D (5); // LC_UNIXTHREAD
+		D (80); // sizeof (cmd)
+		if (is_arm) {
+			/* arm */
+			D (1); // i386-thread-state
+			D (17); // thread-state-count
+			p_entry = buf->length + (16 * sizeof (ut32));
+			Z (17 * sizeof (ut32));
+			// mach0-arm has one byte more
+		} else {
+			/* x86-32 */
+			D (1); // i386-thread-state
+			D (16); // thread-state-count
+			p_entry = buf->length + (10 * sizeof (ut32));
+			Z (16 * sizeof (ut32));
+		}
+	}
 
+	/* padding to make mach_loader checks happy */
+	/* binaries must be at least of 4KB :( not tiny anymore */
+	WZ (4096 - buf->length, "");
+
+	cmdsize = buf->length - magiclen;
 	codeva = buf->length + baddr;
 	datava = buf->length + clen + baddr;
-	W (p_entry, &codeva, 4); // set PC
+	if (p_entry == 0) {
+		eprintf ("No entrypoint address\n");
+	} else {
+		W (p_entry, &codeva, 4); // set PC
+	}
 
 	/* fill header variables */
 	W (p_cmdsize, &cmdsize, 4);
 	filesize = magiclen + cmdsize + clen + dlen;
 	// TEXT SEGMENT //
-	W (p_codefsz, &filesize, 4);
+	int cfsz = 1;
+	W (p_codefsz, &cfsz, 4);
 	W (p_codeva, &codeva, 4);
+	// clen = 4096;
 	W (p_codesz, &clen, 4);
 	p_tmp = codeva - baddr;
 	W (p_codepa, &p_tmp, 4);
 
 	B (code, clen);
 
-	if (data && dlen>0) {
+	if (data && dlen > 0) {
 		/* append data */
 		W (p_datafsz, &filesize, 4);
 		W (p_datava, &datava, 4);
@@ -546,7 +649,7 @@ static RBinAddr* binsym(RBinFile *arch, int sym) {
 	return ret;
 }
 
-static int size(RBinFile *arch) {
+static ut64 size(RBinFile *arch) {
 	ut64 off = 0;
 	ut64 len = 0;
 	if (!arch->o->sections) {
@@ -563,6 +666,7 @@ static int size(RBinFile *arch) {
 	return off+len;
 }
 
+
 RBinPlugin r_bin_plugin_mach0 = {
 	.name = "mach0",
 	.desc = "mach0 bin plugin",
@@ -576,6 +680,7 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.baddr = &baddr,
 	.binsym = &binsym,
 	.entries = &entries,
+	.signature = &entitlements,
 	.sections = &sections,
 	.symbols = &symbols,
 	.imports = &imports,
@@ -584,11 +689,12 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.libs = &libs,
 	.relocs = &relocs,
 	.create = &create,
-	.classes = &MACH0_(parse_classes)
+	.classes = &MACH0_(parse_classes),
+	.write = &r_bin_write_mach0,
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_mach0,
 	.version = R2_VERSION

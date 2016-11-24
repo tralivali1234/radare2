@@ -26,7 +26,12 @@ static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		return -1;
 	}
 
-	syntaxstr = ".intel_syntax noprefix\n"; // if intel syntax
+	if (a->syntax == R_ASM_SYNTAX_INTEL)
+		syntaxstr = ".intel_syntax noprefix\n";
+
+	if (a->syntax == R_ASM_SYNTAX_ATT)
+		syntaxstr = ".att_syntax\n";
+
 	len = snprintf (asm_buf, sizeof (asm_buf),
 			"%s.code%i\n" //.org 0x%"PFMT64x"\n"
 			".ascii \"BEGINMARK\"\n"
@@ -80,9 +85,7 @@ RAsmPlugin r_asm_plugin_x86_as = {
 	.license = "LGPL3",
 	// NOTE: 64bits is not supported on OSX's nasm :(
 	.bits = 16|32|64,
-	.init = NULL,
-	.fini = NULL,
-	.disassemble = NULL,
+	.endian = R_SYS_ENDIAN_LITTLE,
 	.assemble = &assemble,
 };
 

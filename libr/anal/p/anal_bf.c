@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2011-2015 - pancake */
+/* radare2 - LGPL - Copyright 2011-2016 - pancake */
 
 #include <string.h>
 #include <r_types.h>
@@ -8,21 +8,29 @@
 
 static int countChar (const ut8 *buf, int len, char ch) {
 	int i;
-	for (i=0; i<len; i++) {
+	for (i = 0; i < len; i++) {
 		if (buf[i] != ch)
 			break;
 	}
 	return i;
 }
 
+static int getid (char ch) {
+	const char *keys = "[]<>+-,.";
+	const char *cidx = strchr (keys, ch);
+	return cidx? cidx - keys + 1: 0;
+}
+
 static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	ut64 dst = 0LL;
-	if (op == NULL)
+	if (!op) {
 		return 1;
+	}
 	/* Ayeeee! What's inside op? Do we have an initialized RAnalOp? Are we going to have a leak here? :-( */
 	memset (op, 0, sizeof (RAnalOp)); /* We need to refactorize this. Something like r_anal_op_init would be more appropiate */
 	r_strbuf_init (&op->esil);
 	op->size = 1;
+	op->id = getid (buf[0]);
 	switch (buf[0]) {
 	case '[':
 		op->type = R_ANAL_OP_TYPE_CJMP;
@@ -30,7 +38,8 @@ static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		{
 			const ut8 *p = buf + 1;
 			int lev = 0, i = 1;
-			while (i<len && *p) {
+			len--;
+			while (i < len && *p) {
 				if (*p == '[')
 					lev++;
 				if (*p == ']') {
@@ -95,8 +104,8 @@ static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	return op->size;
 }
 
-static int set_reg_profile(RAnal *anal) {
-	const char *p = \
+static char *get_reg_profile(RAnal *anal) {
+	return strdup (
 		"=PC	pc\n"
 		"=BP	brk\n"
 		"=SP	ptr\n"
@@ -108,8 +117,8 @@ static int set_reg_profile(RAnal *anal) {
 		"gpr	pc	.32	4	0\n" // program counter
 		"gpr	brk	.32	8	0\n" // brackets
 		"gpr	scr	.32	12	0\n" // screen
-		"gpr	kbd	.32	16	0\n"; // keyboard
-	return r_reg_set_profile_string (anal->reg, p);
+		"gpr	kbd	.32	16	0\n" // keyboard
+	);
 }
 
 struct r_anal_plugin_t r_anal_plugin_bf = {
@@ -120,7 +129,7 @@ struct r_anal_plugin_t r_anal_plugin_bf = {
 	.bits = 8,
 	.esil = true,
 	.op = &bf_op,
-	.set_reg_profile = set_reg_profile,
+	.get_reg_profile = get_reg_profile,
 };
 
 #ifndef CORELIB

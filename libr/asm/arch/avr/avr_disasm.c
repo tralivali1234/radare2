@@ -58,7 +58,7 @@ static int lookupInstruction(uint16_t opcode, int offset);
 static int disassembleInstruction(disassembledInstruction *dInstruction, const assembledInstruction aInstruction) {
 	int insidx, i;
 	
-	if (dInstruction == NULL)
+	if (!dInstruction)
 		return ERROR_INVALID_ARGUMENTS;
 	
 	
@@ -201,9 +201,9 @@ static int disassembleOperands(disassembledInstruction *dInstruction) {
 	int i;
 	
 	/* This should never happen */
-	if (dInstruction == NULL)
+	if (!dInstruction)
 		return ERROR_INVALID_ARGUMENTS;
-	if (dInstruction->instruction == NULL)
+	if (!dInstruction->instruction)
 		return ERROR_INVALID_ARGUMENTS;
 	
 	/* For each operand, decode its original value. */
@@ -257,8 +257,10 @@ static int disassembleOperands(disassembledInstruction *dInstruction) {
 				 * is 16 bits, and the operand data's signedness only starts at 0x1000.
 				 * Therefore we must convert to the positive value and then make the entire
 				 * short negative. */
-				dInstruction->operands[i] = (~dInstruction->operands[i]+1)&0xFFF;
-				dInstruction->operands[i] = -dInstruction->operands[i]+2;
+				short val = ((~dInstruction->operands[i]) ) & 0xFFF;
+				//dInstruction->operands[i] = (~dInstruction->operands[i])&0xFFF;
+				dInstruction->operands[i] = -val + 1;
+				//dInstruction->operands[i] += 2;
 			} else {
 				dInstruction->operands[i] += 2;
 			}

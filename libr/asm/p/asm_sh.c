@@ -32,7 +32,7 @@ static void memory_error_func(int status, bfd_vma memaddr, struct disassemble_in
 
 static void print_address(bfd_vma address, struct disassemble_info *info) {
 	char tmp[32];
-	if (buf_global == NULL)
+	if (!buf_global)
 		return;
 	sprintf (tmp, "0x%08"PFMT64x"", (ut64)address);
 	strcat (buf_global, tmp);
@@ -42,7 +42,7 @@ static int buf_fprintf(void *stream, const char *format, ...) {
 	va_list ap;
 	char *tmp;
 	int ret;
-	if (buf_global == NULL)
+	if (!buf_global)
 		return 0;
 	tmp = malloc (strlen (format)+strlen (buf_global)+2);
 	if (!tmp)
@@ -74,7 +74,7 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	disasm_obj.stream = stdout;
 
 	op->buf_asm[0] = '\0';
-	if (a->big_endian)
+	if (disasm_obj.endian == BFD_ENDIAN_BIG)
 		op->size = print_insn_shb ((bfd_vma)Offset, &disasm_obj);
 	else
 		op->size = print_insn_shl ((bfd_vma)Offset, &disasm_obj);
@@ -89,11 +89,9 @@ RAsmPlugin r_asm_plugin_sh = {
 	.arch = "sh",
 	.license = "GPL3",
 	.bits = 32,
+	.endian = R_SYS_ENDIAN_LITTLE | R_SYS_ENDIAN_BIG,
 	.desc = "SuperH-4 CPU",
-	.init = NULL,
-	.fini = NULL,
-	.disassemble = &disassemble,
-	.assemble = NULL
+	.disassemble = &disassemble
 };
 
 #ifndef CORELIB

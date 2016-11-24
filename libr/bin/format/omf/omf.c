@@ -31,7 +31,7 @@ int r_bin_checksum_omf_ok(const char *buf, ut64 buf_size) {
 		eprintf ("Invalid record (too short)\n");
 		return false;
 	}
-	size = *((ut16 *)(buf + 1));
+	size = ut8p_bw (buf + 1);
 	if (buf_size < size + 3) {
 		eprintf ("Invalid record (too short)\n");
 		return false;
@@ -111,6 +111,12 @@ static int load_omf_lnames(OMF_record *record, const char *buf, ut64 buf_size) {
 
 		if (record->size + 3 < buf[3 + tmp_size] + tmp_size) {
 			eprintf ("Invalid Lnames record (bad size)\n");
+			free (ret);
+			return false;
+		}
+
+		if (!(buf[3 + tmp_size] + 1)) {
+			free (ret);
 			return false;
 		}
 
@@ -696,6 +702,7 @@ int r_bin_omf_send_sections(RList *list, OMF_segment *section, r_bin_omf_obj *ob
 		new->vaddr = section->vaddr + data->offset + OMF_BASE_ADDR;
 		new->srwx = R_BIN_SCN_EXECUTABLE | R_BIN_SCN_WRITABLE |
 			R_BIN_SCN_READABLE | R_BIN_SCN_MAP;
+		new->add = true;
 		r_list_append (list, new);
 		data = data->next;
 	}

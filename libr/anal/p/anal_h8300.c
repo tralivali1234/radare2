@@ -53,7 +53,7 @@ static void h8300_anal_jmp(RAnalOp *op, ut64 addr, const ut8 *buf) {
 		break;
 	case H8300_JMP_2:
 		op->type = R_ANAL_OP_TYPE_JMP;
-		r_mem_copyendian((ut8*)&ad, buf + 2, sizeof(ut16), !LIL_ENDIAN);
+		r_mem_swapendian ((ut8*)&ad, buf + 2, sizeof (ut16));
 		op->jump = ad;
 		break;
 	case H8300_JMP_3:
@@ -72,8 +72,7 @@ static void h8300_anal_jsr(RAnalOp *op, ut64 addr, const ut8 *buf) {
 		break;
 	case H8300_JSR_2:
 		op->type = R_ANAL_OP_TYPE_CALL;
-		r_mem_copyendian((ut8*)&ad, buf + 2,
-				sizeof(ut16), !LIL_ENDIAN);
+		r_mem_swapendian ((ut8*)&ad, buf + 2, sizeof (ut16));
 		op->jump = ad;
 		op->fail = addr + 4;
 		break;
@@ -540,7 +539,7 @@ static int h8300_op(RAnal *anal, RAnalOp *op, ut64 addr,
 	ut8 opcode = buf[0];
 	struct h8300_cmd cmd;
 
-	if (op == NULL)
+	if (!op)
 		return 2;
 
 	memset(op, 0, sizeof (RAnalOp));

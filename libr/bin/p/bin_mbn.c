@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2015 - pancake */
+/* radare2 - LGPL - Copyright 2015-2016 - pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -25,9 +25,12 @@ static int check_bytes(const ut8 *buf, ut64 length);
 static SBLHDR sb = {0};
 
 static int check(RBinFile *arch) {
-	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
-	ut64 sz = r_buf_size (arch->buf);
-	return check_bytes (bytes, sz);
+	if (arch && arch->buf) {
+		const ut8 *bytes = r_buf_buffer (arch->buf);
+		ut64 sz = r_buf_size (arch->buf);
+		return check_bytes (bytes, sz);
+	}
+	return false;
 }
 
 static int check_bytes(const ut8 *buf, ut64 bufsz) {
@@ -121,6 +124,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->paddr = sb.paddr + 40;
 	ptr->vaddr = sb.vaddr;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	ptr->add = true;
 	ptr->has_strings = true;
 	r_list_append (ret, ptr);
 
@@ -133,6 +137,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->vaddr = sb.sign_va;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
 	ptr->has_strings = true;
+	ptr->add = true;
 	r_list_append (ret, ptr);
 
 	if (sb.cert_sz && sb.cert_va > sb.vaddr) {
@@ -145,6 +150,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->vaddr = sb.cert_va;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
 		ptr->has_strings = true;
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	return ret;
@@ -153,7 +159,7 @@ static RList* sections(RBinFile *arch) {
 static RBinInfo* info(RBinFile *arch) {
 	RBinInfo *ret = NULL;
 	const int bits = 16;
-	if ((ret = R_NEW0 (RBinInfo)) == NULL)
+	if (!(ret = R_NEW0 (RBinInfo)))
 		return NULL;
 	ret->file = strdup (arch->file);
 	ret->bclass = strdup ("bootloader");
@@ -173,7 +179,7 @@ static RBinInfo* info(RBinFile *arch) {
 	return ret;
 }
 
-static int size(RBinFile *arch) {
+static ut64 size(RBinFile *arch) {
 	return sizeof (SBLHDR) + sb.psize;
 }
 
