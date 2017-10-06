@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2016 - pancake */
+/* radare2 - LGPL - Copyright 2013-2017 - pancake */
 
 #include <r_asm.h>
 #include <r_lib.h>
@@ -13,6 +13,9 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	cs_insn* insn;
 	int mode, n, ret = -1;
 	mode = (a->big_endian)? CS_MODE_BIG_ENDIAN: CS_MODE_LITTLE_ENDIAN;
+	if (!op) {
+		return 0;
+	}
 	if (a->cpu && *a->cpu) {
 		if (!strcmp (a->cpu, "micro")) {
 			mode |= CS_MODE_MICRO;
@@ -20,13 +23,15 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 			mode |= CS_MODE_MIPS32R6;
 		} else if (!strcmp (a->cpu, "v3")) {
 			mode |= CS_MODE_MIPS3;
+		} else if (!strcmp (a->cpu, "v2")) {
+#if CS_API_MAJOR > 3
+			mode |= CS_MODE_MIPS2;
+#endif
 		}
 	}
-	mode |= (a->bits == 64)? CS_MODE_64: CS_MODE_32;
-	if (op) {
-		memset (op, 0, sizeof (RAsmOp));
-		op->size = 4;
-	}
+	mode |= (a->bits == 64)? CS_MODE_MIPS64 : CS_MODE_MIPS32;
+	memset (op, 0, sizeof (RAsmOp));
+	op->size = 4;
 	if (cd != 0) {
 		cs_close (&cd);
 	}
@@ -40,9 +45,6 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 		cs_option (cd, CS_OPT_SYNTAX, CS_OPT_SYNTAX_DEFAULT);
 	}
 	cs_option (cd, CS_OPT_DETAIL, CS_OPT_OFF);
-	if (!op) {
-		return 0;
-	}
 	n = cs_disasm (cd, (ut8*)buf, len, a->pc, 1, &insn);
 	if (n < 1) {
 		strcpy (op->buf_asm, "invalid");
@@ -85,7 +87,7 @@ RAsmPlugin r_asm_plugin_mips_cs = {
 	.desc = "Capstone MIPS disassembler",
 	.license = "BSD",
 	.arch = "mips",
-	.cpus = "gp64,micro,r6,v3",
+	.cpus = "mips32/64,micro,r6,v3,v2",
 	.bits = 16|32|64,
 	.endian = R_SYS_ENDIAN_LITTLE | R_SYS_ENDIAN_BIG,
 	.disassemble = &disassemble,

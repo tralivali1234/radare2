@@ -9,6 +9,9 @@ F+= types-x86-windows-32
 F+= types-x86-windows-64
 F+= types-linux
 F+= types-x86-osx-64
+F+= types-arm-ios-16
+F+= types-arm-ios-32
+F+= types-arm-ios-64
 F+= cc-x86-64
 F+= cc-x86-32
 F+= cc-mips-32
@@ -44,16 +47,16 @@ compile: ${F_SDB}
 
 linux-x86-32.sdb: linux-x86-32
 
-%.sdb:%
+%.sdb:%.sdb.txt
 ifneq ($(SILENT),)
-	@echo SDB $<
-	@rm -f $<.sdb
-	@cat $< | ${SDB} $<.sdb =
-	@test -f $<.sdb
+	@echo SDB $@
+	@rm -f $@
+	@cat $< | ${SDB} $@ =
+	@test -f $@
 else
-	rm -f $<.sdb
-	cat $< | ${SDB} $<.sdb =
-	test -f $<.sdb
+	rm -f $@
+	cat $< | ${SDB} $@ =
+	test -f $@
 endif
 
 clean:

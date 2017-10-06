@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2016 - Fedor Sakharov */
+/* radare - LGPL - Copyright 2014-2017 - Fedor Sakharov */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -7,10 +7,8 @@
 
 #include "coff/coff.h"
 
-static int check(RBinFile *arch);
-static int check_bytes(const ut8 *buf, ut64 length);
-
-static Sdb* get_sdb(RBinObject *o) {
+static Sdb* get_sdb(RBinFile *bf) {
+	RBinObject *o = bf->o;
 	if (!o) {
 		return NULL;
 	}
@@ -22,20 +20,17 @@ static Sdb* get_sdb(RBinObject *o) {
 }
 
 static void * load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb) {
-	void *res = NULL;
-	RBuffer *tbuf = NULL;
-
 	if (!buf || !sz || sz == UT64_MAX) {
 		return NULL;
 	}
-	tbuf = r_buf_new();
+	RBuffer *tbuf = r_buf_new();
 	r_buf_set_bytes (tbuf, buf, sz);
-	res = r_bin_coff_new_buf(tbuf);
+	void *res = r_bin_coff_new_buf (tbuf, arch->rbin->verbose);
 	r_buf_free (tbuf);
 	return res;
 }
 
-static int load(RBinFile *arch) {
+static bool load(RBinFile *arch) {
 	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
 	ut64 sz = arch ? r_buf_size (arch->buf): 0;
 
@@ -58,7 +53,6 @@ static ut64 baddr(RBinFile *arch) {
 static RBinAddr *binsym(RBinFile *arch, int sym) {
 	return NULL;
 }
-
 
 static bool _fill_bin_symbol(struct r_bin_coff_obj *bin, int idx, RBinSymbol **sym) {
 	RBinSymbol *ptr = *sym;
@@ -116,8 +110,8 @@ static RList *entries(RBinFile *arch) {
 	if (!(ret = r_list_newf (free))) {
 		return NULL;
 	}
-	ptr = r_coff_get_entry(obj);
-	r_list_append(ret, ptr);
+	ptr = r_coff_get_entry (obj);
+	r_list_append (ret, ptr);
 	return ret;
 }
 
@@ -190,6 +184,8 @@ static RList *symbols(RBinFile *arch) {
 			}
 			if (_fill_bin_symbol (obj, i, &ptr)) {
 				r_list_append (ret, ptr);
+			} else {
+				free (ptr);
 			}
 			i += obj->symbols[i].n_numaux;
 		}
@@ -256,7 +252,7 @@ static RList *relocs(RBinFile *arch) {
 				reloc->vaddr = reloc->paddr;
 				r_list_append (list_rel, reloc);
 			}
-
+			free (rel);
 		}
 	}
 	return list_rel;
@@ -275,6 +271,7 @@ static RBinInfo *info(RBinFile *arch) {
 	ret->big_endian = obj->endian;
 	ret->has_va = false;
 	ret->dbg_info = 0;
+	ret->has_lit = true;
 
 	if (r_coff_is_stripped (obj)) {
 		ret->dbg_info |= R_BIN_DBG_STRIPPED;
@@ -341,14 +338,7 @@ static ut64 size(RBinFile *arch) {
 	return 0;
 }
 
-static int check(RBinFile *arch) {
-	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
-	ut64 sz = arch ? r_buf_size (arch->buf): 0;
-	return check_bytes (bytes, sz);
-
-}
-
-static int check_bytes(const ut8 *buf, ut64 length) {
+static bool check_bytes(const ut8 *buf, ut64 length) {
 #if 0
 TODO: do more checks here to avoid false positives
 
@@ -374,7 +364,6 @@ RBinPlugin r_bin_plugin_coff = {
 	.load = &load,
 	.load_bytes = &load_bytes,
 	.destroy = &destroy,
-	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
 	.binsym = &binsym,
@@ -390,7 +379,7 @@ RBinPlugin r_bin_plugin_coff = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_coff,
 	.version = R2_VERSION

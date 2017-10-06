@@ -19,6 +19,9 @@
 #include <mach/task_info.h>
 void macosx_debug_regions (RIO *io, task_t task, mach_vm_address_t address, int max);
 #endif
+#ifdef _MSC_VER
+#include <process.h>  // to compile getpid for msvc windows
+#endif
 
 #define PERM_READ 4
 #define PERM_WRITE 2
@@ -111,7 +114,11 @@ static int update_self_regions(RIO *io, int pid) {
 
 	return true;
 #else
+#ifdef _MSC_VER
+#pragma message ("Not yet implemented for this platform")
+#else
 	#warning not yet implemented for this platform
+#endif
 	return false;
 #endif
 }
@@ -127,8 +134,8 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 	io->va = true; // nop
 	ret = update_self_regions (io, pid);
 	if (ret) {
-		return r_io_desc_new (&r_io_plugin_self,
-			pid, file, rw, mode, NULL);
+		return r_io_desc_new (io, &r_io_plugin_self,
+			file, rw, mode, NULL);
 	}
 	return NULL;
 }
@@ -292,7 +299,11 @@ static int __system(RIO *io, RIODesc *fd, const char *cmd) {
 		// TODO: use setitimer
 		alarm (atoi (cmd + 6));
 #else
+#ifdef _MSC_VER
+#pragma message ("self:// alarm is not implemented for this platform yet")
+#else
 	#warning "self:// alarm is not implemented for this platform yet"
+#endif
 #endif
 	} else if (!strncmp (cmd, "dlsym ", 6)) {
 		const char *symbol = cmd + 6;

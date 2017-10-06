@@ -4,7 +4,7 @@
 #include <r_types.h>
 #include <r_util.h>
 #include <r_list.h>
-#include <r_db.h>
+#include <r_skiplist.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -32,10 +32,14 @@ typedef struct r_flag_zone_item_t {
 
 /* flag.c */
 
+typedef struct r_flags_at_offset_t {
+	ut64 off;
+	RList *flags;   /* list of RFlagItem at offset */
+} RFlagsAtOffset;
+
 typedef struct r_flag_item_t {
 	char *name;     /* unique name, escaped to avoid issues with r2 shell */
 	char *realname; /* real name, without any escaping */
-	ut64 namehash;  /* hash of the name, to be used as the key of the hashtable */
 	ut64 offset;    /* offset flagged by this item */
 	ut64 size;      /* size of the flag item */
 	int space;      /* flag space this item belongs to */
@@ -50,8 +54,8 @@ typedef struct r_flag_t {
 	bool space_strict; /* when true returned flag items must belong to the selected space */
 	char *spaces[R_FLAG_SPACES_MAX]; /* array of flag spaces */
 	RNum *num;
-	RHashTable64 *ht_off; /* hashmap key=item name, value=RList of items */
-	RHashTable64 *ht_name; /* hashmap key=item name, value=RList of items */
+	RSkipList *by_off; /* flags sorted by offset, value=RFlagsAtOffset */
+	SdbHash *ht_name; /* hashmap key=item name, value=RList of items */
 	RList *flags;   /* list of RFlagItem contained in the flag */
 	RList *spacestack;
 	PrintfCallback cb_printf;
@@ -66,7 +70,7 @@ typedef struct r_flag_t {
 
 typedef bool (*RFlagExistAt)(RFlag *f, const char *flag_prefix, ut16 fp_size, ut64 off);
 typedef RFlagItem* (*RFlagGet)(RFlag *f, const char *name);
-typedef RFlagItem* (*RFlagGetAt)(RFlag *f, ut64 addr);
+typedef RFlagItem* (*RFlagGetAt)(RFlag *f, ut64 addr, bool closest);
 typedef RFlagItem* (*RFlagSet)(RFlag *f, const char *name, ut64 addr, ut32 size);
 typedef int (*RFlagSetSpace)(RFlag *f, const char *name);
 
@@ -91,7 +95,7 @@ R_API bool r_flag_exist_at(RFlag *f, const char *flag_prefix, ut16 fp_size, ut64
 R_API RFlagItem *r_flag_get(RFlag *f, const char *name);
 R_API RFlagItem *r_flag_get_i(RFlag *f, ut64 off);
 R_API RFlagItem *r_flag_get_i2(RFlag *f, ut64 off);
-R_API RFlagItem *r_flag_get_at(RFlag *f, ut64 off);
+R_API RFlagItem *r_flag_get_at(RFlag *f, ut64 off, bool closest);
 R_API const RList* /*<RFlagItem*>*/ r_flag_get_list(RFlag *f, ut64 off);
 R_API char *r_flag_get_liststr(RFlag *f, ut64 off);
 R_API int r_flag_unset(RFlag *f, RFlagItem *item);
@@ -122,6 +126,7 @@ R_API int r_flag_space_list(RFlag *f, int mode);
 R_API int r_flag_space_rename (RFlag *f, const char *oname, const char *nname);
 R_API int r_flag_space_pop(RFlag *f);
 R_API int r_flag_space_push(RFlag *f, const char *name);
+R_API int r_flag_space_stack_list(RFlag *f, int mode);
 
 /* zones */
 

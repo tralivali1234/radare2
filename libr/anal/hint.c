@@ -3,7 +3,7 @@
 #include <r_anal.h>
 
 #define DB a->sdb_hints
-#define setf(x,y...) snprintf(x,sizeof(x)-1,##y)
+#define setf(x,...) snprintf(x,sizeof(x)-1,##__VA_ARGS__)
 
 R_API void r_anal_hint_clear(RAnal *a) {
 	sdb_reset (a->sdb_hints);
@@ -16,7 +16,7 @@ R_API void r_anal_hint_del(RAnal *a, ut64 addr, int size) {
 	} else {
 		setf (key, "hint.0x%08"PFMT64x, addr);
 		sdb_unset (a->sdb_hints, key, 0);
-		a->sdb_hints_changed = true;
+		a->bits_hints_changed = true;
 	}
 }
 
@@ -28,7 +28,6 @@ static void unsetHint(RAnal *a, const char *type, ut64 addr) {
 	if (idx != -1) {
 		sdb_array_delete (DB, key, idx, 0);
 		sdb_array_delete (DB, key, idx, 0);
-		a->sdb_hints_changed = true;
 	}
 }
 
@@ -51,7 +50,6 @@ static void setHint(RAnal *a, const char *type, ut64 addr, const char *s, ut64 p
 		sdb_array_push (DB, key, nval, 0);
 		sdb_array_push (DB, key, type, 0);
 	}
-	a->sdb_hints_changed = true;
 	if (s) {
 		free (nval);
 	}
@@ -86,6 +84,7 @@ R_API void r_anal_hint_set_esil(RAnal *a, ut64 addr, const char *esil) {
 	setHint (a, "esil:", addr, r_str_trim_const (esil), 0);
 }
 R_API void r_anal_hint_set_bits(RAnal *a, ut64 addr, int bits) {
+	a->bits_hints_changed = true;
 	setHint (a, "bits:", addr, NULL, bits);
 }
 R_API void r_anal_hint_set_size(RAnal *a, ut64 addr, int size) {
@@ -95,6 +94,7 @@ R_API void r_anal_hint_unset_size(RAnal *a, ut64 addr) {
 	unsetHint(a, "size:", addr);
 }
 R_API void r_anal_hint_unset_bits(RAnal *a, ut64 addr) {
+	a->bits_hints_changed = true;
 	unsetHint(a, "bits:", addr);
 }
 R_API void r_anal_hint_unset_esil(RAnal *a, ut64 addr) {
@@ -130,56 +130,57 @@ R_API void r_anal_hint_free(RAnalHint *h) {
 }
 
 R_API RAnalHint *r_anal_hint_from_string(RAnal *a, ut64 addr, const char *str) {
-	char *r, *nxt;
+	char *r, *nxt, *nxt2;
 	int token = 0;
 	RAnalHint *hint = R_NEW0 (RAnalHint);
 	char *s;
 	if (!hint) {
 		return NULL;
 	}
+	hint->jump = UT64_MAX;
+	hint->fail = UT64_MAX;
 	s = strdup (str);
 	if (!s) {
 		free (hint);
 		return NULL;
 	}
 	hint->addr = addr;
-	for (r = s; ; r = nxt) {
+	token = *s;
+	for (r = s; ; r = nxt2) {
 		r = sdb_anext (r, &nxt);
-		if (token) {
-			switch (token) {
-			case 'i': hint->immbase = sdb_atoi (r); break;
-			case 'j': hint->jump = sdb_atoi (r); break;
-			case 'f': hint->fail = sdb_atoi (r); break;
-			case 'p': hint->ptr  = sdb_atoi (r); break;
-			case 'b': hint->bits = sdb_atoi (r); break;
-			case 's': hint->size = sdb_atoi (r); break;
-			case 'S': hint->syntax = (char*)sdb_decode (r, 0); break;
-			case 'o': hint->opcode = (char*)sdb_decode (r, 0); break;
-			case 'e': hint->esil = (char*)sdb_decode (r, 0); break;
-			case 'a': hint->arch = (char*)sdb_decode (r, 0); break;
-			}
-			token = 0;
-		} else {
-			token = *r;
-		}
 		if (!nxt) {
 			break;
 		}
+		sdb_anext (nxt, &nxt2); // tokenize value
+		if (token) {
+			switch (token) {
+			case 'i': hint->immbase = sdb_atoi (nxt); break;
+			case 'j': hint->jump = sdb_atoi (nxt); break;
+			case 'f': hint->fail = sdb_atoi (nxt); break;
+			case 'p': hint->ptr  = sdb_atoi (nxt); break;
+			case 'b': hint->bits = sdb_atoi (nxt); break;
+			case 's': hint->size = sdb_atoi (nxt); break;
+			case 'S': hint->syntax = (char*)sdb_decode (nxt, 0); break;
+			case 'o': hint->opcode = (char*)sdb_decode (nxt, 0); break;
+			case 'e': hint->esil = (char*)sdb_decode (nxt, 0); break;
+			case 'a': hint->arch = (char*)sdb_decode (nxt, 0); break;
+			}
+		}
+		if (!nxt || !nxt2) {
+			break;
+		}
+		token = *nxt2;
 	}
 	free (s);
 	return hint;
 }
 
 R_API RAnalHint *r_anal_hint_get(RAnal *a, ut64 addr) {
-	char key[128];
-	const char *s;
-	RAnalHint *hint;
-
+	char key[64];
 	setf (key, "hint.0x%08"PFMT64x, addr);
-	s = sdb_const_get (DB, key, 0);
+	const char *s = sdb_const_get (DB, key, 0);
 	if (!s) {
 		return NULL;
 	}
-	hint = r_anal_hint_from_string (a, addr, s);
-	return hint;
+	return r_anal_hint_from_string (a, addr, s);
 }

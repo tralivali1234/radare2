@@ -1,12 +1,20 @@
-/* radare - LGPL - Copyright 2009-2016 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2017 - pancake, nibble */
 
 #include <stdio.h>
+#include <r_core.h>
 #include <r_types.h>
 #include <r_util.h>
 #include <r_asm.h>
-#include "../config.h"
+#include <spp/spp.h>
+#include <config.h>
 
 R_LIB_VERSION (r_asm);
+
+char *directives[] = {
+	".include", ".error", ".warning",
+	".echo", ".if", ".ifeq", ".endif",
+	".else", ".set", ".get", NULL
+};
 
 static RAsmPlugin *asm_static_plugins[] = { R_ASM_STATIC_PLUGINS };
 
@@ -29,7 +37,7 @@ static int r_asm_pseudo_string(RAsmOp *op, char *input, int zero) {
 	}
 	len = r_str_unescape (input)+zero;
 	r_hex_bin2str ((ut8*)input, len, op->buf_hex);
-	strncpy ((char*)op->buf, input, R_ASM_BUFSIZE-1);
+	strncpy ((char*)op->buf, input, R_ASM_BUFSIZE - 1);
 	return len;
 }
 
@@ -136,7 +144,9 @@ R_API RAsm *r_asm_new() {
 	if (!a) {
 		return NULL;
 	}
+	a->dataalign = 1;
 	a->bits = R_SYS_BITS;
+	a->bitshift = 0;
 	a->syntax = R_ASM_SYNTAX_INTEL;
 	a->plugins = r_list_newf ((RListFree)plugin_free);
 	if (!a->plugins) {
@@ -189,8 +199,10 @@ R_API RAsm *r_asm_free(RAsm *a) {
 			r_list_free (a->plugins);
 			a->plugins = NULL;
 		}
+		r_syscall_free (a->syscall);
 		free (a->cpu);
 		sdb_free (a->pair);
+		ht_free (a->flags);
 		a->pair = NULL;
 		free (a);
 	}
@@ -224,7 +236,6 @@ R_API int r_asm_del(RAsm *a, const char *name) {
 	/* TODO: Implement r_asm_del */
 	return false;
 }
-
 
 R_API int r_asm_is_valid(RAsm *a, const char *name) {
 	RAsmPlugin *h;
@@ -296,8 +307,10 @@ static int has_bits(RAsmPlugin *h, int bits) {
 }
 
 R_API void r_asm_set_cpu(RAsm *a, const char *cpu) {
-	free (a->cpu);
-	a->cpu = cpu? strdup (cpu): NULL;
+	if (a) {
+		free (a->cpu);
+		a->cpu = cpu? strdup (cpu): NULL;
+	}
 }
 
 R_API int r_asm_set_bits(RAsm *a, int bits) {
@@ -353,11 +366,12 @@ R_API int r_asm_set_pc(RAsm *a, ut64 pc) {
 
 R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	int oplen, ret;
-	if (!a || !buf) { //  || !op || !buf) {
+	if (!a || !buf || !op) {
 		return -1;
 	}
 	ret = op->payload = 0;
 	op->size = 4;
+	op->bitsize = 0;
 	if (len < 1) {
 		return 0;
 	}
@@ -376,15 +390,32 @@ R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 		}
 	}
 	if (a->cur && a->cur->disassemble) {
-		ret = a->cur->disassemble (a, op, buf, len);
+		// shift buf N bits
+		if (a->bitshift > 0) {
+			ut8 *tmp = calloc (len, 1);
+			if (tmp) {
+				r_mem_copybits_delta (tmp, 0, buf, a->bitshift, (len * 8) - a->bitshift);
+				ret = a->cur->disassemble (a, op, tmp, len);
+				free (tmp);
+			}
+		} else {
+			ret = a->cur->disassemble (a, op, buf, len);
+		}
 	}
 	if (ret < 0) {
 		ret = 0;
 	}
 	oplen = r_asm_op_get_size (op);
-	oplen = op->size;
-	if (oplen > len) {
-		oplen = len;
+	if (op->bitsize > 0) {
+		oplen = op->size = op->bitsize / 8;
+		a->bitshift += op->bitsize % 8;
+		int count = a->bitshift / 8;
+		if (count > 0) {
+			oplen = op->size = op->size + count;
+			a->bitshift %= 8;
+		}
+	} else {
+		oplen = op->size;
 	}
 	if (oplen < 1) {
 		oplen = 1;
@@ -406,12 +437,11 @@ R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	if (a->ofilter) {
 		r_parse_parse (a->ofilter, op->buf_asm, op->buf_asm);
 	}
-	memcpy (op->buf, buf, oplen);
-	*op->buf_hex = 0;
-	if ((oplen * 4) >= sizeof (op->buf_hex)) {
-		oplen = (sizeof (op->buf_hex) / 4) - 1;
-	}
-	r_hex_bin2str (buf, oplen, op->buf_hex);
+	//XXX check against R_ASM_BUFSIZE other oob write
+	memcpy (op->buf, buf, R_MIN (R_ASM_BUFSIZE - 1, oplen));
+	const int addrbytes = a->user ? ((RCore *)a->user)->io->addrbytes : 1;
+	r_hex_bin2str (buf, R_MIN (addrbytes * oplen,
+		(sizeof (op->buf_hex) - 1) / 2), op->buf_hex);
 	return ret;
 }
 
@@ -442,9 +472,62 @@ static Ase findAssembler(RAsm *a, const char *kw) {
 	return ase;
 }
 
+static char *replace_directives_for(char *str, char *token) {
+	RStrBuf *sb = r_strbuf_new ("");
+	char *p = NULL;
+	char *q = str;
+	bool changes = false;
+	for (;;) {
+		if (q) p = strstr (q, token);
+		if (p) {
+			char *nl = strchr (p, '\n');
+			if (nl) {
+				*nl ++ = 0;
+			}
+			char _ = *p;
+			*p = 0;
+			r_strbuf_append (sb, q);
+			*p = _;
+			r_strbuf_appendf (sb, "<{%s}>\n", p + 1);
+			q = nl;
+			changes = true;
+		} else {
+			if (q) r_strbuf_append (sb, q);
+			break;
+		}
+	}
+	if (changes) {
+		free (str);
+		return r_strbuf_drain (sb);
+	}
+	r_strbuf_free (sb);
+	return str;
+}
+
+static char *replace_directives(char *str) {
+	int i = 0;
+	char *dir = directives[i++];
+	char *o = replace_directives_for (str, dir);
+	while (dir) {
+		o = replace_directives_for (o, dir);
+		dir = directives[i++];
+	}
+	return o;
+}
+
+R_API void r_asm_list_directives() {
+	int i = 0;
+	char *dir = directives[i++];
+	while (dir) {
+		printf ("%s\n", dir);
+		dir = directives[i++];
+	}
+}
+
 R_API int r_asm_assemble(RAsm *a, RAsmOp *op, const char *buf) {
 	int ret = 0;
 	char *b = strdup (buf);
+
 	if (!b) {
 		return 0;
 	}
@@ -475,7 +558,7 @@ R_API int r_asm_assemble(RAsm *a, RAsmOp *op, const char *buf) {
 		r_hex_bin2str (op->buf, ret, op->buf_hex);
 		op->size = ret;
 		op->buf_hex[ret*2] = 0;
-		strncpy (op->buf_asm, b, R_ASM_BUFSIZE-1);
+		strncpy (op->buf_asm, b, R_ASM_BUFSIZE - 1);
 	}
 	free (b);
 	return ret;
@@ -484,10 +567,11 @@ R_API int r_asm_assemble(RAsm *a, RAsmOp *op, const char *buf) {
 R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len) {
 	RStrBuf *buf_asm;
 	RAsmCode *acode;
-	int ret, slen;
 	ut64 pc = a->pc;
 	RAsmOp op;
 	ut64 idx;
+	int ret, slen;
+	const int addrbytes = a->user ? ((RCore *)a->user)->io->addrbytes : 1;
 
 	if (!(acode = r_asm_code_new ())) {
 		return NULL;
@@ -496,15 +580,14 @@ R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len) {
 		return r_asm_code_free (acode);
 	}
 	memcpy (acode->buf, buf, len);
-	if (!(acode->buf_hex = malloc (2 * len+1))) {
+	if (!(acode->buf_hex = calloc (2, len + 1))) {
 		return r_asm_code_free (acode);
 	}
 	r_hex_bin2str (buf, len, acode->buf_hex);
-	if (!(acode->buf_asm = malloc (4))) {
+	if (!(buf_asm = r_strbuf_new (NULL))) {
 		return r_asm_code_free (acode);
 	}
-	buf_asm = r_strbuf_new (NULL);
-	for (idx = ret = slen = 0, acode->buf_asm[0] = '\0'; idx < len; idx += ret) {
+	for (idx = ret = slen = 0; idx + addrbytes <= len; idx += addrbytes * ret) {
 		r_asm_set_pc (a, pc + idx);
 		ret = r_asm_disassemble (a, &op, buf + idx, len - idx);
 		if (ret < 1) {
@@ -551,6 +634,17 @@ R_API RAsmCode* r_asm_assemble_file(RAsm *a, const char *file) {
 	return ac;
 }
 
+static void flag_free_kv(HtKv *kv) {
+	free (kv->key);
+	free (kv->value);
+	free (kv);
+}
+
+static char* dup_val(void *v) {
+	char *str = strdup ((char *)v);
+	return str;
+}
+
 R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 	int labels = 0, num, stage, ret, idx, ctr, i, j, linenum = 0;
 	char *lbuf = NULL, *ptr2, *ptr = NULL, *ptr_start = NULL;
@@ -559,6 +653,10 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 	RAsmOp op = {0};
 	ut64 off, pc;
 	if (!buf) {
+		return NULL;
+	}
+	ht_free (a->flags);
+	if (!(a->flags = ht_new (dup_val, flag_free_kv, NULL))) {
 		return NULL;
 	}
 	if (!(acode = r_asm_code_new ())) {
@@ -583,8 +681,9 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 	{
 		char *nl = strchr (lbuf, '\n');
 		if (nl) {
-			if (strchr (nl + 1, '\n'))
+			if (strchr (nl + 1, '\n')) {
 				r_str_replace_char (lbuf, ';', '#');
+			}
 		}
 	}
 	// XXX: ops like mov eax, $pc+33 fail coz '+' is nov alid number!!!
@@ -609,7 +708,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 				lbuf = r_str_replace (lbuf, aa, val, 1);
 				free (aa);
 			}
-			p = strstr (p+5, "$sys.");
+			p = strstr (p + 5, "$sys.");
 		}
 	}
 	if (strchr (lbuf, ':')) {
@@ -657,7 +756,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 					isavrseparator (*ptr_start); ptr_start++);
 			} else {
 				for (ptr_start = buf_token; *ptr_start &&
-					isseparator (*ptr_start); ptr_start++);
+					ISSEPARATOR (*ptr_start); ptr_start++);
 			}
 			if (!strncmp (ptr_start, "/*", 2)) {
 				if (!strstr (ptr_start + 2, "*/")) {
@@ -696,6 +795,8 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 							off += (acode->code_align - (off % acode->code_align));
 						}
 						snprintf (food, sizeof (food), "0x%"PFMT64x"", off);
+
+						ht_insert (a->flags, ptr_start, food);
 						// TODO: warning when redefined
 						r_asm_code_set_equ (acode, ptr_start, food);
 					}
@@ -713,7 +814,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 				ptr = ptr_start;
 				if (!strncmp (ptr, ".intel_syntax", 13)) {
 					a->syntax = R_ASM_SYNTAX_INTEL;
-				} else if (!strncmp (ptr, ".att_syntax", 10)) {
+				} else if (!strncmp (ptr, ".att_syntax", 11)) {
 					a->syntax = R_ASM_SYNTAX_ATT;
 				} else if (!strncmp (ptr, ".endian", 7)) {
 					r_asm_set_big_endian (a, atoi (ptr + 7));
@@ -727,7 +828,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 				} else if (!strncmp (ptr, ".string ", 8)) {
 					r_str_chop (ptr + 8);
 					ret = r_asm_pseudo_string (&op, ptr + 8, 1);
-				} else if (!strncmp (ptr, ".ascii ", 6)) {
+				} else if (!strncmp (ptr, ".ascii", 6)) {
 					ret = r_asm_pseudo_string (&op, ptr + 7, 0);
 				} else if (!strncmp (ptr, ".align", 6)) {
 					ret = r_asm_pseudo_align (acode, &op, ptr + 7);
@@ -860,7 +961,7 @@ R_API char *r_asm_op_get_asm(RAsmOp *op) {
 R_API int r_asm_op_get_size(RAsmOp *op) {
 	int len;
 	if (!op) {
-		return 0;
+		return 1;
 	}
 	len = op->size - op->payload;
 	if (len < 1) {
@@ -896,6 +997,7 @@ R_API bool r_asm_set_arch(RAsm *a, const char *name, int bits) {
 	return r_asm_set_bits (a, bits);
 }
 
+/* to ease the use of the native bindings (not used in r2) */
 R_API char *r_asm_to_string(RAsm *a, ut64 addr, const ut8 *b, int l) {
 	RAsmCode *code;
 	r_asm_set_pc (a, addr);
@@ -960,4 +1062,25 @@ R_API int r_asm_mnemonics_byname(RAsm *a, const char *name) {
 		}
 	}
 	return 0;
+}
+
+R_API RAsmCode* r_asm_rasm_assemble(RAsm *a, const char *buf, bool use_spp) {
+	char *lbuf = strdup (buf);
+	RAsmCode *acode;
+	if (use_spp) {
+		Output out;
+		out.fout = NULL;
+		out.cout = r_strbuf_new ("");
+		r_strbuf_init (out.cout);
+		struct Proc proc;
+		spp_proc_set (&proc, "spp", 1);
+
+		lbuf = replace_directives (lbuf);
+		spp_eval (lbuf, &out);
+		free (lbuf);
+		lbuf = strdup (r_strbuf_get (out.cout));
+	}
+	acode = r_asm_massemble (a, lbuf);
+	free (lbuf);
+	return acode;
 }

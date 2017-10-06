@@ -12,20 +12,25 @@ https://en.wikipedia.org/wiki/Atmel_AVR_instruction_set
 #include <r_asm.h>
 #include <r_anal.h>
 
+static RDESContext desctx;
+
 typedef struct _cpu_const_tag {
 	const char *const key;
+	ut8 type;
 	ut32 value;
 	ut8 size;
 } CPU_CONST;
+
+#define CPU_CONST_NONE	0
+#define CPU_CONST_PARAM	1
+#define CPU_CONST_REG	2
 
 typedef struct _cpu_model_tag {
 	const char *const model;
 	int pc;
 	char *inherit;
 	struct _cpu_model_tag *inherit_cpu_p;
-	union {
-		CPU_CONST *consts[10];
-	};
+	CPU_CONST *consts[10];
 } CPU_MODEL;
 
 typedef void (*inst_handler_t) (RAnal *anal, RAnalOp *op, const ut8 *buf, int *fail, CPU_MODEL *cpu);
@@ -54,7 +59,7 @@ static int avr_op_analyze(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, C
 
 #define INST_HANDLER(OPCODE_NAME)	static void _inst__ ## OPCODE_NAME (RAnal *anal, RAnalOp *op, const ut8 *buf, int *fail, CPU_MODEL *cpu)
 #define INST_DECL(OP, M, SL, C, SZ, T)	{ #OP, (M), (SL), _inst__ ## OP, (C), (SZ), R_ANAL_OP_TYPE_ ## T }
-#define INST_LAST			{ "unknown", 0, 0, (void *) 0, 2, 1, R_ANAL_OP_TYPE_UNK      }
+#define INST_LAST			{ "unknown", 0, 0, (void *) 0, 2, 1, R_ANAL_OP_TYPE_UNK }
 
 #define INST_CALL(OPCODE_NAME)		_inst__ ## OPCODE_NAME (anal, op, buf, fail, cpu)
 #define INST_INVALID			{ *fail = 1; return; }
@@ -68,54 +73,45 @@ static int avr_op_analyze(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, C
 //	ATmega8
 //	ATmega88
 CPU_CONST cpu_reg_common[] = {
-	{ "spl",      0x3d, sizeof (ut8) },
-	{ "sph",      0x3e, sizeof (ut8) },
-	{ "sreg",     0x3f, sizeof (ut8) },
-	{ "spmcr",    0x37, sizeof (ut8) },
-	{ NULL, 0, 0 },
+	{ "spl",    CPU_CONST_REG, 0x3d, sizeof (ut8) },
+	{ "sph",    CPU_CONST_REG, 0x3e, sizeof (ut8) },
+	{ "sreg",   CPU_CONST_REG, 0x3f, sizeof (ut8) },
+	{ "spmcsr", CPU_CONST_REG, 0x37, sizeof (ut8) },
+	{ NULL, 0, 0, 0 },
 };
 
 CPU_CONST cpu_memsize_common[] = {
-	{ "eeprom_size",  512, sizeof (ut32) },
-	{ "io_size",     0x40, sizeof (ut32) },
-	{ "sram_start",  0x60, sizeof (ut32) },
-	{ "sram_size",   1024, sizeof (ut32) },
-	{ NULL, 0, 0 },
+	{ "eeprom_size", CPU_CONST_PARAM,  512, sizeof (ut32) },
+	{ "io_size",     CPU_CONST_PARAM, 0x40, sizeof (ut32) },
+	{ "sram_start",  CPU_CONST_PARAM, 0x60, sizeof (ut32) },
+	{ "sram_size",   CPU_CONST_PARAM, 1024, sizeof (ut32) },
+	{ NULL, 0, 0, 0 },
 };
 
 CPU_CONST cpu_memsize_m640_m1280m_m1281_m2560_m2561[] = {
-	{ "eeprom_size",    512, sizeof (ut32) },
-	{ "io_size",      0x1ff, sizeof (ut32) },
-	{ "sram_start",   0x200, sizeof (ut32) },
-	{ "sram_size",   0x2000, sizeof (ut32) },
-	{ NULL, 0, 0 },
+	{ "eeprom_size", CPU_CONST_PARAM,    512, sizeof (ut32) },
+	{ "io_size",     CPU_CONST_PARAM,  0x1ff, sizeof (ut32) },
+	{ "sram_start",  CPU_CONST_PARAM,  0x200, sizeof (ut32) },
+	{ "sram_size",   CPU_CONST_PARAM, 0x2000, sizeof (ut32) },
+	{ NULL, 0, 0, 0 },
 };
 
-CPU_CONST cpu_pagesize_32[] = {
-	{ "page_size", 32, sizeof (ut8) },
-	{ NULL, 0, 0 },
+CPU_CONST cpu_pagesize_5_bits[] = {
+	{ "page_size", CPU_CONST_PARAM, 5, sizeof (ut8) },
+	{ NULL, 0, 0, 0 },
 };
 
-CPU_CONST cpu_pagesize_256[] = {
-	{ "page_size", 256, sizeof (ut8) },
-	{ NULL, 0, 0 },
+CPU_CONST cpu_pagesize_7_bits[] = {
+	{ "page_size", CPU_CONST_PARAM, 7, sizeof (ut8) },
+	{ NULL, 0, 0, 0 },
 };
 
 CPU_MODEL cpu_models[] = {
-	{
-		.model = "ATmega8", .pc = 13,
-		.consts = {
-			cpu_reg_common,
-			cpu_memsize_common,
-			cpu_pagesize_32,
-			NULL
-		}
-	},
 	{ .model = "ATmega640",   .pc = 15,
 		.consts = {
 			cpu_reg_common,
 			cpu_memsize_m640_m1280m_m1281_m2560_m2561,
-			cpu_pagesize_256,
+			cpu_pagesize_7_bits,
 			NULL
 		},
 	},
@@ -124,18 +120,31 @@ CPU_MODEL cpu_models[] = {
 	{ .model = "ATmega2560",  .pc = 17, .inherit = "ATmega640" },
 	{ .model = "ATmega2561",  .pc = 17, .inherit = "ATmega640" },
 	{ .model = "ATmega88",    .pc = 8,  .inherit = "ATmega8" },
-	{ .model = "unknown_avr", .pc = 8,  .inherit = "ATmega8" } // default AVR - ATmega8 forever!
 //	CPU_MODEL_DECL ("ATmega168",   13, 512, 512),
+	// last model is the default AVR - ATmega8 forever!
+	{
+		.model = "ATmega8", .pc = 13,
+		.consts = {
+			cpu_reg_common,
+			cpu_memsize_common,
+			cpu_pagesize_5_bits,
+			NULL
+		}
+	},
 };
 
-static CPU_MODEL *get_cpu_model(char *model) {
-	CPU_MODEL *cpu;
+static CPU_MODEL *get_cpu_model(char *model);
+
+static CPU_MODEL *__get_cpu_model_recursive(char *model) {
+	CPU_MODEL *cpu = NULL;
 
 	for (cpu = cpu_models; cpu < cpu_models + ((sizeof (cpu_models) / sizeof (CPU_MODEL))) - 1; cpu++) {
 		if (!strcasecmp (model, cpu->model)) {
 			break;
 		}
 	}
+
+	// fix inheritance tree
 	if (cpu->inherit && !cpu->inherit_cpu_p) {
 		cpu->inherit_cpu_p = get_cpu_model (cpu->inherit);
 		if (!cpu->inherit_cpu_p) {
@@ -146,46 +155,70 @@ static CPU_MODEL *get_cpu_model(char *model) {
 	return cpu;
 }
 
+static CPU_MODEL *get_cpu_model(char *model) {
+	static CPU_MODEL *cpu = NULL;
+
+	// cached value?
+	if (cpu && !strcasecmp (model, cpu->model))
+		return cpu;
+
+	// do the real search
+	cpu = __get_cpu_model_recursive (model);
+
+	return cpu;
+}
+
 static ut32 const_get_value(CPU_CONST *c) {
 	return c ? MASK (c->size * 8) & c->value : 0;
 }
 
 
-static CPU_CONST *const_by_name(CPU_MODEL *cpu, char *c) {
+static CPU_CONST *const_by_name(CPU_MODEL *cpu, int type, char *c) {
 	CPU_CONST **clist, *citem;
 
 	for (clist = cpu->consts; *clist; clist++) {
 		for (citem = *clist; citem->key; citem++) {
-			if (!strcmp (c, citem->key)) {
+			if (!strcmp (c, citem->key)
+			&& (type == CPU_CONST_NONE || type == citem->type)) {
 				return citem;
 			}
 		}
 	}
 	if (cpu->inherit_cpu_p)
-		return const_by_name (cpu->inherit_cpu_p, c);
+		return const_by_name (cpu->inherit_cpu_p, type, c);
 	eprintf ("ERROR: CONSTANT key[%s] NOT FOUND.\n", c);
 	return NULL;
 }
 
-static CPU_CONST *const_by_value(CPU_MODEL *cpu, ut32 v) {
+static int __esil_pop_argument(RAnalEsil *esil, ut64 *v) {
+	char *t = r_anal_esil_pop (esil);
+	if (!t || !r_anal_esil_get_parm (esil, t, v)) {
+		free (t);
+		return false;
+	}
+	free (t);
+	return true;
+}
+
+static CPU_CONST *const_by_value(CPU_MODEL *cpu, int type, ut32 v) {
 	CPU_CONST **clist, *citem;
 
 	for (clist = cpu->consts; *clist; clist++) {
 		for (citem = *clist; citem && citem->key; citem++) {
-			if (citem->value == (MASK (citem->size * 8) & v)) {
+			if (citem->value == (MASK (citem->size * 8) & v)
+			&& (type == CPU_CONST_NONE || type == citem->type)) {
 				return citem;
 			}
 		}
 	}
 	if (cpu->inherit_cpu_p)
-		return const_by_value (cpu->inherit_cpu_p, v);
-	eprintf ("ERROR: CONSTANT value[%d] NOT FOUND.\n", v);
+		return const_by_value (cpu->inherit_cpu_p, type, v);
 	return NULL;
 }
 
 static RStrBuf *__generic_io_dest(ut8 port, int write, CPU_MODEL *cpu) {
 	RStrBuf *r = r_strbuf_new ("");
-	CPU_CONST *c = const_by_value (cpu, port);
+	CPU_CONST *c = const_by_value (cpu, CPU_CONST_REG, port);
 	if (c != NULL) {
 		r_strbuf_set (r, c->key);
 		if (write) {
@@ -253,60 +286,109 @@ static void __generic_push(RAnalOp *op, int sz) {
 	ESIL_A ("-%d,sp,+=,", sz);		// decrement stack pointer
 }
 
+static void __generic_add_update_flags(RAnalOp *op, char t_d, ut64 v_d, char t_rk, ut64 v_rk) {
+	RStrBuf *d_strbuf, *rk_strbuf;
+	char *d, *rk;
+
+	d_strbuf = r_strbuf_new (NULL);
+	rk_strbuf = r_strbuf_new (NULL);
+	r_strbuf_setf (d_strbuf,  t_d  == 'r' ? "r%d" : "%" PFMT64d, v_d);
+	r_strbuf_setf (rk_strbuf, t_rk == 'r' ? "r%d" : "%" PFMT64d, v_rk);
+
+	d = r_strbuf_get(d_strbuf);
+	rk = r_strbuf_get(rk_strbuf);
+
+	ESIL_A ("%s,0x08,&,!,!," "%s,0x08,&,!,!,"    "&,"	// H
+		"%s,0x08,&,!,!," "0,RPICK,0x08,&,!," "&,"
+		"%s,0x08,&,!,!," "0,RPICK,0x08,&,!," "&,"
+		"|,|,hf,=,",
+		d, rk, rk, d);
+	ESIL_A ("%s,0x80,&,!,!," "%s,0x80,&,!,!,"      "&,"	// V
+		""               "0,RPICK,0x80,&,!,"   "&,"
+		"%s,0x80,&,!,"   "%s,0x80,&,!,"        "&,"
+		""               "0,RPICK,0x80,&,!,!," "&,"
+		"|,vf,=,",
+		d, rk, d, rk);
+	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
+	ESIL_A ("0,RPICK,!,zf,=,");				// Z
+	ESIL_A ("%s,0x80,&,!,!," "%s,0x80,&,!,!,"    "&,"	// C
+		"%s,0x80,&,!,!," "0,RPICK,0x80,&,!," "&,"
+		"%s,0x80,&,!,!," "0,RPICK,0x80,&,!," "&,"
+		"|,|,cf,=,",
+		d, rk, rk, d);
+	ESIL_A ("vf,nf,^,sf,=,");				// S
+
+	r_strbuf_free (d_strbuf);
+	r_strbuf_free (rk_strbuf);
+}
+
+static void __generic_add_update_flags_rr(RAnalOp *op, int d, int r) {
+	__generic_add_update_flags(op, 'r', d, 'r', r);
+}
+
+static void __generic_sub_update_flags(RAnalOp *op, char t_d, ut64 v_d, char t_rk, ut64 v_rk, int carry) {
+	RStrBuf *d_strbuf, *rk_strbuf;
+	char *d, *rk;
+
+	d_strbuf = r_strbuf_new (NULL);
+	rk_strbuf = r_strbuf_new (NULL);
+	r_strbuf_setf (d_strbuf,  t_d  == 'r' ? "r%d" : "%" PFMT64d, v_d);
+	r_strbuf_setf (rk_strbuf, t_rk == 'r' ? "r%d" : "%" PFMT64d, v_rk);
+
+	d = r_strbuf_get(d_strbuf);
+	rk = r_strbuf_get(rk_strbuf);
+
+	ESIL_A ("%s,0x08,&,!,"   "%s,0x08,&,!,!,"      "&,"	// H
+		"%s,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
+		"%s,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
+		"|,|,hf,=,",
+		d, rk, rk, d);
+	ESIL_A ("%s,0x80,&,!,!," "%s,0x80,&,!,"        "&,"	// V
+		""               "0,RPICK,0x80,&,!,"   "&,"
+		"%s,0x80,&,!,"   "%s,0x80,&,!,!,"      "&,"
+		""               "0,RPICK,0x80,&,!,!," "&,"
+		"|,vf,=,",
+		d, rk, d, rk);
+	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
+	if (carry)
+		ESIL_A ("0,RPICK,!,zf,&,zf,=,");		// Z
+	else
+		ESIL_A ("0,RPICK,!,zf,=,");			// Z
+	ESIL_A ("%s,0x80,&,!,"   "%s,0x80,&,!,!,"      "&,"	// C
+		"%s,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
+		"%s,0x80,&,!,"   "0,RPICK,0x80,&,!,!," "&,"
+		"|,|,cf,=,",
+		d, rk, rk, d);
+	ESIL_A ("vf,nf,^,sf,=,");				// S
+
+	r_strbuf_free (d_strbuf);
+	r_strbuf_free (rk_strbuf);
+}
+
+static void __generic_sub_update_flags_rr(RAnalOp *op, int d, int r, int carry) {
+	__generic_sub_update_flags(op, 'r', d, 'r', r, carry);
+}
+
+static void __generic_sub_update_flags_rk(RAnalOp *op, int d, int k, int carry) {
+	__generic_sub_update_flags(op, 'r', d, 'k', k, carry);
+}
+
 INST_HANDLER (adc) {	// ADC Rd, Rr
 			// ROL Rd
 	int d = ((buf[0] >> 4) & 0xf) | ((buf[1] & 1) << 4);
 	int r = (buf[0] & 0xf) | ((buf[1] & 2) << 3);
-	ESIL_A ("r%d,cf,+,r%d,+,", r, d);			// Rd + Rr + C
-								// FLAGS:
-	ESIL_A ("r%d,0x08,&,!,!," "r%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,"   "&,"
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,"   "&,"
-		"|,|,hf,=,",
-		d, r, r, d);
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,!,"     "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "r%d,0x80,&,!,"       "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, r, d, r);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,=,");				// Z
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,!,"     "&," 	// C
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,"   "&,"
-		"|,|,cf,=,",
-		d, r, r, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
-	ESIL_A ("r%d,=,", d);					// Rd = result
+	ESIL_A ("r%d,cf,+,r%d,+,", r, d);		// Rd + Rr + C
+	__generic_add_update_flags_rr(op, d, r);	// FLAGS
+	ESIL_A ("r%d,=,", d);				// Rd = result
 }
 
 INST_HANDLER (add) {	// ADD Rd, Rr
 			// LSL Rd
 	int d = ((buf[0] >> 4) & 0xf) | ((buf[1] & 1) << 4);
 	int r = (buf[0] & 0xf) | ((buf[1] & 2) << 3);
-	ESIL_A ("r%d,r%d,+,", r, d);				// Rd + Rr
-								// FLAGS:
-	ESIL_A ("r%d,0x08,&,!,!," "r%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,"   "&,"
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,"   "&,"
-		"|,|,hf,=,",
-		d, r, r, d);
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,!,"     "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "r%d,0x80,&,!,"       "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, r, d, r);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,=,");				// Z
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,!,"     "&," 	// C
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,"   "&,"
-		"|,|,cf,=,",
-		d, r, r, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
-	ESIL_A ("r%d,=,", d);					// Rd = result
+	ESIL_A ("r%d,r%d,+,", r, d);			// Rd + Rr
+	__generic_add_update_flags_rr(op, d, r);	// FLAGS
+	ESIL_A ("r%d,=,", d);				// Rd = result
 }
 
 INST_HANDLER (adiw) {	// ADIW Rd+1:Rd, K
@@ -476,79 +558,23 @@ INST_HANDLER (com) {	// COM Rd
 INST_HANDLER (cp) {	// CP Rd, Rr
 	int r = (buf[0]        & 0x0f) | ((buf[1] << 3) & 0x10);
 	int d = ((buf[0] >> 4) & 0x0f) | ((buf[1] << 4) & 0x10);
-	ESIL_A ("r%d,r%d,-,", r, d);				// do Rd - Rr
-								// FLAGS:
-	ESIL_A ("r%d,0x08,&,!,"   "r%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"r%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, r, d, r);
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,"       "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, r, d, r);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,=,");				// Z
-	ESIL_A ("r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&," 	// C
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"   "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, r, d, r);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
+	ESIL_A ("r%d,r%d,-,", r, d);			// do Rd - Rr
+	__generic_sub_update_flags_rr (op, d, r, 0);	// FLAGS (no carry)
 }
 
 INST_HANDLER (cpc) {	// CPC Rd, Rr
 	int r = (buf[0]        & 0x0f) | ((buf[1] << 3) & 0x10);
 	int d = ((buf[0] >> 4) & 0x0f) | ((buf[1] << 4) & 0x10);
-	ESIL_A ("cf,r%d,-,r%d,-,", r, d);			// Rd - Rr - C
-								// FLAGS:
-	ESIL_A ("r%d,0x08,&,!,"   "r%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"r%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, r, d, r);
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,"       "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, r, d, r);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,&,zf,=,");			// Z
-	ESIL_A ("r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&," 	// C
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"   "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, r, r, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
+
+	ESIL_A ("cf,r%d,-,r%d,-,", r, d);		// Rd - Rr - C
+	__generic_sub_update_flags_rr (op, d, r, 1);	// FLAGS (carry)
 }
 
 INST_HANDLER (cpi) { // CPI Rd, K
 	int d = ((buf[0] >> 4) & 0xf) + 16;
 	int k = (buf[0] & 0xf) | ((buf[1] & 0xf) << 4);
-	ESIL_A ("%d,r%d,-,", k, d);				// Rd - k
-								// FLAGS:
-	ESIL_A ("r%d,0x08,&,!,"   "%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, k, d, k);
-	ESIL_A ("r%d,0x80,&,!,!," "%d,0x80,&,!,"        "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "%d,0x80,&,!,!,"      "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, k, d, k);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,=,");				// Z
-	ESIL_A ("r%d,0x80,&,!,"  "%d,0x80,&,!,!,"      "&," 	// C
-		"%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"  "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, k, k, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
+	ESIL_A ("%d,r%d,-,", k, d);			// Rd - k
+	__generic_sub_update_flags_rk (op, d, k, 0);	// FLAGS (carry)
 }
 
 INST_HANDLER (cpse) {	// CPSE Rd, Rr
@@ -587,11 +613,11 @@ INST_HANDLER (dec) {	// DEC Rd
 }
 
 INST_HANDLER (des) {	// DES k
-//if (d < 16) {	//DES
-//	op->type = R_ANAL_OP_TYPE_CRYPTO;
-//	op->cycles = 1;		//redo this
-//	r_strbuf_setf (&op->esil, "%d,des", d);
-//}
+	if (desctx.round < 16) {	//DES
+		op->type = R_ANAL_OP_TYPE_CRYPTO;
+		op->cycles = 1;		//redo this
+		r_strbuf_setf (&op->esil, "%d,des", desctx.round);
+	}
 }
 
 INST_HANDLER (eijmp) {	// EIJMP
@@ -601,9 +627,9 @@ INST_HANDLER (eijmp) {	// EIJMP
 	r_anal_esil_reg_read (anal->esil, "eind", &eind, NULL);
 	// real target address may change during execution, so this value will
 	// be changing all the time
-	op->jump = (eind << 16) + z;
+	op->jump = ((eind << 16) + z) << 1;
 	// jump
-	ESIL_A ("z,16,eind,<<,+,pc,=,");
+	ESIL_A ("1,z,16,eind,<<,+,<<,pc,=,");
 	// cycles
 	op->cycles = 2;
 }
@@ -685,33 +711,29 @@ INST_HANDLER (fmulsu) {	// FMULSU Rd, Rr
 	ESIL_A ("DUP,!,zf,=,");				// Z = !R
 }
 
-INST_HANDLER (icall) {	// ICALL k
-	ut64 z;
-	// read z for calculating jump address on runtime
-	r_anal_esil_reg_read (anal->esil, "z", &z, NULL);
-	// real target address may change during execution, so this value will
-	// be changing all the time
-	op->jump = z;
-	op->cycles = cpu->pc <= 16 ? 3 : 4;
-	if (!STR_BEGINS (cpu->model, "ATxmega")) {
-		// AT*mega optimizes 1 cycle!
-		op->cycles--;
-	}
-	ESIL_A ("pc,");				// esil already points to next
-						// instruction (@ret)
-	__generic_push (op, CPU_PC_SIZE (cpu));	// push @ret addr
-	ESIL_A ("z,pc,=,");			// jump!
-}
-
 INST_HANDLER (ijmp) {	// IJMP k
 	ut64 z;
 	// read z for calculating jump address on runtime
 	r_anal_esil_reg_read (anal->esil, "z", &z, NULL);
 	// real target address may change during execution, so this value will
 	// be changing all the time
-	op->jump = z;
+	op->jump = z << 1;
 	op->cycles = 2;
-	ESIL_A ("z,pc,=,");			// jump!
+	ESIL_A ("1,z,<<,pc,=,");		// jump!
+}
+
+INST_HANDLER (icall) {	// ICALL k
+	// push pc in stack
+	ESIL_A ("pc,");				// esil is already pointing to
+						// next instruction (@ret)
+	__generic_push (op, CPU_PC_SIZE (cpu));	// push @ret in stack
+	// do a standard IJMP
+	INST_CALL (ijmp);
+	// fix cycles
+	if (!STR_BEGINS (cpu->model, "ATxmega")) {
+		// AT*mega optimizes 1 cycle!
+		op->cycles--;
+	}
 }
 
 INST_HANDLER (in) {	// IN Rd, A
@@ -829,7 +851,7 @@ INST_HANDLER (ldd) {	// LD Rd, Y	LD Rd, Z
 	// load register
 	ESIL_A ("r%d,=,", ((buf[1] & 1) << 4) | ((buf[0] >> 4) & 0xf));
 	// cycles
-	op->cycles = 
+	op->cycles =
 		(buf[1] & 0x1) == 0
 			? (!offset ? 1 : 3)		// LDD
 			: (buf[0] & 0x3) == 0
@@ -1006,7 +1028,7 @@ INST_HANDLER (pop) {	// POP Rd
 	int d = ((buf[1] & 0x1) << 4) | ((buf[0] >> 4) & 0xf);
 	__generic_pop (op, 1);
 	ESIL_A ("r%d,=,", d);	// store in Rd
-		
+
 }
 
 INST_HANDLER (push) {	// PUSH Rr
@@ -1068,8 +1090,14 @@ INST_HANDLER (reti) {	// RETI
 
 INST_HANDLER (rjmp) {	// RJMP k
 	op->jump = (op->addr
-		+ (((typeof (op->jump)) (((buf[1] & 0xf) << 9) | (buf[0] << 1)))
+#ifdef _MSC_VER
+#pragma message ("anal_avr.c: WARNING: Probably broken on windows")
+		+ ((((( buf[1] & 0xf) << 9) | (buf[0] << 1)))
+			| (buf[1] & 0x8 ? ~(0x1fff) : 0))
+#else
+		+ ((((( (typeof (op->jump)) buf[1] & 0xf) << 9) | ((typeof (op->jump)) buf[0] << 1)))
 			| (buf[1] & 0x8 ? ~((typeof (op->jump)) 0x1fff) : 0))
+#endif
 		+ 2) & CPU_PC_MASK (cpu);
 	ESIL_A ("%"PFMT64d",pc,=,", op->jump);
 }
@@ -1088,79 +1116,37 @@ INST_HANDLER (ror) {	// ROR Rd
 INST_HANDLER (sbc) {	// SBC Rd, Rr
 	int r = (buf[1] & 0x0f) | ((buf[0] & 0x2) >> 1);
 	int d = ((buf[1] >> 4) & 0xf) | (buf[0] & 0x1);
-	ESIL_A ("cf,r%d,-,r%d,-,", r, d);			// 0: (Rd-Rr-C)
-	ESIL_A ("r%d,0x08,&,!,"   "r%d,0x08,&,!,!,"     "&,"	// H
-		"r%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"r%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, r, r, d);
-	ESIL_A ("r%d,0x80,&,!,!," "r%d,0x80,&,!,"       "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, r, d, r);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,&,zf,=,");			// Z (C)
-	ESIL_A ("r%d,0x80,&,!,"   "r%d,0x80,&,!,!,"     "&," 	// C
-		"r%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"   "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, r, r, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
-	ESIL_A ("r%d,=,", d);					// Rd = Result
+
+	ESIL_A ("cf,r%d,-,r%d,-,", r, d);		// 0: (Rd-Rr-C)
+	__generic_sub_update_flags_rr (op, d, r, 1);	// FLAGS (carry)
+	ESIL_A ("r%d,=,", d);				// Rd = Result
 }
 
 INST_HANDLER (sbci) {	// SBCI Rd, k
 	int d = ((buf[0] >> 4) & 0xf) + 16;
 	int k = ((buf[1] & 0xf) << 4) | (buf[0] & 0xf);
-	ESIL_A ("cf,%d,+,r%d,-,", k, d);			// 0: (Rd-k-C)
-	ESIL_A ("r%d,0x08,&,!,"  "%d,0x08,&,!,!,"      "&,"	// H
-		"%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, k, k, d);
-	ESIL_A ("r%d,0x80,&,!,!," "%d,0x80,&,!,"        "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "%d,0x80,&,!,!,"      "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, k, d, k);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,&,zf,=,");			// Z (C)
-	ESIL_A ("r%d,0x80,&,!,"  "%d,0x80,&,!,!,"      "&," 	// C
-		"%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"  "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, k, k, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
-	ESIL_A ("r%d,=,", d);					// Rd = Result
+
+	ESIL_A ("cf,%d,+,r%d,-,", k, d);		// 0: (Rd-k-C)
+	__generic_sub_update_flags_rk (op, d, k, 1);	// FLAGS (carry)
+	ESIL_A ("r%d,=,", d);				// Rd = Result
+}
+
+INST_HANDLER (sub) {	// SUB Rd, Rr
+	int d = ((buf[0] >> 4) & 0xf) | ((buf[1] & 1) << 4);
+	int r = (buf[0] & 0xf) | ((buf[1] & 2) << 3);
+
+	ESIL_A ("r%d,r%d,-,", r, d);			// 0: (Rd-k)
+	__generic_sub_update_flags_rr (op, d, r, 0);	// FLAGS (no carry)
+	ESIL_A ("r%d,=,", d);				// Rd = Result
 }
 
 INST_HANDLER (subi) {	// SUBI Rd, k
 	int d = ((buf[0] >> 4) & 0xf) + 16;
 	int k = ((buf[1] & 0xf) << 4) | (buf[0] & 0xf);
-	ESIL_A ("%d,r%d,-,", k, d);			                // 0: (Rd-k)
-	ESIL_A ("r%d,0x08,&,!,"  "%d,0x08,&,!,!,"      "&,"	// H
-		"%d,0x08,&,!,!," "0,RPICK,0x08,&,!,!," "&,"
-		"%d,0x08,&,!,"   "0,RPICK,0x08,&,!,!," "&,"
-		"|,|,hf,=,",
-		d, k, k, d);
-	ESIL_A ("r%d,0x80,&,!,!," "%d,0x80,&,!,"        "&,"	// V
-		""                "0,RPICK,0x80,&,!,"   "&,"
-		"r%d,0x80,&,!,"   "%d,0x80,&,!,!,"      "&,"
-		""                "0,RPICK,0x80,&,!,!," "&,"
-		"|,vf,=,",
-		d, k, d, k);
-	ESIL_A ("0,RPICK,0x80,&,!,!,nf,=,");			// N
-	ESIL_A ("0,RPICK,!,zf,=,");			// Z
-	ESIL_A ("r%d,0x80,&,!,"  "%d,0x80,&,!,!,"      "&," 	// C
-		"%d,0x80,&,!,!," "0,RPICK,0x80,&,!,!," "&,"
-		"r%d,0x80,&,!,"  "0,RPICK,0x80,&,!,!," "&,"
-		"|,|,cf,=,",
-		d, k, k, d);
-	ESIL_A ("vf,nf,^,sf,=,");				// S
-	ESIL_A ("r%d,=,", d);					// Rd = Result
+
+	ESIL_A ("%d,r%d,-,", k, d);			// 0: (Rd-k)
+	__generic_sub_update_flags_rk (op, d, k, 1);	// FLAGS (no carry)
+	ESIL_A ("r%d,=,", d);				// Rd = Result
 }
 
 INST_HANDLER (sbi) {	// SBI A, b
@@ -1269,39 +1255,44 @@ INST_HANDLER (sleep) {	// SLEEP
 }
 
 INST_HANDLER (spm) {	// SPM Z+
-//	ut8 spmcr;
-//	char *lval, *hval;
+	ut64 spmcsr;
 
-	// read SPM Control Register (SPMCR) and decide which operation will be
-	// performed during the SPM operation
-//	r_anal_esil_reg_read (anal->esil, "spmcr", &spmcr, NULL);
-//	switch (spmcr & 0x7f) {
-//		case 0x03: // PAGE ERASE
-//			// erase target page (write 0xff value)
-//			// update SPMCR
-//			ESIL_A ("%d,spmcr,|=,", cpu->);
-//			break;
-//		case 0x01:
-//	}
-//	ESIL_A ("3,spmcr,&,"
-//
-//	r_strbuf_init (&op->esil);
-//	// write program memory
-//	__generic_ld_st (
-//		op, "prog",
-//		'z',				// index register Y/Z
-//		1,				// use RAMP* registers
-//		(ins & 0xfe0f) == 0x9005
-//			? 1			// post incremented
-//			: 0,			// no increment
-//		0,				// not offset
-//		0);				// load operation (!st)
-//	// load register
-//	ESIL_A ("r%d,=,",
-//		(ins == 0x95c8)
-//			? 0			// LPM (r0)
-//			: ((buf[0] >> 4) & 0xf)	// LPM Rd
-//				| ((buf[1] & 0x1) << 4));
+	// read SPM Control Register (SPMCR)
+	r_anal_esil_reg_read (anal->esil, "spmcsr", &spmcsr, NULL);
+
+	// clear SPMCSR
+	ESIL_A ("0x7c,spmcsr,&=,");
+
+	// decide action depending on the old value of SPMCSR
+	switch (spmcsr & 0x7f) {
+		case 0x03: // PAGE ERASE
+			// invoke SPM_CLEAR_PAGE (erases target page writing
+			// the 0xff value
+			ESIL_A ("16,rampz,<<,z,+,"); // push target address
+			ESIL_A ("SPM_PAGE_ERASE,");  // do magic
+			break;
+
+		case 0x01: // FILL TEMPORARY BUFFER
+			ESIL_A ("r1,r0,");           // push data
+			ESIL_A ("z,");               // push target address
+			ESIL_A ("SPM_PAGE_FILL,");   // do magic
+			break;
+
+		case 0x05: // WRITE PAGE
+			ESIL_A ("16,rampz,<<,z,+,"); // push target address
+			ESIL_A ("SPM_PAGE_WRITE,");  // do magic
+			break;
+
+		default:
+			eprintf ("SPM: I dont know what to do with SPMCSR %02x.\n",
+					(unsigned int) spmcsr);
+	}
+
+	op->cycles = 1;	// This is truly false. Datasheets do not publish how
+			// many cycles this instruction uses in all its
+			// operation modes and I am pretty sure that this value
+			// can vary substantially from one MCU type to another.
+			// So... one cycle is fine.
 }
 
 INST_HANDLER (st) {	// ST X, Rr
@@ -1356,7 +1347,7 @@ INST_HANDLER (std) {	// ST Y, Rr	ST Z, Rr
 			: 0,			// no offset
 		1);				// load operation (!st)
 //	// cycles
-//	op->cycles = 
+//	op->cycles =
 //		buf[1] & 0x1 == 0
 //			? !(offset ? 1 : 3)		// LDD
 //			: buf[0] & 0x3 == 0
@@ -1370,8 +1361,16 @@ INST_HANDLER (std) {	// ST Y, Rr	ST Z, Rr
 //	}
 }
 
+INST_HANDLER (swap) {	// SWAP Rd
+	int d = ((buf[1] & 0x1) << 4) | ((buf[0] >> 4) & 0xf);
+	ESIL_A ("4,r%d,>>,0x0f,&,", d);		// (Rd >> 4) & 0xf
+	ESIL_A ("4,r%d,<<,0xf0,&,", d);		// (Rd >> 4) & 0xf
+	ESIL_A ("|,", d);			// S[0] | S[1]
+	ESIL_A ("r%d,=,", d);			// Rd = result
+}
+
 OPCODE_DESC opcodes[] = {
-	//         op     mask    select  cycles  size type
+	//         op      mask    select  cycles  size type
 	INST_DECL (break,  0xffff, 0x9698, 1,      2,   TRAP   ), // BREAK
 	INST_DECL (eicall, 0xffff, 0x9519, 0,      2,   UCALL  ), // EICALL
 	INST_DECL (eijmp,  0xffff, 0x9419, 0,      2,   UJMP   ), // EIJMP
@@ -1382,6 +1381,7 @@ OPCODE_DESC opcodes[] = {
 	INST_DECL (ret,    0xffff, 0x9508, 4,      2,   RET    ), // RET
 	INST_DECL (reti,   0xffff, 0x9518, 4,      2,   RET    ), // RETI
 	INST_DECL (sleep,  0xffff, 0x9588, 1,      2,   NOP    ), // SLEEP
+	INST_DECL (spm,    0xffff, 0x95e8, 1,      2,   TRAP   ), // SPM ...
 	INST_DECL (bclr,   0xff8f, 0x9488, 1,      2,   SWI    ), // BCLR s
 	INST_DECL (bset,   0xff8f, 0x9408, 1,      2,   SWI    ), // BSET s
 	INST_DECL (fmul,   0xff88, 0x0308, 2,      2,   MUL    ), // FMUL Rd, Rr
@@ -1418,6 +1418,7 @@ OPCODE_DESC opcodes[] = {
 	INST_DECL (st,     0xfe0f, 0x920c, 2,      2,   STORE  ), // ST X, Rr
 	INST_DECL (st,     0xfe0f, 0x920d, 0,      2,   STORE  ), // ST X+, Rr
 	INST_DECL (st,     0xfe0f, 0x920e, 0,      2,   STORE  ), // ST -X, Rr
+	INST_DECL (swap,   0xfe0f, 0x9402, 1,      2,   SAR    ), // SWAP Rd
 	INST_DECL (call,   0xfe0e, 0x940e, 0,      4,   CALL   ), // CALL k
 	INST_DECL (jmp,    0xfe0e, 0x940c, 2,      4,   JMP    ), // JMP k
 	INST_DECL (bld,    0xfe08, 0xf800, 1,      2,   SWI    ), // BLD Rd, b
@@ -1443,6 +1444,7 @@ OPCODE_DESC opcodes[] = {
 	INST_DECL (mul,    0xfc00, 0x9c00, 2,      2,   AND    ), // MUL Rd, Rr
 	INST_DECL (or,     0xfc00, 0x2800, 1,      2,   OR     ), // OR Rd, Rr
 	INST_DECL (sbc,    0xfc00, 0x0800, 1,      2,   SUB    ), // SBC Rd, Rr
+	INST_DECL (sub,    0xfc00, 0x1800, 1,      2,   SUB    ), // SUB Rd, Rr
 	INST_DECL (in,     0xf800, 0xb000, 1,      2,   IO     ), // IN Rd, A
 	INST_DECL (lds16,  0xf800, 0xa000, 1,      2,   LOAD   ), // LDS Rd, k
 	INST_DECL (out,    0xf800, 0xb800, 1,      2,   IO     ), // OUT A, Rr
@@ -1536,7 +1538,7 @@ INVALID_OP:
 
 static int avr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	CPU_MODEL *cpu;
-	ut32 offset;
+	ut64 offset;
 
 	// init op
 	if (!op) {
@@ -1554,13 +1556,13 @@ static int avr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) 
 		offset += (1 << cpu->pc);
 		r_anal_esil_reg_write (anal->esil, "_io", offset);
 
-		offset += const_get_value (const_by_name (cpu, "sram_start"));
+		offset += const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "sram_start"));
 		r_anal_esil_reg_write (anal->esil, "_sram", offset);
 
-		offset += const_get_value (const_by_name (cpu, "sram_size"));
+		offset += const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "sram_size"));
 		r_anal_esil_reg_write (anal->esil, "_eeprom", offset);
 
-		offset += const_get_value (const_by_name (cpu, "eeprom_size"));
+		offset += const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "eeprom_size"));
 		r_anal_esil_reg_write (anal->esil, "_page", offset);
 	}
 	// process opcode
@@ -1570,37 +1572,202 @@ static int avr_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) 
 }
 
 static int avr_custom_des (RAnalEsil *esil) {
-	char *round;
-	ut64 key, text;
-	int r, enc;
+	ut64 key, encrypt, text,des_round;
+	ut32 key_lo, key_hi, buf_lo, buf_hi;
 	if (!esil || !esil->anal || !esil->anal->reg) {
 		return false;
 	}
-	round = r_anal_esil_pop (esil);
-	if (!round) {
+	if (!__esil_pop_argument (esil, &des_round)) {
 		return false;
 	}
-	if (!r_anal_esil_get_parm (esil, round, &key)) {
-		free (round);
-		return false;
-	}
-	free (round);
-	r = (int)key;
-	r_anal_esil_reg_read (esil, "hf", &key, NULL);
-	enc = (int)key;
+	r_anal_esil_reg_read (esil, "hf", &encrypt, NULL);
 	r_anal_esil_reg_read (esil, "deskey", &key, NULL);
 	r_anal_esil_reg_read (esil, "text", &text, NULL);
-//	eprintf ("des - key: 0x%"PFMT64x" - text: 0x%"PFMT64x" - round: %d - %s\n", key, text, r, enc ? "decrypt" : "encrypt");
-	key = r_des_get_roundkey (key, r, enc);
-	text = r_des_round (text, key);
+
+	key_lo = key & UT32_MAX;
+	key_hi = key >> 32;
+	buf_lo = text & UT32_MAX;
+	buf_hi = text >> 32;
+
+	if (des_round != desctx.round) {
+		desctx.round = des_round;
+	}
+	
+	if (!desctx.round) {
+		int i;
+		//generating all round keys
+		r_des_permute_key (&key_lo, &key_hi);
+		for (i = 0; i < 16; i++) {
+			r_des_round_key (i, &desctx.round_key_lo[i], &desctx.round_key_hi[i], &key_lo, &key_hi);
+		}
+		r_des_permute_block0 (&buf_lo, &buf_hi);
+	}
+
+	if (encrypt) {
+		r_des_round (&buf_lo, &buf_hi, &desctx.round_key_lo[desctx.round], &desctx.round_key_hi[desctx.round]);
+	} else {
+		r_des_round (&buf_lo, &buf_hi, &desctx.round_key_lo[15 - desctx.round], &desctx.round_key_hi[15 - desctx.round]);
+	}
+
+	if (desctx.round == 15) {
+		r_des_permute_block1 (&buf_hi, &buf_lo);
+		desctx.round = 0;
+	} else {
+		desctx.round++;
+	}
+
 	r_anal_esil_reg_write (esil, "text", text);
 	return true;
 }
 
-static int esil_avr_init(RAnalEsil *esil) {
-	if (!esil)
+// ESIL operation SPM_PAGE_ERASE
+static int avr_custom_spm_page_erase(RAnalEsil *esil) {
+	CPU_MODEL *cpu;
+	ut8 c;
+	ut64 addr, page_size_bits, i;
+
+	// sanity check
+	if (!esil || !esil->anal || !esil->anal->reg) {
 		return false;
+	}
+
+	// get target address
+	if (!__esil_pop_argument(esil, &addr)) {
+		return false;
+	}
+
+	// get details about current MCU and fix input address
+	cpu = get_cpu_model (esil->anal->cpu);
+	page_size_bits = const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "page_size"));
+
+	// align base address to page_size_bits
+	addr &= ~(MASK (page_size_bits));
+
+	// perform erase
+	//eprintf ("SPM_PAGE_ERASE %ld bytes @ 0x%08" PFMT64x ".\n", page_size, addr);
+	c = 0xff;
+	for (i = 0; i < (1ULL << page_size_bits); i++) {
+		r_anal_esil_mem_write (
+			esil, (addr + i) & CPU_PC_MASK (cpu), &c, 1);
+	}
+
+	return true;
+}
+
+// ESIL operation SPM_PAGE_FILL
+static int avr_custom_spm_page_fill(RAnalEsil *esil) {
+	CPU_MODEL *cpu;
+	ut64 addr, page_size_bits, i;
+	ut8 r0, r1;
+
+	// sanity check
+	if (!esil || !esil->anal || !esil->anal->reg) {
+		return false;
+	}
+
+	// get target address, r0, r1
+	if (!__esil_pop_argument(esil, &addr)) {
+		return false;
+	}
+
+	if (!__esil_pop_argument (esil, &i)) {
+		return false;
+	}
+	r0 = i;
+
+	if (!__esil_pop_argument (esil, &i)) {
+		return false;
+	}
+	r1 = i;
+
+	// get details about current MCU and fix input address
+	cpu = get_cpu_model (esil->anal->cpu);
+	page_size_bits = const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "page_size"));
+
+	// align and crop base address
+	addr &= (MASK (page_size_bits) ^ 1);
+
+	// perform write to temporary page
+	//eprintf ("SPM_PAGE_FILL bytes (%02x, %02x) @ 0x%08" PFMT64x ".\n", r1, r0, addr);
+	r_anal_esil_mem_write (esil, addr++, &r0, 1);
+	r_anal_esil_mem_write (esil, addr++, &r1, 1);
+
+	return true;
+}
+
+// ESIL operation SPM_PAGE_WRITE
+static int avr_custom_spm_page_write(RAnalEsil *esil) {
+	CPU_MODEL *cpu;
+	char *t = NULL;
+	ut64 addr, page_size_bits, tmp_page;
+
+	// sanity check
+	if (!esil || !esil->anal || !esil->anal->reg) {
+		return false;
+	}
+
+	// get target address
+	if (!__esil_pop_argument (esil, &addr)) {
+		return false;
+	}
+
+	// get details about current MCU and fix input address and base address
+	// of the internal temporary page
+	cpu = get_cpu_model (esil->anal->cpu);
+	page_size_bits = const_get_value (const_by_name (cpu, CPU_CONST_PARAM, "page_size"));
+	r_anal_esil_reg_read (esil, "_page", &tmp_page, NULL);
+
+	// align base address to page_size_bits
+	addr &= (~(MASK (page_size_bits)) & CPU_PC_MASK (cpu));
+
+	// perform writing
+	//eprintf ("SPM_PAGE_WRITE %ld bytes @ 0x%08" PFMT64x ".\n", page_size, addr);
+	if (!(t = malloc (1 << page_size_bits))) {
+		eprintf ("Cannot alloc a buffer for copying the temporary page.\n");
+		return false;
+	}
+	r_anal_esil_mem_read (esil, tmp_page, (ut8 *) t, 1 << page_size_bits);
+	r_anal_esil_mem_write (esil, addr, (ut8 *) t, 1 << page_size_bits);
+
+	return true;
+}
+
+static int esil_avr_hook_reg_write(RAnalEsil *esil, const char *name, ut64 *val) {
+	CPU_MODEL *cpu;
+
+	if (!esil || !esil->anal) {
+		return 0;
+	}
+
+	// select cpu info
+	cpu = get_cpu_model (esil->anal->cpu);
+
+	// crop registers and force certain values
+	if (!strcmp (name, "pc")) {
+		*val &= CPU_PC_MASK (cpu);
+	} else if (!strcmp (name, "pcl")) {
+		if (cpu->pc < 8) {
+			*val &= MASK (8);
+		}
+	} else if (!strcmp (name, "pch")) {
+		*val = cpu->pc > 8
+			? *val & MASK (cpu->pc - 8)
+			: 0;
+	}
+
+	return 0;
+}
+
+static int esil_avr_init(RAnalEsil *esil) {
+	if (!esil) {
+		return false;
+	}
+	desctx.round = 0;
 	r_anal_esil_set_op (esil, "des", avr_custom_des);
+	r_anal_esil_set_op (esil, "SPM_PAGE_ERASE", avr_custom_spm_page_erase);
+	r_anal_esil_set_op (esil, "SPM_PAGE_FILL", avr_custom_spm_page_fill);
+	r_anal_esil_set_op (esil, "SPM_PAGE_WRITE", avr_custom_spm_page_write);
+	esil->cb.hook_reg_write = esil_avr_hook_reg_write;
 
 	return true;
 }
@@ -1699,12 +1866,31 @@ RAMPX, RAMPY, RAMPZ, RAMPD and EIND:
 		"gpr	rampd	.8	42	0\n"
 		"gpr	eind	.8	43	0\n"
 // memory mapping emulator registers
+//      _prog
+//		the program flash. It has its own address space.
+//	_ram
+//	_io
+//		start of the data addres space. It is the same address of IO,
+//		because IO is the first memory space addressable in the AVR.
+//	_sram
+//		start of the SRAM (this offset depends on IO size, and it is
+//		inside the _ram address space)
+//      _eeprom
+//              this is another address space, outside ram and flash
+//      _page
+//              this is the temporary page used by the SPM instruction. This
+//              memory is not directly addressable and it is used internally by
+//              the CPU when autoflashing.
 		"gpr	_prog	.32	44	0\n"
 		"gpr    _page   .32     48	0\n"
 		"gpr	_eeprom	.32	52	0\n"
-		"gpr	_io	.32	56	0\n"
 		"gpr	_ram	.32	56	0\n"
+		"gpr	_io	.32	56	0\n"
 		"gpr	_sram	.32	60	0\n"
+// other important MCU registers
+//	spmcsr/spmcr
+//		Store Program Memory Control and Status Register (SPMCSR)
+		"gpr    spmcsr  .8      64      0\n"
 		;
 
 	return r_reg_set_profile_string (anal->reg, p);

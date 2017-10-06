@@ -1,13 +1,13 @@
-/* radare - LGPL - Copyright 2015-2016 nodepad */
+/* radare - LGPL - Copyright 2015-2017 nodepad */
 
 #include <r_types.h>
 #include <r_bin.h>
 #include "mz/mz.h"
 
-static Sdb * get_sdb(RBinObject *o) {
+static Sdb * get_sdb(RBinFile *bf) {
 	const struct r_bin_mz_obj_t *bin;
-	if (o && o->bin_obj) {
-		bin = (struct r_bin_mz_obj_t *) o->bin_obj;
+	if (bf && bf->o && bf->o->bin_obj) {
+		bin = (struct r_bin_mz_obj_t *) bf->o->bin_obj;
 		if (bin && bin->kv) {
 			return bin->kv;
 		}
@@ -16,17 +16,28 @@ static Sdb * get_sdb(RBinObject *o) {
 }
 
 static bool checkEntrypoint(const ut8 *buf, ut64 length) {
-	ut16 cs = r_read_ble16 (buf + 0x16, false);
+	st16 cs = r_read_ble16 (buf + 0x16, false);
 	ut16 ip = r_read_ble16 (buf + 0x14, false);
 	ut32 pa = ((r_read_ble16 (buf + 8 , false) + cs) << 4) + ip;
+
+	/* A minimal MZ header is 0x1B bytes.  Header length is measured in
+	 * 16-byte paragraphs so the minimum header must occupy 2 paragraphs.
+	 * This means that the entrypoint should be at least 0x20 unless someone
+	 * cleverly fit a few instructions inside the header.
+	 */
+//	if (pa >= 0x20 && pa + 1 < length) {
 	pa &= 0xffff;
-	if (pa > 0x40 && pa + 1 < length) {
+	if (pa > 0x20 && pa + 1 < length) {
+		ut16 pe = r_read_ble16 (buf + 0x3c, false);
+		if (pe < length && length > 0x104 && !memcmp (buf + pe, "PE", 2)) {
+			return false;
+		}
 		return true;
 	}
 	return false;
 }
 
-static int check_bytes(const ut8 *buf, ut64 length) {
+static bool check_bytes(const ut8 *buf, ut64 length) {
 	unsigned int exth_offset;
 	int ret = false;
 	if (!buf || length <= 0x3d) {
@@ -63,12 +74,6 @@ static int check_bytes(const ut8 *buf, ut64 length) {
 	return ret;
 }
 
-static int check(RBinFile *arch) {
-	const ut8 *bytes = arch ? r_buf_buffer (arch->buf) : NULL;
-	const ut64 sz = arch ? r_buf_size (arch->buf): 0;
-	return check_bytes (bytes, sz);
-}
-
 static void * load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz,
 		ut64 loadaddr, Sdb *sdb) {
 	const struct r_bin_mz_obj_t *res = NULL;
@@ -86,7 +91,7 @@ static void * load_bytes(RBinFile *arch, const ut8 *buf, ut64 sz,
 	return (void *)res;
 }
 
-static int load(RBinFile *arch) {
+static bool load(RBinFile *arch) {
 	if (!arch || !arch->o) {
 		return false;
 	}
@@ -214,7 +219,6 @@ RBinPlugin r_bin_plugin_mz = {
 	.load = &load,
 	.load_bytes = &load_bytes,
 	.destroy = &destroy,
-	.check = &check,
 	.check_bytes = &check_bytes,
 	.entries = &entries,
 	.sections = &sections,

@@ -1,7 +1,6 @@
 #ifndef R2_EGG_H
 #define R2_EGG_H
 
-#include <r_db.h>
 #include <r_asm.h>
 #include <r_lib.h>
 #include <r_util.h>
@@ -59,6 +58,7 @@ r2 -q - <<EOF
 ?e #define R_EGG_OS_FREEBSD \`?h freebsd\`
 EOF
 #endif
+
 #define R_EGG_OS_LINUX 0x5ca62a43
 #define R_EGG_OS_OSX 0x0ad593a1
 #define R_EGG_OS_DARWIN 0xd86d1ae2
@@ -106,6 +106,7 @@ typedef struct r_egg_emit_t {
 	void (*restore_stack)(REgg *egg, int size);
 	void (*syscall_args)(REgg *egg, int nargs);
 	void (*get_var)(REgg *egg, int type, char *out, int idx);
+	void (*get_ar)(REgg *egg, char *out, int idx);
 	void (*while_end)(REgg *egg, const char *label);
 	void (*load)(REgg *egg, const char *str, int sz);
 	void (*load_ptr)(REgg *egg, const char *str);
@@ -143,6 +144,7 @@ R_API void r_egg_printf(REgg *egg, const char *fmt, ...);
 R_API int r_egg_compile(REgg *egg);
 R_API int r_egg_padding (REgg *egg, const char *pad);
 R_API int r_egg_assemble(REgg *egg);
+R_API int r_egg_assemble_asm(REgg *egg, char **asm_list);
 R_API void r_egg_pattern(REgg *egg, int size);
 R_API RBuffer *r_egg_get_bin(REgg *egg);
 //R_API int r_egg_dump (REgg *egg, const char *file) { }

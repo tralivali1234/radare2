@@ -39,13 +39,13 @@ static int r_debug_qnx_select (int pid, int tid) {
 	return qnxr_select (desc, pid, tid);
 }
 
-static RList *r_debug_qnx_tids (int pid) {
+static RList *r_debug_qnx_tids (RDebug *dbg, int pid) {
 	eprintf ("%s: TODO: Threads\n", __func__);
 	return NULL;
 }
 
 
-static RList *r_debug_qnx_pids (int pid) {
+static RList *r_debug_qnx_pids (RDebug *dbg, int pid) {
 	RList *list = r_list_new ();
 	if (!list) return NULL;
 	list->free = (RListFree)&__r_debug_pid_free;
@@ -312,22 +312,22 @@ static const char *r_debug_qnx_reg_profile (RDebug *dbg) {
 	return NULL;
 }
 
-static int r_debug_qnx_breakpoint (RBreakpointItem *bp, int set, void *user) {
+static int r_debug_qnx_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	int ret;
-	if (!bp)
+	if (!b)
 		return false;
 	if (set)
-		ret = bp->hw ?
-			      qnxr_set_hwbp (desc, bp->addr, "") :
-			      qnxr_set_bp (desc, bp->addr, "");
+		ret = b->hw ?
+			      qnxr_set_hwbp (desc, b->addr, "") :
+			      qnxr_set_bp (desc, b->addr, "");
 	else
-		ret = bp->hw ?
-			      qnxr_remove_hwbp (desc, bp->addr) :
-			      qnxr_remove_bp (desc, bp->addr);
+		ret = b->hw ?
+			      qnxr_remove_hwbp (desc, b->addr) :
+			      qnxr_remove_bp (desc, b->addr);
 	return !ret;
 }
 
-struct r_debug_plugin_t r_debug_plugin_qnx = {
+RDebugPlugin r_debug_plugin_qnx = {
 	.name = "qnx",
 	.license = "LGPL3",
 	.arch = "x86,arm",
@@ -350,7 +350,7 @@ struct r_debug_plugin_t r_debug_plugin_qnx = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_DBG,
 	.data = &r_debug_plugin_qnx,
 	.version = R2_VERSION};

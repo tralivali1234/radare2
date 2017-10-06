@@ -43,6 +43,7 @@ static bool add_refline(RList *list, RList *sten, ut64 addr, ut64 to, int *idx) 
 	item->to = to;
 	item->index = *idx;
 	item->level = -1;
+	item->direction = (to > addr)? 1: -1;
 	*idx += 1;
 	r_list_append (list, item);
 
@@ -98,19 +99,17 @@ R_API RList *r_anal_reflines_get(RAnal *anal, ut64 addr, const ut8 *buf, ut64 le
 	 *        refline, we free that level.
 	 */
 
-	list = r_list_new ();
+	list = r_list_newf (free);
 	if (!list) {
 		return NULL;
 	}
-	list->free = free;
-	sten = r_list_new ();
+	sten = r_list_newf ((RListFree)free);
 	if (!sten) {
 		goto list_err;
 	}
-	sten->free = (RListFree)free;
-
+	r_cons_break_push (NULL, NULL);
 	/* analyze code block */
-	while (ptr < end) {
+	while (ptr < end && !r_cons_is_breaked ()) {
 		if (nlines != -1) {
 			if (!nlines) {
 				break;
@@ -179,6 +178,7 @@ R_API RList *r_anal_reflines_get(RAnal *anal, ut64 addr, const ut8 *buf, ut64 le
 		ptr += sz;
 	}
 	r_anal_op_fini (&op);
+	r_cons_break_pop ();
 
 	free_levels = R_NEWS0 (ut8, r_list_length (list) + 1);
 	if (!free_levels) {
@@ -223,17 +223,17 @@ list_err:
 	return NULL;
 }
 
-R_API RList*r_anal_reflines_fcn_get(RAnal *anal, RAnalFunction *fcn, int nlines, int linesout, int linescall) {
-	RList *list;
-	RAnalRefline *item;
+R_API RList* r_anal_reflines_fcn_get(RAnal *anal, RAnalFunction *fcn, int nlines, int linesout, int linescall) {
 	RAnalBlock *bb;
 	RListIter *bb_iter;
-
+	RAnalRefline *item;
 	int index = 0;
 	ut32 len;
 
-	list = r_list_new ();
-	if (!list) return NULL;
+	RList *list = r_list_new ();
+	if (!list) {
+		return NULL;
+	}
 
 	/* analyze code block */
 	r_list_foreach (fcn->bbs, bb_iter, bb) {
@@ -255,7 +255,7 @@ R_API RList*r_anal_reflines_fcn_get(RAnal *anal, RAnalFunction *fcn, int nlines,
 			}
 		}
 		// Handles conditonal + unconditional jump
-		if ( (control_type & R_ANAL_BB_TYPE_CJMP) == R_ANAL_BB_TYPE_CJMP) {
+		if ((control_type & R_ANAL_BB_TYPE_CJMP) == R_ANAL_BB_TYPE_CJMP) {
 			// dont need to continue here is opc+len exceed function scope
 			if (linesout && bb->fail > 0LL && bb->fail != bb->addr + len) {
 				item = R_NEW0 (RAnalRefline);
@@ -266,6 +266,8 @@ R_API RList*r_anal_reflines_fcn_get(RAnal *anal, RAnalFunction *fcn, int nlines,
 				item->from = bb->addr;
 				item->to = bb->fail;
 				item->index = index++;
+				item->type = 'c';
+				item->direction = (bb->jump > bb->addr)? 1: -1;
 				r_list_append (list, item);
 			}
 		}
@@ -281,11 +283,13 @@ R_API RList*r_anal_reflines_fcn_get(RAnal *anal, RAnalFunction *fcn, int nlines,
 			item->from = bb->addr;
 			item->to = bb->jump;
 			item->index = index++;
+			item->type = 'j';
+			item->direction = (bb->jump > bb->addr)? 1: -1;
 			r_list_append (list, item);
 			continue;
 		}
 
-		// XXX - Todo test handle swith op
+		// XXX - Todo test handle switch op
 		if (control_type & R_ANAL_BB_TYPE_SWITCH) {
 			if (bb->switch_op) {
 				RAnalCaseOp *caseop;
@@ -336,7 +340,6 @@ static const char* get_corner_char(RAnalRefline *ref, ut64 addr, int is_middle) 
 		}
 		return (ref->from > ref->to) ? "`" : ",";
 	}
-
 	return "";
 }
 
@@ -434,7 +437,11 @@ R_API char* r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 				continue;
 			}
 			add_spaces (b, ref->level, pos, wide);
-			r_buf_append_string (b, "|");
+			if (ref->direction < 0) {
+				r_buf_append_string (b, "!");
+			} else {
+				r_buf_append_string (b, "|");
+			}
 			pos = ref->level;
 		}
 		if (max_level == -1) {
@@ -443,11 +450,12 @@ R_API char* r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 	}
 	add_spaces (b, 0, pos, wide);
 	str = r_buf_free_to_string (b);
+	b = NULL;
 	if (!str) {
 		r_list_free (lvls);
 		//r_buf_free_to_string already free b and if that is the case
-		//b will be NULL and r_buf_free will return but if there was 
-		//an error we free b here 
+		//b will be NULL and r_buf_free will return but if there was
+		//an error we free b here so in other words is safe
 		r_buf_free (b);
 		return NULL;
 	}
@@ -469,7 +477,7 @@ R_API char* r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 			}
 		}
 	}
-	str = r_str_concat (str, (dir == 1) ? "-> "
+	str = r_str_append (str, (dir == 1) ? "-> "
 		: (dir == 2) ? "=< " : "   ");
 
 	if (core->cons->use_utf8 || opts & R_ANAL_REFLINE_TYPE_UTF8) {

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2016 - pancake */
+/* radare - LGPL - Copyright 2009-2017 - pancake */
 
 #include <r_core.h> // just to get the RPrint instance
 #include <r_debug.h>
@@ -25,7 +25,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 	i = (type == R_REG_TYPE_ALL)? R_REG_TYPE_GPR: type;
 	// Check to get the correct arena when using @ into reg profile (arena!=type)
 	// if request type is positive and the request regset dont have regs
-	if (i >= R_REG_TYPE_GPR && dbg->reg->regset[i].regs->length == 0) {
+	if (i >= R_REG_TYPE_GPR && dbg->reg->regset[i].regs && !dbg->reg->regset[i].regs->length) {
 		// seek into the other arena for redirections.
 		for (n = R_REG_TYPE_GPR; n < R_REG_TYPE_LAST; n++) {
 			// get regset mask
@@ -50,14 +50,16 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 					eprintf ("r_debug_reg: error writing "
 						"registers %d to %d\n", i, dbg->tid);
 				}
+				free (buf);
 				return false;
 			}
+			free (buf);
 		} else {
 			// int bufsize = R_MAX (1024, dbg->reg->size*2); // i know. its hacky
 			int bufsize = dbg->reg->size;
 			//int bufsize = dbg->reg->regset[i].arena->size;
 			if (bufsize > 0) {
-				ut8 *buf = calloc (1, bufsize);
+				ut8 *buf = calloc (1 + 1, bufsize);
 				if (!buf) {
 					return false;
 				}
@@ -136,24 +138,13 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 		r_list_foreach (head, iter, item) {
 			ut64 value;
 			utX valueBig;
-#if 0
-			bool is_arm = dbg->arch && strstr (dbg->arch, "arm");
-
-			/* the thumb flag in the cpsr register shouldnt forbid us to switch between arm or thumb */
-			/* this code must run only after a step maybe ... need some discussion, disabling for now */
-			if (is_arm && (rad == 1 || rad == '*') && item->size == 1) {
-				if (!strcmp (item->name, "tf")) {
-					bool is_thumb = r_reg_get_value (dbg->reg, item);
-					int new_bits = is_thumb? 16: 32;
-					if (dbg->anal->bits != new_bits)
-						dbg->cb_printf ("e asm.bits=%d\n", new_bits);
-				}
-				continue;
-			}
-#endif
 			if (type != -1) {
-				if (type != item->type && R_REG_TYPE_FLG != item->type) continue;
-				if (size != 0 && size != item->size) continue;
+				if (type != item->type && R_REG_TYPE_FLG != item->type) {
+					continue;
+				}
+				if (size != 0 && size != item->size) {
+					continue;
+				}
 			}
 			int regSize = item->size;
 			if (regSize < 80) {
@@ -194,10 +185,12 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 			case '-':
 				dbg->cb_printf ("f-%s\n", item->name);
 				break;
+			case 'R':
+				dbg->cb_printf ("aer %s = %s\n", item->name, strvalue);
+				break;
 			case 1:
 			case '*':
-				dbg->cb_printf ("f %s 1 0x%s\n",
-					item->name, strvalue);
+				dbg->cb_printf ("f %s 1 %s\n", item->name, strvalue);
 				break;
 			case 'd':
 			case 2:
@@ -212,7 +205,7 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 					}
 					strcpy (whites, kwhites);
 					if (delta && use_color) {
-						dbg->cb_printf (use_color);
+						dbg->cb_printf ("%s", use_color);
 					}
 					if (item->flags) {
 						str = r_reg_get_bvalue (dbg->reg, item);
@@ -335,4 +328,3 @@ R_API ut64 r_debug_num_callback(RNum *userptr, const char *str, int *ok) {
 	// resolve using regnu
 	return r_debug_reg_get_err (dbg, str, ok, NULL);
 }
-

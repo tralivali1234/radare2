@@ -4,7 +4,9 @@
 #include "r_util.h"
 #include "r_print.h"
 #include "r_reg.h"
-
+#ifdef _MSC_VER
+#include <time.h>
+#endif 
 #define NOPTR 0
 #define PTRSEEK 1
 #define PTRBACK 2
@@ -348,21 +350,21 @@ static void r_print_format_decchar(const RPrint* p, int endian, int mode,
 static int r_print_format_string(const RPrint* p, ut64 seeki, ut64 addr64, ut64 addr, int is64, int mode) {
 	ut8 buffer[255];
 	buffer[0] = 0;
-	if (p->iob.read_at) {
-		if (is64 == 1)
-			p->iob.read_at (p->iob.io, addr64, buffer, sizeof (buffer)-8);
-		else
-			p->iob.read_at (p->iob.io, (ut64)addr, buffer, sizeof (buffer)-8);
-	} else {
+	if (!p->iob.read_at) {
 		eprintf ("(cannot read memory)\n");
 		return -1;
 	}
+	int res = (is64 == 1)
+		? p->iob.read_at (p->iob.io, addr64, buffer, sizeof (buffer) - 8)
+		: p->iob.read_at (p->iob.io, (ut64)addr, buffer, sizeof (buffer) - 8);
 	if (MUSTSEEJSON) {
 		p->cb_printf ("%d,\"string\":\"%s\"}", seeki, buffer);
 	} else if (MUSTSEE) {
 		if (!SEEVALUE) p->cb_printf ("0x%08"PFMT64x" = ", seeki);
 		if (!SEEVALUE) p->cb_printf ("0x%08"PFMT64x" -> 0x%08"PFMT64x" ", seeki, addr);
-		p->cb_printf ("%s", buffer);
+		if (res && buffer[0] != 0xff && buffer[1] != 0xff) {
+			p->cb_printf ("%s", buffer);
+		}
 	}
 	return 0;
 }
@@ -508,6 +510,75 @@ static void r_print_format_hex(const RPrint* p, int endian, int mode,
 	}
 }
 
+static void r_print_format_int(const RPrint* p, int endian, int mode,
+		const char* setval, ut64 seeki, ut8* buf, int i, int size) {
+	ut64 addr;
+	int elem = -1;
+	if (size >= ARRAYINDEX_COEF) {
+		elem = size/ARRAYINDEX_COEF-1;
+		size %= ARRAYINDEX_COEF;
+	}
+	updateAddr (buf + i, size - i, endian, &addr, NULL);
+	if (MUSTSET) {
+		p->cb_printf ("wv4 %s @ %"PFMT64d"\n", setval, seeki+((elem>=0)?elem*4:0));
+	} else if (mode & R_PRINT_DOT) {
+		p->cb_printf ("0x%08"PFMT64x, addr);
+	} else if (MUSTSEE) {
+		if (!SEEVALUE) {
+			p->cb_printf ("0x%08"PFMT64x" = ", seeki+((elem>=0)?elem*4:0));
+		}
+		if (size == -1) {
+			p->cb_printf ("%"PFMT64d, (st64)(st32)addr);
+		} else {
+			if (!SEEVALUE) {
+				p->cb_printf ("[ ");
+			}
+			while (size--) {
+				updateAddr (buf + i, size - i, endian, &addr, NULL);
+				if (elem == -1 || elem == 0) {
+					p->cb_printf ("%"PFMT64d, (st64)(st32)addr);
+					if (elem == 0) {
+						elem = -2;
+					}
+				}
+				if (size != 0 && elem == -1) {
+					p->cb_printf (", ");
+				}
+				if (elem > -1) {
+					elem--;
+				}
+				i += 4;
+			}
+			if (!SEEVALUE) {
+				p->cb_printf (" ]");
+			}
+		}
+	} else if (MUSTSEEJSON) {
+		if (size==-1)
+			p->cb_printf ("%d", addr);
+		else {
+			p->cb_printf ("[ ");
+			while (size--) {
+				updateAddr (buf + i, size - i, endian, &addr, NULL);
+				if (elem == -1 || elem == 0) {
+					p->cb_printf ("%d", addr);
+					if (elem == 0) {
+						elem = -2;
+					}
+				}
+				if (size != 0 && elem == -1) {
+					p->cb_printf (", ");
+				}
+				if (elem > -1) {
+					elem--;
+				}
+				i+=4;
+			}
+			p->cb_printf (" ]");
+		}
+		p->cb_printf ("}");
+	}
+}
 static int r_print_format_disasm(const RPrint* p, ut64 seeki, int size) {
 	ut64 prevseeki = seeki;
 
@@ -1026,6 +1097,9 @@ static void r_print_format_enum (const RPrint* p, ut64 seeki, char* fmtname,
 
 static void r_print_format_register (const RPrint* p, int mode,
 		const char *name, const char* setval) {
+	if (!p || !p->get_register || !p->reg) {
+		return;
+	}
 	RRegItem *ri = p->get_register (p->reg, name, R_REG_TYPE_ALL);
 	if (ri) {
 		if (MUSTSET) {
@@ -1139,13 +1213,16 @@ static void r_print_format_num (const RPrint *p, int endian, int mode, const cha
 }
 
 // XXX: this is somewhat incomplete. must be updated to handle all format chars
-int r_print_format_struct_size(const char *f, RPrint *p, int mode) {
-	char *o, *end, *args, *fmt;
+int r_print_format_struct_size(const char *f, RPrint *p, int mode, int n) {
+	char *end, *args, *fmt;
 	int size = 0, tabsize = 0, i, idx = 0, biggest = 0, fmt_len = 0;
 	if (!f) {
 		return -1;
 	}
-	o = strdup (f);
+	if (n >= 3) {
+		return 0;
+	}
+	char *o = strdup (f);
 	if (!o) {
 		return -1;
 	}
@@ -1169,8 +1246,8 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode) {
 	}
 
 	i = 0;
-	if (fmt[i] >= '0' && fmt[i] <= '9') {
-		while (fmt[i] >= '0' && fmt[i] <= '9') {
+	if (IS_DIGIT(fmt[i])) {
+		while (IS_DIGIT(fmt[i])) {
 			i++;
 		}
 	}
@@ -1248,11 +1325,12 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode) {
 			if (*structname == '(') {
 				endname = (char*)r_str_rchr (structname, NULL, ')');
 			} else {
-				eprintf ("Missing struct name\n");
 				free (structname);
 				break;
 			}
-			if (endname) *endname = '\0';
+			if (endname) {
+				*endname = '\0';
+			}
 			format = strchr (structname, ' ');
 			if (format) {
 				tmp = *format;
@@ -1261,9 +1339,20 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode) {
 					tmp = *format;
 				}
 			} else {
-				format = r_strht_get (p->formats, structname + 1);
+				format = sdb_get (p->formats, structname + 1, NULL);
 			}
-			size += tabsize * r_print_format_struct_size (format, p, mode);
+			if (!format) {
+				eprintf ("Cannot find format for struct `%s'\n", structname + 1);
+				return 0;
+			}
+			int newsize = r_print_format_struct_size (format, p, mode, n + 1);
+			if (newsize < 1) {
+				eprintf ("Cannot find size for `%s'\n", format);
+				return 0;
+			}
+			if (format && newsize > 0) {
+				size += tabsize * newsize;
+			}
 			free (structname);
 			}
 			break;
@@ -1314,7 +1403,9 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode) {
 				size += tabsize * 8;
 			} else {
 				eprintf ("Invalid n format.\n");
-				break;
+				free (o);
+				free (args);
+				return -2;
 			}
 			i++;
 			break;
@@ -1351,7 +1442,7 @@ static int r_print_format_struct(RPrint* p, ut64 seek, const ut8* b, int len, co
 	if (anon) {
 		fmt = name;
 	} else {
-		fmt = r_strht_get (p->formats, name);
+		fmt = sdb_get (p->formats, name, NULL);
 	}
 	if (!fmt || !*fmt) {
 		eprintf ("Undefined struct '%s'.\n", name);
@@ -1367,7 +1458,7 @@ static int r_print_format_struct(RPrint* p, ut64 seek, const ut8* b, int len, co
 		p->cb_printf ("<%s>\n", name);
 	}
 	r_print_format (p, seek, b, len, fmt, mode, setval, field);
-	return r_print_format_struct_size (fmt, p, mode);
+	return r_print_format_struct_size (fmt, p, mode, 0);
 }
 
 static char* get_args_offset(const char *arg) {
@@ -1404,11 +1495,11 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 	if (!formatname) {
 		return 0;
 	}
-	fmt = r_strht_get (p->formats, formatname);
+	fmt = sdb_get (p->formats, formatname, NULL);
 	if (!fmt) {
 		fmt = formatname;
 	}
-	while (*fmt && iswhitechar (*fmt)) fmt++;
+	while (*fmt && ISWHITECHAR (*fmt)) fmt++;
 	argend = fmt + strlen (fmt);
 	arg = fmt;
 
@@ -1431,7 +1522,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 	/* get times */
 	otimes = times = atoi (arg);
 	if (times > 0) {
-		while (*arg >= '0' && *arg <= '9') {
+		while (IS_DIGIT(*arg)) {
 			arg++;
 		}
 	}
@@ -1487,7 +1578,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 	if (mode == R_PRINT_JSON && slide == 0) {
 		p->cb_printf ("[");
 	}
-	if (arg[0] == '0') {
+	if (mode && arg[0] == '0') {
 		mode |= R_PRINT_UNIONMODE;
 		arg++;
 	} else {
@@ -1522,7 +1613,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					p->cb_printf (",");
 				}
 				p->cb_printf ("[{\"index\":%d,\"offset\":%d},", otimes-times, seek+i);
-			} else {
+			} else if (mode) {
 				p->cb_printf ("0x%08"PFMT64x" [%d] {\n", seek+i, otimes-times);
 			}
 		}
@@ -1550,7 +1641,11 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 			} else {
 				size = -1;
 			}
-			int fs = r_print_format_struct_size(arg, p, 0);
+			int fs = r_print_format_struct_size (arg, p, 0, idx);
+			if (fs == -2) {
+				i = -1;
+				goto beach;
+			}
 			if (fs < 1) {
 				fs = 4;
 			}
@@ -1562,13 +1657,13 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					updateAddr (buf + i, len - i, endian, &addr, &addr64);
 				}
 			} else {
-				eprintf ("Format strings is too big for this buffer\n");
+				// eprintf ("Format strings is too big for this buffer\n");
 				goto beach;
 			}
 
 			tmp = *arg;
 
-			if (!args) {
+			if (mode && !args) {
 				mode |= R_PRINT_ISFIELD;
 			}
 			if (mode & R_PRINT_MUSTSEE && otimes > 1) {
@@ -1598,11 +1693,11 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 						goto beach;
 					}
 				}
-				if (!args || (!field && ofield != MINUSONE)
+				if (mode && (!args || (!field && ofield != MINUSONE)
 						|| (field && !strncmp (field, fieldname, \
 							strchr (field, '[')
 						? strchr (field, '[') - field
-						: strlen (field) + 1))) {
+						: strlen (field) + 1)))) {
 					mode |= R_PRINT_ISFIELD;
 				} else {
 					mode &= ~R_PRINT_ISFIELD;
@@ -1787,7 +1882,10 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 			/* format chars */
 			// before to enter in the switch statement check buf boundaries due to  updateAddr
 			// might go beyond its len and it's usually called in each of the following functions
+#if 0
+// those boundaries are wrong. the fix was not correct, we need a reproducer
 			if (((i+3)<len) || (i+7)<len) {
+#endif
 				switch (tmp) {
 				case 'u':
 					i += r_print_format_uleb (p, endian, mode, setval, seeki, buf, i, size);
@@ -1827,6 +1925,9 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					i += (size==-1) ? 4 : 4*size;
 					break;
 				case 'i':
+					r_print_format_int (p, endian, mode, setval, seeki, buf, i, size);
+					i+= (size==-1) ? 4 : 4*size;
+					break;
 				case 'd': //WHY?? help says: 0x%%08x hexadecimal value (4 bytes)
 					r_print_format_hex (p, endian, mode, setval, seeki, buf, i, size);
 					i+= (size==-1) ? 4 : 4*size;
@@ -1861,8 +1962,9 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 						while (size--) i+=2;
 					break;
 				case 's':
-					if (r_print_format_string (p, seeki, addr64, addr, 0, mode) == 0)
+					if (r_print_format_string (p, seeki, addr64, addr, 0, mode) == 0) {
 						i += (size==-1) ? 4 : 4*size;
+					}
 					break;
 				case 'S':
 					if (r_print_format_string (p, seeki, addr64, addr, 1, mode) == 0)
@@ -1944,7 +2046,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 							}
 						}
 						while (size--) {
-							if (elem == -1 || elem == 0) {
+							if (mode && (elem == -1 || elem == 0)) {
 								mode |= R_PRINT_MUSTSEE;
 								if (elem == 0) {
 									elem = -2;
@@ -2012,10 +2114,12 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					invalid = 1;
 					break;
 				} //switch
+#if 0
 			} else {
-				eprintf ("r_print_format: Likely a heap buffer overflow\n");
+				eprintf ("r_print_format: Likely a heap buffer overflow (%s)\n", buf);
 				goto beach;
 			}
+#endif
 			if (mode & R_PRINT_DOT) {
 				p->cb_printf ("}");
 			}
@@ -2031,13 +2135,16 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 			last = tmp;
 		}
 		if (otimes > 1) {
-			if (MUSTSEEJSON) p->cb_printf ("]");
-			else p->cb_printf ("}\n");
+			if (MUSTSEEJSON) {
+				p->cb_printf ("]");
+			} else if (mode) {
+				p->cb_printf ("}\n");
+			}
 		}
 		arg = orig;
 		oldslide = 0;
 	}
-	if (mode & R_PRINT_JSON && slide==0) {
+	if (mode & R_PRINT_JSON && slide == 0) {
 		p->cb_printf("]\n");
 	}
 	if (mode & R_PRINT_DOT) {

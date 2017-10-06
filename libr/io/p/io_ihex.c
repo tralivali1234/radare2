@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2013-2016 - pancake, fenugrec */
+/* radare - LGPL - Copyright 2013-2017 - pancake, fenugrec */
 
 /*
 *** .hex format description : every line follows this pattern
@@ -89,7 +89,7 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 			tsiz = -addl0;
 			addl0 = 0;
 			if (fwblock (out, rbs->data, rbs->from, tsiz)) {
-				eprintf("ihex:fwblock error\n");
+				eprintf ("ihex:fwblock error\n");
 				fclose (out);
 				return -1;
 			}
@@ -177,6 +177,7 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 		return -1;
 	}
 	Rihex *rih = fd->data;
+	memset (buf, io->Oxff, count);
 	if (r_buf_read_at (rih->rbuf, io->off, buf, count) != count) {
 		return -1; //should never happen with a sparsebuf..
 	}
@@ -191,7 +192,6 @@ static int __close(RIODesc *fd) {
 	r_buf_free (rih->rbuf);
 	free (rih);
 	fd->data = NULL;
-	fd->state = R_IO_DESC_TYPE_CLOSED;
 	return 0;
 }
 
@@ -224,7 +224,8 @@ static bool ihex_parse(RBuffer *rbuf, char *str) {
 	//fugly macro to prevent an overflow of r_buf_write_at() len
 #define SEC_MAX (sec_size < INT_MAX)? sec_size: INT_MAX
 	ut32 sec_size = 0;
-	sec_tmp = calloc (1, UT16_MAX);
+	const int sec_count = UT16_MAX;
+	sec_tmp = calloc (1, sec_count);
 	if (!sec_tmp) {
 		goto fail;
 	}
@@ -240,8 +241,10 @@ static bool ihex_parse(RBuffer *rbuf, char *str) {
 
 		switch (type) {
 		case 0: // DATA
-			eol = strchr (str+1, ':');
-			if (eol) *eol = 0;
+			eol = strchr (str + 1, ':');
+			if (eol) {
+				*eol = 0;
+			}
 			cksum = bc;
 			cksum += addr_tmp>>8;
 			cksum += addr_tmp;
@@ -250,7 +253,7 @@ static bool ihex_parse(RBuffer *rbuf, char *str) {
 			if ((next_addr != addr_tmp) || ((sec_size + bc) > SEC_MAX)) {
 				//previous block is not contiguous, or
 				//section buffer is full => write a sparse chunk
-				if (sec_size) {
+				if (sec_size && sec_size < UT16_MAX) {
 					if (r_buf_write_at (rbuf, sec_start, sec_tmp, (int) sec_size) != sec_size) {
 						eprintf ("sparse buffer problem, giving up\n");
 						goto fail;
@@ -267,7 +270,9 @@ static bool ihex_parse(RBuffer *rbuf, char *str) {
 					eprintf ("unparsable data !\n");
 					goto fail;
 				}
-				sec_tmp[sec_size + i] = (ut8) byte & 0xff;
+				if (sec_size + i < sec_count) {
+					sec_tmp[sec_size + i] = (ut8) byte & 0xff;
+				}
 				cksum += byte;
 			}
 			sec_size += bc;
@@ -311,17 +316,16 @@ static bool ihex_parse(RBuffer *rbuf, char *str) {
 			}
 			sec_size = 0;
 
-			eol = strchr (str+1, ':');
+			eol = strchr (str + 1, ':');
 			if (eol) *eol = 0;
 			cksum = bc;
 			cksum += addr_tmp>>8;
 			cksum += addr_tmp;
 			cksum += type;
-			if ((bc !=2) || (addr_tmp != 0)) {
+			if ((bc != 2) || (addr_tmp != 0)) {
 				eprintf ("invalid type 02/04 record!\n");
 				goto fail;
 			}
-
 			if ((sscanf (str + 9 + 0, "%02x", &extH) !=1) ||
 				(sscanf (str + 9 + 2, "%02x", &extL) !=1)) {
 				eprintf ("unparsable data !\n");
@@ -371,14 +375,15 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	char *str = NULL;
 	if (__plugin_open (io, pathname, 0)) {
 		str = r_file_slurp (pathname + 7, NULL);
-		if (!str) return NULL;
+		if (!str) {
+			return NULL;
+		}
 		mal= R_NEW0 (Rihex);
 		if (!mal) {
 			free (str);
 			return NULL;
 		}
-		mal->fd = -1; /* causes r_io_desc_new() to set the correct fd */
-		mal->rbuf = r_buf_new_sparse ();
+		mal->rbuf = r_buf_new_sparse (io->Oxff);
 		if (!mal->rbuf) {
 			free (str);
 			free (mal);
@@ -392,15 +397,21 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 			return NULL;
 		}
 		free (str);
-		return r_io_desc_new (&r_io_plugin_ihex,
-			mal->fd, pathname, rw, mode, mal);
+		return r_io_desc_new (io, &r_io_plugin_ihex,
+			pathname, rw, mode, mal);
 	}
 	return NULL;
 }
 
 static bool __resize(RIO *io, RIODesc *fd, ut64 size) {
+	if (!fd) {
+		return false;
+	}
 	Rihex *rih = fd->data;
-	return r_buf_resize (rih->rbuf, size);
+	if (rih) {
+		return r_buf_resize (rih->rbuf, size);
+	}
+	return false;
 }
 
 RIOPlugin r_io_plugin_ihex = {

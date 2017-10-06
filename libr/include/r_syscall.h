@@ -8,7 +8,8 @@ extern "C" {
 #endif
 
 #include <r_types.h>
-#include <r_db.h>
+#include <r_util.h>
+#include <sdb.h>
 
 R_LIB_VERSION_HEADER (r_syscall);
 
@@ -72,7 +73,7 @@ R_API void r_syscall_item_free(RSyscallItem *si);
 
 R_API RSyscall *r_syscall_new(void);
 R_API void r_syscall_free(RSyscall *ctx);
-R_API int r_syscall_setup(RSyscall *ctx, const char *arch, const char *os, int bits);
+R_API bool r_syscall_setup(RSyscall *ctx, const char *arch, const char *os, int bits);
 R_API int r_syscall_setup_file(RSyscall *ctx, const char *path);
 R_API RSyscallItem *r_syscall_get(RSyscall *ctx, int num, int swi);
 R_API int r_syscall_get_num(RSyscall *ctx, const char *str);
