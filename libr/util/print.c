@@ -297,10 +297,13 @@ R_API RPrint* r_print_new() {
 	p->get_register = NULL;
 	p->get_register_value = NULL;
 	p->lines_cache = NULL;
+	p->calc_row_offsets = true;
 	p->row_offsets_sz = 0;
 	p->row_offsets = NULL;
 	p->vflush = true;
 	p->screen_bounds = 0;
+	p->esc_bslash = false;
+	p->strconv_mode = NULL;
 	memset (&p->consbind, 0, sizeof (p->consbind));
 	return p;
 }
@@ -934,7 +937,11 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 					r_print_cursor (p, j, 1);
 					// stub for colors
 					if (p && p->colorfor) {
-						a = p->colorfor (p->user, n, true);
+						if (!p->iob.addr_is_mapped (p->iob.io, addr + j)) {
+							a = p->cons->pal.ai_unmap;
+						} else {
+							a = p->colorfor (p->user, n, true);
+						}
 						if (a && *a) {
 							b = Color_RESET;
 						} else {
@@ -1325,16 +1332,15 @@ R_API void r_print_zoom(RPrint *p, void *user, RPrintZoomCallback cb, ut64 from,
 		size = p->zoom->size;
 	} else {
 		mode = p->zoom->mode;
-		bufz = (ut8 *) malloc (len);
+		bufz = (ut8 *) calloc (1, len);
 		if (!bufz) {
 			return;
 		}
-		bufz2 = (ut8 *) malloc (size);
+		bufz2 = (ut8 *) calloc (1, size);
 		if (!bufz2) {
 			free (bufz);
 			return;
 		}
-		memset (bufz, 0, len);
 
 		// TODO: memoize blocks or gtfo
 		for (i = 0; i < len; i++) {
@@ -1348,7 +1354,7 @@ R_API void r_print_zoom(RPrint *p, void *user, RPrintZoomCallback cb, ut64 from,
 		p->zoom->buf = bufz;
 		p->zoom->from = from;
 		p->zoom->to = to;
-		p->zoom->size = size;
+		p->zoom->size = len; // size;
 	}
 	p->flags &= ~R_PRINT_FLAGS_HEADER;
 	r_print_hexdump (p, from, bufz, len, 16, 1, size);
@@ -1783,12 +1789,17 @@ R_API char* r_print_colorize_opcode(RPrint *print, char *p, const char *reg, con
 
 // reset the status of row_offsets
 R_API void r_print_init_rowoffsets(RPrint *p) {
-	R_FREE (p->row_offsets);
-	p->row_offsets_sz = 0;
+	if (p->calc_row_offsets) {
+		R_FREE(p->row_offsets);
+		p->row_offsets_sz = 0;
+	}
 }
 
 // set the offset, from the start of the printing, of the i-th row
-R_API void r_print_set_rowoff(RPrint *p, int i, ut32 offset) {
+R_API void r_print_set_rowoff(RPrint *p, int i, ut32 offset, bool overwrite) {
+	if (!overwrite) {
+		return;
+	}
 	if (i < 0) {
 		return;
 	}
@@ -1842,27 +1853,68 @@ R_API int r_print_jsondump(RPrint *p, const ut8 *buf, int len, int wordsize) {
 	if (!p || !buf || len < 1 || wordsize < 1) {
 		return 0;
 	}
-	int i, words = (len / wordsize);
+	int bytesize = wordsize / 8;
+	if (bytesize < 1) {
+		bytesize = 8;
+	}
+	int i, words = (len / bytesize);
 	p->cb_printf ("[");
 	for (i = 0; i < words; i++) {
-		ut16 w16 = r_read_ble16 (&buf16[i], p->big_endian);
-		ut32 w32 = r_read_ble32 (&buf32[i], p->big_endian);
-		ut64 w64 = r_read_ble64 (&buf64[i], p->big_endian);
 		switch (wordsize) {
-		case 8:
-			p->cb_printf ("%s%d", i?",":"", buf[i]);
+		case 8: {
+			p->cb_printf ("%s%d", i ? "," : "", buf[i]);
 			break;
-		case 16:
-			p->cb_printf ("%s%hd", i?",":"", w16);
+		}
+		case 16: {
+			ut16 w16 = r_read_ble16 (&buf16[i], p->big_endian);
+			p->cb_printf ("%s%hd", i ? "," : "", w16);
 			break;
-		case 32:
-			p->cb_printf ("%s%d", i?",":"", w32);
+		}
+		case 32: {
+			ut32 w32 = r_read_ble32 (&buf32[i], p->big_endian);
+			p->cb_printf ("%s%d", i ? "," : "", w32);
 			break;
-		case 64:
-			p->cb_printf ("%s%"PFMT64d, i?",":"", w64);
+		}
+		case 64: {
+			ut64 w64 = r_read_ble64 (&buf64[i], p->big_endian);
+			p->cb_printf ("%s%"PFMT64d, i ? "," : "", w64);
 			break;
+		}
 		}
 	}
 	p->cb_printf ("]\n");
 	return words;
+}
+
+R_API void r_print_hex_from_bin (RPrint *p, char *bin_str) {
+	int i, j, index;
+	RPrint myp = {.cb_printf = libc_printf};
+	const int len = strlen (bin_str);
+	ut64 n, *buf = malloc (sizeof (ut64) * ((len + 63) / 64));
+	if (buf == NULL) {
+		eprintf ("allocation failed\n");
+		return;
+	}
+	if (!p) {
+		p = &myp;
+	}
+	for (i = len - 1, index = 0; i >= 0; i -= 64, index++) {
+		n = 0;
+		for (j = 0; j < 64 && i - j >= 0; j++) {
+			n += (ut64) (bin_str[i - j] - '0') << j;
+		}
+		buf[index] = n;
+	}
+	index--;
+	p->cb_printf ("0x");
+	while (buf[index] == 0 && index > 0) {
+		index--;
+	}
+	p->cb_printf ("%" PFMT64x, buf[index]);
+	index--;
+	for (i = index; i >= 0; i--) {
+		p->cb_printf ("%016" PFMT64x, buf[i]);
+	}
+	p->cb_printf ("\n");
+	free (buf);
 }

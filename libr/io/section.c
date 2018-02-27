@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017 - condret , alvarofe*/
+/* radare2 - LGPL - Copyright 2017-2018 - condret , alvarofe */
 
 #include <r_io.h>
 #include <r_util.h>
@@ -18,9 +18,7 @@ static void section_free(void *p) {
 R_API void r_io_section_init(RIO *io) {
 	if (io) {
 		if (!io->sections) {
-			if (!(io->sections = ls_newf (section_free))) {
-				return;
-			}
+			io->sections = ls_newf (section_free);
 		}
 		io->sec_ids = r_id_pool_new (0, UT32_MAX);
 	}
@@ -150,7 +148,7 @@ R_API bool r_io_section_bin_rm(RIO *io, ut32 bin_id) {
 			ls_delete (io->sections, iter);
 		}
 	}
-	return (!(length == ls_length (io->sections)));
+	return length != ls_length (io->sections);
 }
 
 R_API RIOSection *r_io_section_get_name(RIO *io, const char *name) {
@@ -309,6 +307,7 @@ R_API int r_io_section_set_archbits(RIO *io, ut32 id, const char *arch, int bits
 
 R_API const char *r_io_section_get_archbits(RIO *io, ut64 vaddr, int *bits) {
 	//cache section so we avoid making so many looks up
+	// this may crash if we remove this section, we need a way to invalidate this cache
 	static RIOSection *s = NULL;
 	if (!s || (vaddr < s->vaddr) || (s->vaddr + s->vsize < vaddr)) {
 		s = r_io_section_vget (io, vaddr);
@@ -372,7 +371,7 @@ R_API bool r_io_section_priorize(RIO *io, ut32 id) {
 			return ret; 
 		}
 	}
-	if (!(sec->filemap == sec->memmap)) {
+	if (sec->filemap != sec->memmap) {
 		return ret & r_io_map_priorize (io, sec->memmap);
 	}
 	return false;
@@ -419,10 +418,8 @@ static bool _section_apply_for_anal_patch(RIO *io, RIOSection *sec, bool patch) 
 		}
 	} else {
 		// same as above
-		if (!sec->filemap) {
-			if (r_io_create_file_map (io, sec, sec->vsize, patch, false)) {
-				return true;
-			}
+		if (!sec->filemap && r_io_create_file_map (io, sec, sec->vsize, patch, false)) {
+			return true;
 		}
 		return false;
 	}
@@ -491,12 +488,10 @@ static bool _section_apply(RIO *io, RIOSection *sec, RIOSectionApplyMethod metho
 		return false;
 	}
 }
+
 R_API bool r_io_section_apply(RIO *io, ut32 id, RIOSectionApplyMethod method) {
-	RIOSection *sec;
-	if (!(sec = r_io_section_get_i (io, id))) {
-		return false;
-	}
-	return _section_apply (io, sec, method);
+	RIOSection *sec = r_io_section_get_i (io, id);
+	return sec ? _section_apply (io, sec, method): false;
 }
 
 static bool _section_reapply_anal_or_patch(RIO *io, RIOSection *sec, RIOSectionApplyMethod method) {

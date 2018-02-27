@@ -1,5 +1,6 @@
 /* radare - LGPL - Copyright 2017 - pancake */
 
+#include "r_types_base.h"
 #include "r_io.h"
 #include "r_lib.h"
 #include <stdio.h>
@@ -57,6 +58,7 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	int wordSize = 4;
 	ut32 *w = (ut32*)buf;
 	int i;
+	memset (buf, 0xff, count);
 	int words = count / wordSize; // XXX must pad align to 4
 	for (i = 0; i < words ; i++) {
 		ut64 addr = io->off + (i * wordSize);
@@ -69,7 +71,7 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 
 	int left = count % wordSize;
 	if (left > 0) {
-		ut32 n = 0;
+		ut32 n = 0xff;
 		ut8 *wn = (ut8*)&n;
 		ut64 addr = io->off + (i * wordSize);
 		char *cmd = r_str_newf ("x 0x%"PFMT64x, addr);
@@ -93,10 +95,15 @@ static int __close(RIODesc *fd) {
 
 static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	switch (whence) {
-	case SEEK_SET: return offset;
-	case SEEK_CUR: return io->off + offset;
-	case SEEK_END: return UT64_MAX;
+	case SEEK_SET:
+		io->off = offset;
+		return offset;
+	case SEEK_CUR:
+		return io->off + offset;
+	case SEEK_END:
+		return UT64_MAX;
 	}
+	io->off = offset;
 	return offset;
 }
 
@@ -134,12 +141,25 @@ static void printcmd (RIO *io, const char *cmd) {
 	free (res);
 }
 
-struct winedbg_x86_32 { // __attribute__((__packed__)) {
-	ut16 cs, ss, ds, es, fs, gs;
-	ut32 eip, esp, ebp, eflags;
-	ut32 eax, ebx, ecx, edx;
-	ut32 esi, edi;
-};
+R_PACKED (
+struct winedbg_x86_32 {
+	ut16 cs;
+	ut16 ss;
+	ut16 ds;
+	ut16 es;
+	ut16 fs;
+	ut16 gs;
+	ut32 eip;
+	ut32 esp;
+	ut32 ebp;
+	ut32 eflags;
+	ut32 eax;
+	ut32 ebx;
+	ut32 ecx;
+	ut32 edx;
+	ut32 esi;
+	ut32 edi;
+});
 
 static struct winedbg_x86_32 regState() {
 	struct winedbg_x86_32 r = {0};
@@ -147,15 +167,28 @@ static struct winedbg_x86_32 regState() {
 	if (res) {
 		char *line = strstr (res, "EIP:");
 		if (line) {
+			ut32 eip, esp, ebp, eflags;
 			(void)sscanf (line, "EIP:%08x ESP:%08x EBP:%08x EFLAGS:%08x",
-				&r.eip, &r.esp, &r.ebp, &r.eflags);
+				&eip, &esp, &ebp, &eflags);
+			r.eip = eip;
+			r.esp = esp;
+			r.ebp = ebp;
+			r.eflags = eflags;
 			line = strstr (line, "EAX:");
 			if (line) {
+				ut32 eax, ebx, ecx, edx;
 				(void)sscanf (line, "EAX:%08x EBX:%08x ECX:%08x EDX:%08x",
-					&r.eax, &r.ebx, &r.ecx, &r.edx);
+					&eax, &ebx, &ecx, &edx);
+				r.eax = eax;
+				r.ebx = ebx;
+				r.ecx = ecx;
+				r.edx = edx;
 				line = strstr (line, "ESI:");
 				if (line) {
-					(void)sscanf (line, "ESI:%08x EDI:%08x", &r.esi, &r.edi);
+					ut32 esi, edi;
+					(void)sscanf (line, "ESI:%08x EDI:%08x", &esi, &edi);
+					r.esi = esi;
+					r.edi = edi;
 				}
 			}
 		}
@@ -164,7 +197,7 @@ static struct winedbg_x86_32 regState() {
 	return r;
 }
 
-static int __system(RIO *io, RIODesc *fd, const char *cmd) {
+static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 	if (!strncmp (cmd, "?", 1)) {
 		eprintf ("dr  : show registers\n");
 		eprintf ("dr* : show registers as flags\n");
@@ -175,16 +208,13 @@ static int __system(RIO *io, RIODesc *fd, const char *cmd) {
 		eprintf ("dc  : continue\n");
 		eprintf ("dm  : show maps\n");
 		eprintf ("pid : show current process id\n");
-		return 0;
 	} else if (!strncmp (cmd, "dr8", 3)) {
 		struct winedbg_x86_32 r = regState ();
 		ut8 *arena = (ut8*)calloc (sizeof (struct winedbg_x86_32), 3);
-		if (!arena) {
-			return 0;
+		if (arena) {
+			r_hex_bin2str ((ut8*)&r, sizeof (r), (char *)arena);
+			return (char *)arena;
 		}
-		r_hex_bin2str ((ut8*)&r, sizeof (r), (char *)arena);
-		io->cb_printf ("%s\n", arena);
-		free (arena);
 	} else if (!strncmp (cmd, "drp", 3)) {
 const char *msg =
 "=PC	eip\n"\
@@ -230,41 +260,53 @@ const char *msg =
 "flg	nt	.1	.201	0\n"\
 "flg	rf	.1	.202	0\n"\
 "flg	vm	.1	.203	0\n";
-		io->cb_printf ("%s", msg);
-		return 0;
+		return strdup (msg);
 	} else if (!strncmp (cmd, "dr", 2)) {
 		printcmd (io, "info reg");
-		return 0;
 	} else if (!strncmp (cmd, "db ", 3)) {
 		free (runcmd (sdb_fmt (0, "break *%"PFMT64x, r_num_get (NULL, cmd + 3) || io->off)));
-		return 0;
 	} else if (!strncmp (cmd, "ds", 2)) {
 		free (runcmd ("stepi"));
-		return 0;
 	} else if (!strncmp (cmd, "dc", 2)) {
 		free (runcmd ("cont"));
-		return 0;
 	} else if (!strncmp (cmd, "dso", 3)) {
 		eprintf ("TODO: dso\n");
-		return 0;
 	} else if (!strncmp (cmd, "dp", 3)) {
 		printcmd (io, "info thread");
-		return 0;
 	} else if (!strncmp (cmd, "dm", 3)) {
-		printcmd (io, "info maps");
-		return 0;
-	} else if (!strncmp (cmd, "pid", 3)) {
-		int pid = fd->fd;
-		if (!cmd[3]) {
-			io->cb_printf ("%d\n", pid);
+		char *wineDbgMaps = runcmd ("info maps");
+		char *res = NULL;
+		if (wineDbgMaps) {
+			const char *perm;
+			char *ptr = wineDbgMaps;
+			for (;;) {
+				char *nl = strchr (ptr, '\n');
+				if (!nl) {
+					break;
+				}
+				*nl++ = 0;
+				perm = "r-x";
+				ut64 from = 0, to = 0;
+				if (strstr (ptr, " commit ")) {
+					if (strstr (ptr, "RW")) {
+						perm = "rw-";
+					}
+					sscanf (ptr, "%08"PFMT64x" %08"PFMT64x, &from, &to);
+				}
+				char *row = r_str_newf ("0x%08"PFMT64x" - 0x%08" PFMT64x" %s %s\n", from, to, perm, "");
+				ptr = nl + 1;
+				res = r_str_append (res, row);
+				free (row);
+			}
+			free (wineDbgMaps);
+			return res;
 		}
-		return pid;
+	} else if (!strncmp (cmd, "pid", 3)) {
+		return r_str_newf ("%d", fd->fd);
 	} else {
-		char *res = runcmd (cmd);
-		io->cb_printf ("%s\n", res);
-		free (res);
+		printcmd (io, cmd);
 	}
-	return 0;
+	return NULL;
 }
 
 RIOPlugin r_io_plugin_winedbg = {

@@ -55,6 +55,7 @@ static inline RBIter bound_iter(RBNode *x, void *data, RBComparator cmp, bool up
 	return it;
 }
 
+/*
 static void _check1(RBNode *x, int dep, int black, bool leftmost) {
 	static int black_;
 	if (x) {
@@ -74,6 +75,7 @@ static void _check1(RBNode *x, int dep, int black, bool leftmost) {
 static void _check(RBNode *x) {
 	_check1 (x, 0, 0, true);
 }
+*/
 
 // Returns true if a node with an equal key is deleted
 R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, RBNodeFree freefn, RBNodeSum sum) {
@@ -98,6 +100,10 @@ R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, RBNo
 			}
 		}
 		if (q != &head) {
+			if (dep >= R_RBTREE_MAX_HEIGHT) {
+				eprintf ("Too deep tree\n");
+				break;
+			}
 			path[dep++] = q;
 		}
 		q = q->child[d2];
@@ -110,6 +116,10 @@ R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, RBNo
 			}
 			p->child[d2] = zag (q, !d, sum);
 			p = p->child[d2];
+			if (dep >= R_RBTREE_MAX_HEIGHT) {
+				eprintf ("Too deep tree\n");
+				break;
+			}
 			path[dep++] = p;
 		} else {
 			RBNode *s = p->child[!d2];
@@ -136,7 +146,7 @@ R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, RBNo
 				t->red = q->red = true;
 				t->child[0]->red = t->child[1]->red = false;
 				g->child[d3] = t;
-				path[dep-1] = t;
+				path[dep - 1] = t;
 				path[dep++] = p;
 			}
 		}
@@ -213,6 +223,10 @@ R_API void r_rbtree_aug_insert(RBNode **root, void *data, RBNode *node, RBCompar
 		t = g;
 		g = p;
 		p = q;
+		if (dep >= R_RBTREE_MAX_HEIGHT) {
+			eprintf ("Too deep tree\n");
+			break;
+		}
 		path[dep++] = q;
 		if (d < 0) {
 			d = 0;

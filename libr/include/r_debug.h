@@ -324,6 +324,7 @@ typedef struct r_debug_info_t {
 	int tid;
 	int uid;
 	int gid;
+	char *usr;
 	char *exe;
 	char *cmdline;
 	char *libname;
@@ -505,7 +506,6 @@ R_API int r_debug_reg_set(RDebug *dbg, const char *name, ut64 num);
 R_API ut64 r_debug_reg_get(RDebug *dbg, const char *name);
 R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *value);
 
-R_API void r_debug_io_bind(RDebug *dbg, RIO *io);
 R_API ut64 r_debug_execute(RDebug *dbg, const ut8 *buf, int len, int restore);
 R_API int r_debug_map_sync(RDebug *dbg);
 
@@ -589,7 +589,7 @@ R_API bool r_debug_session_set_idx(RDebug *dbg, int idx);
 R_API RDebugSession *r_debug_session_get(RDebug *dbg, RListIter *tail);
 R_API void r_debug_session_save(RDebug *dbg, const char *file);
 R_API void r_debug_session_restore(RDebug *dbg, const char *file);
-R_API int r_debug_step_back(RDebug *dbg);
+R_API bool r_debug_step_back(RDebug *dbg);
 R_API bool r_debug_continue_back(RDebug *dbg);
 
 /* plugin pointers */

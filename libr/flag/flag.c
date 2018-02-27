@@ -74,7 +74,7 @@ static ut64 num_callback(RNum *user, const char *name, int *ok) {
 	dir == -1 -> result <= off
 	dir == 0 ->  result == off
 	dir == 1 ->  result >= off*/
-static  RFlagsAtOffset* r_flag_get_nearest_list(RFlag *f, ut64 off, int dir) {
+static RFlagsAtOffset* r_flag_get_nearest_list(RFlag *f, ut64 off, int dir) {
 	RFlagsAtOffset *flags = NULL;
 	RFlagsAtOffset key;
 	key.off = off;
@@ -107,7 +107,7 @@ static int set_name(RFlagItem *item, const char *name) {
 	if (!item->name) {
 		return false;
 	}
-	r_str_chop (item->name);
+	r_str_trim (item->name);
 	r_name_filter (item->name, 0); // TODO: name_filter should be chopping already
 	free (item->realname);
 	item->realname = item->name;
@@ -215,6 +215,14 @@ R_API void r_flag_list(RFlag *f, int rad, const char *pfx) {
 	}
 
 	switch (rad) {
+	case 'q':
+		r_list_foreach (f->flags, iter, flag) {
+			if (IS_IN_SPACE (f, flag)) {
+				continue;
+			}
+			f->cb_printf ("%s\n", flag->name);
+		}
+		break;
 	case 'j': {
 		int first = 1;
 		f->cb_printf ("[");
@@ -612,17 +620,18 @@ R_API int r_flag_unset_off(RFlag *f, ut64 off) {
 
 /* unset all the flag items that satisfy the given glob.
  * return the number of unset items. */
+// XXX This is O(n^n) because unset_globa iterates all flags and unset too.
 R_API int r_flag_unset_glob(RFlag *f, const char *glob) {
-	RListIter it, *iter;
+	RListIter *iter, *iter2;
 	RFlagItem *flag;
 	int n = 0;
 
-	r_list_foreach (f->flags, iter, flag) {
-		if (IS_IN_SPACE (f, flag)) continue;
+	r_list_foreach_safe (f->flags, iter, iter2, flag) {
+		if (IS_IN_SPACE (f, flag)) {
+			continue;
+		}
 		if (!glob || r_str_glob (flag->name, glob)) {
-			it.n = iter->n;
 			r_flag_unset (f, flag);
-			iter = &it;
 			n++;
 		}
 	}

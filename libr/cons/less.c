@@ -68,9 +68,13 @@ static int *splitlines (char *s, int *lines_count) {
 	int i, row = 0;
 	int sidx = 0;
 
-	if (lines_size * sizeof(int) < lines_size) return NULL;
-	lines = malloc (lines_size * sizeof(int));
-	if (!lines) return NULL;
+	if (lines_size * sizeof (int) < lines_size) {
+		return NULL;
+	}
+	lines = malloc (lines_size * sizeof (int));
+	if (!lines) {
+		return NULL;
+	}
 	lines[row++] = 0;
 	for (i = 0; s[i]; i++) {
 		if (row >= lines_size) {
@@ -99,19 +103,27 @@ static int *splitlines (char *s, int *lines_count) {
 
 static int next_match(int from, RList **mla, int lcount){
 	int l;
-	if(from > lcount - 2) return from;
-	for(l = from + 1; l < lcount; l++){
+	if (from > lcount - 2) {
+		return from;
+	}
+	for (l = from + 1; l < lcount; l++){
 		/* if there's at least one match on the line */
-		if(r_list_first(mla[l])) return l;
+		if (r_list_first(mla[l])) {
+			return l;
+		}
 	}
 	return from;
 }
 
 static int prev_match(int from, RList **mla){
 	int l;
-	if(from < 1) return from;
-	for(l = from - 1; l > 0; l--){
-		if(r_list_first(mla[l])) return l;
+	if (from < 1) {
+		return from;
+	}
+	for (l = from - 1; l > 0; l--) {
+		if (r_list_first(mla[l])) {
+			return l;
+		}
 	}
 	return from;
 }
@@ -125,12 +137,15 @@ static int all_matches(const char *s, RRegex *rx, RList **mla, int *lines, int l
 		const char *loff = s + lines[l]; /* current line offset */
 		char *clean = strdup (loff);
 		if (!clean) return 0;
-		int *cpos;
-		r_str_ansi_filter (clean, NULL, &cpos, 0);
+		int *cpos = NULL;
+		int ncpos = r_str_ansi_filter (clean, NULL, &cpos, 0);
 		m.rm_eo = slen = strlen (clean);
 		r_list_purge (mla[l]);
-		while (!r_regex_exec (rx, clean, 1, &m, R_REGEX_STARTEND)){
+		while (!r_regex_exec (rx, clean, 1, &m, R_REGEX_STARTEND)) {
 			RRegexMatch *ms = R_NEW0 (RRegexMatch);
+			if (!cpos || m.rm_so >= ncpos) {
+				break;
+			}
 			ms->rm_so = cpos[m.rm_so];
 			ms->rm_eo = cpos[m.rm_eo];
 			r_list_append (mla[l], ms);

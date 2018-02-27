@@ -13,9 +13,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
-#ifdef _MSC_VER
-#pragma comment(lib, "ws2_32.lib")
-#endif
 
 #if EMSCRIPTEN
 #define NETWORK_DISABLED 1
@@ -302,7 +299,7 @@ R_API bool r_socket_connect (RSocket *s, const char *host, const char *port, int
 	FD_SET (s->fd, &Write);
 	FD_SET (s->fd, &Err);
 	select (0, NULL, &Write, &Err, &Timeout);
-	if(FD_ISSET (s->fd, &Write)) {
+	if (FD_ISSET (s->fd, &Write)) {
 		return true;
 	}
 	return false;
@@ -664,9 +661,7 @@ R_API int r_socket_ready(RSocket *s, int secs, int usecs) {
 
 R_API char *r_socket_to_string(RSocket *s) {
 #if __WINDOWS__ && !defined(__CYGWIN__) //&& !defined(__MINGW64__)
-	char *str = malloc (32);
-	snprintf (str, 31, "fd%d", s->fd);
-	return str;
+	return r_str_newf ("fd%d", (int)(size_t)s->fd);
 #elif __UNIX__ || defined(__CYGWIN__)
 	char *str = NULL;
 	struct sockaddr sa;

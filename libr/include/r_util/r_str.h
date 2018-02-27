@@ -1,18 +1,20 @@
 #ifndef R_STR_H
 #define R_STR_H
 
+#include <wchar.h>
 #include "r_str_util.h"
+#include "r_list.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 typedef enum {
-	R_STRING_ENC_LATIN1,
-	R_STRING_ENC_UTF8,
-	R_STRING_ENC_UTF16LE,
-	R_STRING_ENC_UTF32LE,
-	R_STRING_ENC_GUESS,
+	R_STRING_ENC_LATIN1 = 'a',
+	R_STRING_ENC_UTF8 = '8',
+	R_STRING_ENC_UTF16LE = 'u',
+	R_STRING_ENC_UTF32LE = 'U',
+	R_STRING_ENC_GUESS = 'g',
 } RStrEnc;
 
 typedef int (*RStrRangeCallback) (void *, int);
@@ -25,6 +27,7 @@ static inline void r_str_rmch(char *s, char ch) {
 }
 #define r_str_array(x,y) ((y>=0 && y<(sizeof(x)/sizeof(*x)))?x[y]:"")
 R_API const char *r_str_pad(const char ch, int len);
+R_API const char *r_str_rstr(const char *base, const char *p);
 R_API const char *r_str_rchr(const char *base, const char *p, int ch);
 R_API const char *r_str_closer_chr(const char *b, const char *s);
 R_API int r_str_bounds(const char *str, int *h);
@@ -40,6 +43,7 @@ R_API const char *r_str_casestr(const char *a, const char *b);
 R_API const char *r_str_firstbut(const char *s, char ch, const char *but);
 R_API const char *r_str_lastbut(const char *s, char ch, const char *but);
 R_API int r_str_split(char *str, char ch);
+R_API RList *r_str_split_list(char *str);
 R_API int *r_str_split_lines(char *str, int *count);
 R_API char* r_str_replace(char *str, const char *key, const char *val, int g);
 R_API char *r_str_replace_in(char *str, ut32 sz, const char *key, const char *val, int g);
@@ -56,6 +60,7 @@ R_API char *r_str_arg_escape(const char *arg);
 R_API char **r_str_argv(const char *str, int *_argc);
 R_API void r_str_argv_free(char **argv);
 R_API char *r_str_new(const char *str);
+R_API int r_snprintf (char *string, int len, const char *fmt, ...);
 R_API bool r_str_is_ascii(const char *str);
 R_API int r_str_is_printable(const char *str);
 R_API bool r_str_is_printable_incl_newlines(const char *str);
@@ -65,7 +70,7 @@ R_API char *r_str_newlen(const char *str, int len);
 R_API const char *r_str_bool(int b);
 R_API const char *r_str_ansi_chrn(const char *str, int n);
 R_API int r_str_ansi_len(const char *str);
-R_API int r_str_ansi_chop(char *str, int str_len, int n);
+R_API int r_str_ansi_trim(char *str, int str_len, int n);
 R_API int r_str_ansi_filter(char *str, char **out, int **cposs, int len);
 R_API char *r_str_ansi_crop(const char *str, unsigned int x, unsigned int y, unsigned int x2, unsigned int y2);
 R_API int r_str_word_count(const char *string);
@@ -75,15 +80,14 @@ R_API int r_str_word_set0(char *str);
 R_API int r_str_word_set0_stack(char *str);
 R_API const char *r_str_word_get0(const char *str, int idx);
 R_API char *r_str_word_get_first(const char *string);
-R_API char *r_str_chop(char *str);
-R_API const char *r_str_chop_ro(const char *str);
+R_API char *r_str_trim(char *str);
 R_API char *r_str_trim_head(char *str);
-R_API const char *r_str_trim_const(const char *str);
+R_API const char *r_str_trim_ro(const char *str);
 R_API char *r_str_trim_tail(char *str);
 R_API char *r_str_trim_head_tail(char *str);
 R_API ut32 r_str_hash(const char *str);
 R_API ut64 r_str_hash64(const char *str);
-R_API char *r_str_clean(char *str);
+R_API char *r_str_trim_nc(char *str);
 R_API const char *r_str_nstr(const char *from, const char *to, int size);
 R_API const char *r_str_lchr(const char *str, char chr);
 R_API const char *r_sub_str_lchr(const char *str, int start, int end, char chr);
@@ -101,6 +105,10 @@ R_API int r_str_inject(char *begin, char *end, char *str, int maxlen);
 R_API int r_str_delta(char *p, char a, char b);
 R_API void r_str_filter(char *str, int len);
 R_API const char * r_str_tok(const char *str1, const char b, size_t len);
+R_API wchar_t *r_str_mb_to_wc(const char *buf);
+R_API char *r_str_wc_to_mb(const wchar_t *buf);
+R_API wchar_t *r_str_mb_to_wc_l(const char *buf, int len);
+R_API char *r_str_wc_to_mb_l(const wchar_t *buf, int len);
 
 typedef void(*str_operation)(char *c);
 
@@ -116,8 +124,8 @@ R_API int r_str_re_replace(const char *str, const char *reg, const char *sub);
 R_API int r_str_unescape(char *buf);
 R_API char *r_str_escape(const char *buf);
 R_API char *r_str_escape_dot(const char *buf);
-R_API char *r_str_escape_latin1(const char *buf, bool show_asciidot, bool ign_bslash);
-R_API char *r_str_escape_utf8(const char *buf, bool show_asciidot);
+R_API char *r_str_escape_latin1(const char *buf, bool show_asciidot, bool esc_bslash);
+R_API char *r_str_escape_utf8(const char *buf, bool show_asciidot, bool esc_bslash);
 R_API char *r_str_escape_utf16le(const char *buf, int buf_size, bool show_asciidot);
 R_API char *r_str_escape_utf32le(const char *buf, int buf_size, bool show_asciidot);
 R_API void r_str_uri_decode(char *buf);
@@ -130,17 +138,16 @@ R_API int r_str_nlen(const char *s, int n);
 R_API int r_str_nlen_w(const char *s, int n);
 R_API int r_wstr_clen(const char *s);
 R_API char *r_str_prefix(char *ptr, const char *string);
-R_API char *r_str_prefix_all(char *s, const char *pfx);
+R_API char *r_str_prefix_all(const char *s, const char *pfx);
 R_API char *r_str_append(char *ptr, const char *string);
 R_API char *r_str_appendf(char *ptr, const char *fmt, ...);
 R_API char *r_str_appendch(char *x, char y);
 R_API void r_str_case(char *str, bool up);
-R_API void r_str_chop_path(char *s);
+R_API void r_str_trim_path(char *s);
 R_API ut8 r_str_contains_macro(const char *input_value);
 R_API void r_str_truncate_cmd(char *string);
 R_API char* r_str_replace_thunked(char *str, char *clean, int *thunk, int clen,
 				  const char *key, const char *val, int g);
-R_API char *r_hex_from_c(const char *code);
 R_API bool r_str_glob(const char *str, const char *glob);
 R_API int r_str_binstr2bin(const char *str, ut8 *out, int outlen);
 R_API char *r_str_between(const char *str, const char *prefix, const char *suffix);
@@ -150,6 +157,7 @@ R_API bool r_str_isnumber (const char *str);
 R_API const char *r_str_last (const char *in, const char *ch);
 R_API char* r_str_highlight(char *str, const char *word, const char *color);
 R_API char *r_qrcode_gen(const ut8 *text, int len, bool utf8, bool inverted);
+R_API char *r_str_from_ut64(ut64 val);
 #ifdef __cplusplus
 }
 #endif

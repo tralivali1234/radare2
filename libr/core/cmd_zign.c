@@ -316,7 +316,7 @@ out_case_manual:
 			int n = 0;
 			bool retval = true;
 
-			args = r_str_new (r_str_trim_const (input + 1));
+			args = r_str_new (r_str_trim_ro (input + 1));
 			n = r_str_word_set0 (args);
 
 			if (n > 2) {
@@ -629,7 +629,7 @@ static bool search(RCore *core, bool rad) {
 
 	// Bytes search
 	if (useBytes) {
-		list = r_core_get_boundaries_prot (core, R_IO_EXEC | R_IO_WRITE | R_IO_READ, mode);
+		list = r_core_get_boundaries_prot (core, -1, mode, "search");
 		r_list_foreach (list, iter, map) {
 			eprintf ("[+] searching 0x%08"PFMT64x" - 0x%08"PFMT64x"\n", map->itv.addr, r_itv_end (map->itv));
 			retval &= searchRange (core, map->itv.addr, r_itv_end (map->itv), rad, &bytes_search_ctx);

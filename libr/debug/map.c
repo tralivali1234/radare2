@@ -41,11 +41,12 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 		break;
 	case '*':
 		r_list_foreach (dbg->maps, iter, map) {
-			char *name = r_str_newf ("%s.%s", map->name,
-				r_str_rwx_i (map->perm));
+			char *name = (map->name && *map->name)
+				? r_str_newf ("%s.%s", map->name, r_str_rwx_i (map->perm))
+				: r_str_newf ("%08"PFMT64x".%s", map->addr, r_str_rwx_i (map->perm));
 			r_name_filter (name, 0);
 			dbg->cb_printf ("f map.%s 0x%08"PFMT64x" 0x%08"PFMT64x"\n",
-				name, map->addr_end - map->addr, map->addr);
+				name, map->addr_end - map->addr + 1, map->addr);
 			free (name);
 		}
 		r_list_foreach (dbg->maps_user, iter, map) {
@@ -78,9 +79,9 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 		}
 		break;
 	default:
-		fmtstr = dbg->bits & R_SYS_BITS_64?
-			"%s %6s 0x%016"PFMT64x" %c 0x%016"PFMT64x" %c %s %s %s%s%s\n":
-			"%s %6s 0x%08"PFMT64x" %c 0x%08"PFMT64x" %c %s %s %s%s%s\n";
+		fmtstr = dbg->bits & R_SYS_BITS_64
+			? "0x%016"PFMT64x" # 0x%016"PFMT64x" %c %s %6s %c %s %s %s%s%s\n"
+			: "0x%08"PFMT64x" # 0x%08"PFMT64x" %c %s %6s %c %s %s %s%s%s\n";
 		r_list_foreach (dbg->maps, iter, map) {
 			const char *type = map->shared? "sys": "usr";
 			const char *flagname = dbg->corebind.getName
@@ -96,21 +97,26 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad) {
 			}
 			r_num_units (buf, map->size);
 			dbg->cb_printf (fmtstr,
-				type, buf, map->addr, (addr>=map->addr && addr<map->addr_end)?'*':'-',
-				map->addr_end, map->user?'u':'s',
+				map->addr,
+				map->addr_end, 
+				(addr>=map->addr && addr<map->addr_end)?'*':'-',
+				type, buf,
+				map->user?'u':'s',
 				r_str_rwx_i (map->perm),
 				map->name,
 				map->file?map->file:"?",
 				*flagname? " ; ": "",
 				flagname);
 		}
-		fmtstr = dbg->bits& R_SYS_BITS_64?
-			"%s %04s 0x%016"PFMT64x" - 0x%016"PFMT64x" %c %x %s %s\n":
-			"%s %04s 0x%08"PFMT64x" - 0x%08"PFMT64x" %c %x %s %s\n";
+		fmtstr = dbg->bits & R_SYS_BITS_64?
+			"0x%016"PFMT64x" # 0x%016"PFMT64x" %s %04s %c %x %s %s\n":
+			"0x%08"PFMT64x" # 0x%08"PFMT64x" %s %04s %c %x %s %s\n";
 		r_list_foreach (dbg->maps_user, iter, map) {
 			const char *type = map->shared? "sys": "usr";
 			r_num_units (buf, map->size);
-			dbg->cb_printf (fmtstr, type, buf, map->addr, map->addr_end,
+			dbg->cb_printf (
+				buf, map->addr, map->addr_end,
+				fmtstr, type, 
 				map->user?'u':'s', (ut32)map->perm,
 				map->name,
 				map->file?map->file:"?");

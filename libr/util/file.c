@@ -608,13 +608,21 @@ R_API bool r_file_rm(const char *file) {
 	}
 	if (r_file_is_directory (file)) {
 #if __WINDOWS__
-		return !RemoveDirectoryA (file);
+		LPTSTR file_ = r_sys_conv_utf8_to_utf16 (file);
+		bool ret = RemoveDirectory (file_);
+
+		free (file_);
+		return !ret;
 #else
 		return !rmdir (file);
 #endif
 	} else {
 #if __WINDOWS__
-		return !DeleteFileA (file);
+		LPTSTR file_ = r_sys_conv_utf8_to_utf16 (file);
+		bool ret = DeleteFile (file_);
+
+		free (file_);
+		return !ret;
 #else
 		return !unlink (file);
 #endif
@@ -642,23 +650,34 @@ R_API char *r_file_readlink(const char *path) {
 
 R_API int r_file_mmap_write(const char *file, ut64 addr, const ut8 *buf, int len) {
 #if __WINDOWS__
-	HANDLE fh;
+	HANDLE fh = INVALID_HANDLE_VALUE;
 	DWORD written = 0;
-	if (r_sandbox_enable (0)) return -1;
-	fh = CreateFileA (file, GENERIC_READ|GENERIC_WRITE,
+	LPTSTR file_ = NULL;
+	int ret = -1;
+
+	if (r_sandbox_enable (0)) {
+		return -1;
+	}
+	file_ = r_sys_conv_utf8_to_utf16 (file);
+	fh = CreateFile (file_, GENERIC_READ|GENERIC_WRITE,
 		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 	if (fh == INVALID_HANDLE_VALUE) {
-		r_sys_perror ("r_file_mmap_write: CreateFile");
-		return -1;
+		r_sys_perror ("r_file_mmap_write/CreateFile");
+		goto err_r_file_mmap_write;
 	}
 	SetFilePointer (fh, addr, NULL, FILE_BEGIN);
-	if (!WriteFile (fh, buf, len,  &written, NULL)) {
-		r_sys_perror ("WriteFile");
-		len = -1;
+	if (!WriteFile (fh, buf, (DWORD)len,  &written, NULL)) {
+		r_sys_perror ("r_file_mmap_write/WriteFile");
+		goto err_r_file_mmap_write;
 	}
-	CloseHandle (fh);
-	return len;
+	ret = len;
+err_r_file_mmap_write:
+	free (file_);
+	if (fh != INVALID_HANDLE_VALUE) {
+		CloseHandle (fh);
+	}
+	return ret;
 #elif __UNIX__
 	int fd = r_sandbox_open (file, O_RDWR|O_SYNC, 0644);
 	const int pagesize = getpagesize ();
@@ -686,28 +705,36 @@ R_API int r_file_mmap_write(const char *file, ut64 addr, const ut8 *buf, int len
 
 R_API int r_file_mmap_read (const char *file, ut64 addr, ut8 *buf, int len) {
 #if __WINDOWS__
-	HANDLE fm, fh;
+	HANDLE fm = NULL, fh = INVALID_HANDLE_VALUE;
+	LPTSTR file_ = NULL;
+	int ret = -1;
 	if (r_sandbox_enable (0)) {
 		return -1;
 	}
-	fh = CreateFileA (file, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+	file_ = r_sys_conv_utf8_to_utf16 (file);
+	fh = CreateFile (file_, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
 	if (fh == INVALID_HANDLE_VALUE) {
-		r_sys_perror ("CreateFile");
-		return -1;
+		r_sys_perror ("r_file_mmap_read/CreateFile");
+		goto err_r_file_mmap_read;
 	}
-	fm = CreateFileMappingA (fh, NULL, PAGE_READONLY, 0, 0, NULL);
-	if (fm != INVALID_HANDLE_VALUE) {
-		ut8 *obuf = MapViewOfFile (fm, FILE_MAP_READ, 0, 0, len);
-		memcpy (obuf, buf, len);
-		UnmapViewOfFile (obuf);
-	} else {
+	fm = CreateFileMapping (fh, NULL, PAGE_READONLY, 0, 0, NULL);
+	if (!fm) {
 		r_sys_perror ("CreateFileMapping");
-		CloseHandle (fh);
-		return -1;
+		goto err_r_file_mmap_read;
 	}
-	CloseHandle (fh);
-	CloseHandle (fm);
-	return len;
+	ut8 *obuf = MapViewOfFile (fm, FILE_MAP_READ, 0, 0, len);
+	memcpy (obuf, buf, len);
+	UnmapViewOfFile (obuf);
+	ret = len;
+err_r_file_mmap_read:
+	if (fh != INVALID_HANDLE_VALUE) {
+		CloseHandle (fh);
+	}
+	if (fm) {
+		CloseHandle (fm);
+	}
+	free (file_);
+	return ret;
 #elif __UNIX__
 	int fd = r_sandbox_open (file, O_RDONLY, 0644);
 	const int pagesize = 4096;
@@ -743,27 +770,37 @@ static RMmap *r_file_mmap_unix (RMmap *m, int fd) {
 }
 #elif __WINDOWS__
 static RMmap *r_file_mmap_windows (RMmap *m, const char *file) {
-	m->fh = CreateFileA (file, GENERIC_READ | (m->rw?GENERIC_WRITE:0),
+	LPTSTR file_ = r_sys_conv_utf8_to_utf16 (file);
+	bool success = false;
+
+	m->fh = CreateFile (file_, GENERIC_READ | (m->rw?GENERIC_WRITE:0),
 		FILE_SHARE_READ|(m->rw?FILE_SHARE_WRITE:0), NULL,
 		OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, 0);
 	if (m->fh == INVALID_HANDLE_VALUE) {
 		r_sys_perror ("CreateFile");
-		free (m);
-		return NULL;
+		goto err_r_file_mmap_windows;
 	}
-	m->fm = CreateFileMappingA (m->fh, NULL, PAGE_READONLY, 0, 0, NULL);
+	m->fm = CreateFileMapping (m->fh, NULL, PAGE_READONLY, 0, 0, NULL);
 		//m->rw?PAGE_READWRITE:PAGE_READONLY, 0, 0, NULL);
-	if (m->fm != INVALID_HANDLE_VALUE) {
-		m->buf = MapViewOfFile (m->fm,
-			// m->rw?(FILE_MAP_READ|FILE_MAP_WRITE):FILE_MAP_READ,
-			FILE_MAP_COPY,
-			UT32_HI (m->base), UT32_LO (m->base), 0);
-	} else {
+	if (!m->fm) {
 		r_sys_perror ("CreateFileMapping");
-		CloseHandle (m->fh);
+		goto err_r_file_mmap_windows;
+
+	}
+	m->buf = MapViewOfFile (m->fm,
+		// m->rw?(FILE_MAP_READ|FILE_MAP_WRITE):FILE_MAP_READ,
+		FILE_MAP_COPY,
+		UT32_HI (m->base), UT32_LO (m->base), 0);
+	success = true;
+err_r_file_mmap_windows:
+	if (!success) {
+		if (m->fh != INVALID_HANDLE_VALUE) {
+			CloseHandle (m->fh);
+		}
 		free (m);
 		m = NULL;
 	}
+	free (file_);
 	return m;
 }
 #else
@@ -865,45 +902,75 @@ R_API char *r_file_temp (const char *prefix) {
 }
 
 R_API int r_file_mkstemp(const char *prefix, char **oname) {
-	int h;
+	int h = -1;
 	char *path = r_file_tmpdir ();
-	char name[1024] = {0};
 #if __WINDOWS__
-	h = -1;
-	if (GetTempFileNameA (path, prefix, 0, name)) {
-		h = r_sandbox_open (name, O_RDWR|O_EXCL|O_BINARY, 0644);
+	LPTSTR name = NULL;
+	LPTSTR path_ = r_sys_conv_utf8_to_utf16 (path);
+	LPTSTR prefix_ = r_sys_conv_utf8_to_utf16 (prefix);
+
+	name = (LPTSTR)malloc (sizeof (TCHAR) * (MAX_PATH + 1));
+	if (!name) {
+		goto err_r_file_mkstemp;
 	}
+	if (GetTempFileName (path_, prefix_, 0, name)) {
+		char *name_ = r_sys_conv_utf16_to_utf8 (name);
+		h = r_sandbox_open (name_, O_RDWR|O_EXCL|O_BINARY, 0644);
+		if (oname) {
+			if (h != -1) {
+				*oname = name_;
+			} else {
+				*oname = NULL;
+				free (name_);
+			}
+		} else {
+			free (name_);
+		}
+	}
+err_r_file_mkstemp:
+	free (name);
+	free (path_);
+	free (prefix_);
 #else
+	char name[1024];
+
 	snprintf (name, sizeof (name) - 1, "%s/r2.%s.XXXXXX", path, prefix);
 	mode_t mask = umask (S_IWGRP | S_IWOTH);
 	h = mkstemp (name);
 	umask (mask);
-#endif
 	if (oname) {
 		*oname = (h!=-1)? strdup (name): NULL;
 	}
+#endif
 	free (path);
 	return h;
 }
 
 R_API char *r_file_tmpdir() {
 #if __WINDOWS__
-	char tmpdir[MAX_PATH];
+	LPTSTR tmpdir;
 	char *path = NULL;
+	DWORD len = 0;
 
-	if (GetTempPathA (sizeof (tmpdir), tmpdir) == 0) {
+	tmpdir = (LPTSTR)calloc (1, sizeof (TCHAR) * (MAX_PATH + 1));
+	if (!tmpdir) {
+		return NULL;
+	}
+	if ((len = GetTempPath (MAX_PATH + 1, tmpdir)) == 0) {
 		path = r_sys_getenv ("TEMP");
 		if (!path) {
 			path = strdup ("C:\\WINDOWS\\Temp\\");
 		}
 	} else {
-		DWORD (WINAPI *glpn)(LPCSTR, LPCSTR, DWORD) = r_lib_dl_sym (GetModuleHandle (TEXT ("kernel32.dll")), "GetLongPathNameA");
+		tmpdir[len] = 0;
+		DWORD (WINAPI *glpn)(LPCTSTR, LPCTSTR, DWORD) = r_lib_dl_sym (GetModuleHandle (TEXT ("kernel32.dll")), W32_TCALL("GetLongPathName"));
 		if (glpn) {
 			// Windows XP sometimes returns short path name
-			glpn (tmpdir, tmpdir, sizeof (tmpdir));
+			glpn (tmpdir, tmpdir, MAX_PATH + 1);
 		}
-		path = strdup (tmpdir);
+		path = r_sys_conv_utf16_to_utf8 (tmpdir);
 	}
+	free (tmpdir);
 	// Windows 7, stat() function fail if tmpdir ends with '\\'
 	if (path) {
 		int path_len = strlen (path);
@@ -911,8 +978,6 @@ R_API char *r_file_tmpdir() {
 			path[path_len - 1] = '\0';
 		}
 	}
-#elif __ANDROID__
-	char *path = strdup ("/data/data/org.radare.radare2installer/radare2/tmp");
 #else
 	char *path = r_sys_getenv ("TMPDIR");
 	if (path && !*path) {
@@ -920,7 +985,11 @@ R_API char *r_file_tmpdir() {
 		path = NULL;
 	}
 	if (!path) {
+#if __ANDROID__
+		path = strdup ("/data/data/org.radare.radare2installer/radare2/tmp");
+#else
 		path = strdup ("/tmp");
+#endif
 	}
 #endif
 	if (!r_file_is_directory (path)) {
@@ -933,7 +1002,7 @@ R_API bool r_file_copy (const char *src, const char *dst) {
 	/* TODO: implement in C */
 	/* TODO: Use NO_CACHE for iOS dyldcache copying */
 #if HAVE_COPYFILE_H
-	return copyfile (src, dst, 0, 0) != -1;
+	return copyfile (src, dst, 0, COPYFILE_DATA | COPYFILE_XATTR) != -1;
 #elif __WINDOWS__
 	return r_sys_cmdf ("copy %s %s", src, dst);
 #else

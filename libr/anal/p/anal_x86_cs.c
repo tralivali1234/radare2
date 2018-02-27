@@ -640,10 +640,13 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 			r_strbuf_appendf (&op->esil, "%s,[2],ax,=,df,?{,2,%s,-=,},df,!,?{,2,%s,+=,}", si, si, si);
 		break;
 	case X86_INS_LODSD:
-			r_strbuf_appendf (&op->esil, "esi,[4],eax,=,df,?{,4,esi,-=,},df,!,?{,4,esi,+=,}");
+		r_strbuf_appendf (&op->esil, "esi,[4],eax,=,df,?{,4,esi,-=,},df,!,?{,4,esi,+=,}");
 		break;
 	case X86_INS_LODSQ:
-			r_strbuf_appendf (&op->esil, "rsi,[8],rax,=,df,?{,8,rsi,-=,},df,!,?{,8,rsi,+=,}");
+		r_strbuf_appendf (&op->esil, "rsi,[8],rax,=,df,?{,8,rsi,-=,},df,!,?{,8,rsi,+=,}");
+		break;
+	case X86_INS_PEXTRB:
+		r_strbuf_appendf (&op->esil, "TODO");
 		break;
 	// string mov
 	// PS: MOVSD can correspond to one of the two instruction (yes, intel x86
@@ -704,6 +707,8 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 	case X86_INS_MOVSXD:
 	case X86_INS_MOVD:
 	case X86_INS_MOVQ:
+	case X86_INS_MOVDQU:
+	case X86_INS_MOVDQA:
 	case X86_INS_MOVDQ2Q:
 		{
 		switch (INSOP(0).type) {
@@ -726,9 +731,13 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 				dst = getarg (&gop, 0, 1, NULL, DST_AR);
 				esilprintf (op, "%s,%s", src, dst);
 			}
+			op->direction = 2; // write
 			break;
 		case X86_OP_REG:
 		default:
+			if (INSOP(0).type == X86_OP_MEM) {
+				op->direction = 1; // read
+			}
 			{
 				src = getarg (&gop, 1, 0, NULL, SRC_AR);
 				dst = getarg (&gop, 0, 0, NULL, DST_AR);
@@ -1102,11 +1111,11 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 		{
 			arg0 = getarg (&gop, 0, 0, NULL, ARG0_AR);
 			esilprintf (op,
-					"%s,"
+					"%s,%s,"
 					"%d,%s,-=,%s,"
 					"=[],"
-					"%s,%s,=",
-					pc, rs, sp, sp, arg0, pc);
+					"%s,=",
+					arg0, pc, rs, sp, sp, pc);
 		}
 		break;
 	case X86_INS_LCALL:
@@ -1331,9 +1340,9 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 	case X86_INS_ANDPS:
 	case X86_INS_ANDNPD:
 	case X86_INS_ANDNPS:
-		{
-			src = getarg (&gop, 1, 0, NULL, SRC_AR);
-			dst = getarg (&gop, 0, 1, "&", DST_AR);
+		src = getarg (&gop, 1, 0, NULL, SRC_AR);
+		dst = getarg (&gop, 0, 1, "&", DST_AR);
+		if (src && dst) {
 			char *p;
 			esilprintf (op, "%s,%s,$0,of,=,$0,cf,=,$z,zf,=,$s,sf,=,$o,pf,=", src, dst);
 			if ((a->bits == 64) && (p = strchr (dst, (int)','))) {
@@ -1365,11 +1374,17 @@ static void anop_esil (RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len
 		{
 			int width = INSOP(0).size;
 			dst = getarg (&gop, 0, 0, NULL, DST_AR);
-			const char *r_ax = (width==2)?"ax": (width==4)?"eax":"rax";
-			const char *r_dx = (width==2)?"dx": (width==4)?"edx":"rdx";
+			const char *r_quot = (width==1)?"al": (width==2)?"ax": (width==4)?"eax":"rax";
+			const char *r_rema = (width==1)?"ah": (width==2)?"dx": (width==4)?"edx":"rdx";
+			const char *r_nume = (width==1)?"ax": r_quot;
 			// TODO update flags & handle signedness
-			esilprintf (op, "%s,%s,%%,%s,=,%s,%s,/,%s,=",
-				dst, r_ax, r_dx, dst, r_ax, r_ax);
+			if ( width == 1 ) {
+				esilprintf(op, "0xffffff00,eflags,&=,%s,%s,%%,eflags,|=,%s,%s,/,%s,=,0xff,eflags,&,%s,=,0xffffff00,eflags,&=,2,eflags,|=",
+					   dst, r_nume, dst, r_nume, r_quot, r_rema);
+			} else {
+				esilprintf (op, "%s,%s,%%,%s,=,%s,%s,/,%s,=",
+					    dst, r_nume, r_rema, dst, r_nume, r_quot);
+			}
 		}
 		break;
 	case X86_INS_IMUL:
@@ -1927,6 +1942,8 @@ static void anop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, csh 
 		// number of bits shifted is greater than the size of the
 		// destination.
 		op->type = R_ANAL_OP_TYPE_SHL;
+		op->src[0] = r_anal_value_new ();
+		op->src[0]->imm = INSOP(1).imm;
 		break;
 	case X86_INS_SAR:
 	case X86_INS_SARX:
@@ -1945,6 +1962,8 @@ static void anop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, csh 
 	case X86_INS_SHRX:
 		// TODO: Set CF: See case X86_INS_SAL for more details.
 		op->type = R_ANAL_OP_TYPE_SHR;
+		op->src[0] = r_anal_value_new ();
+		op->src[0]->imm = INSOP(1).imm;
 		break;
 	case X86_INS_CMP:
 	case X86_INS_CMPPD:
@@ -2200,6 +2219,7 @@ static void anop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, csh 
 			if (INSOP(1).type == X86_OP_IMM) {
 				ut64 seg = INSOP(0).imm;
 				ut64 off = INSOP(1).imm;
+				op->ptr = INSOP (0).mem.disp;
 				op->jump = (seg << 4) + off;
 			} else {
 				op->jump = INSOP(0).imm;
@@ -2660,8 +2680,8 @@ static char *get_reg_profile(RAnal *anal) {
 		"gpr	si	.16	12	0\n"
 		"gpr	di	.16	16	0\n"
 		"seg	cs	.16	52	0\n"
-		"seg	ss	.16	52	0\n"
-		"seg	ds	.16	54	0\n"
+		"seg	ss	.16	54	0\n"
+		"seg	ds	.16	56	0\n"
 		"seg	es	.16	58	0\n"
 		"gpr	flags	.16	56	0\n"
 		"flg	cf	.1	.448	0\n"
@@ -2906,27 +2926,35 @@ static char *get_reg_profile(RAnal *anal) {
 		 "fpu    st6 .64 128  0\n"
 		 "fpu    st7 .64 144  0\n"
 
+		 "fpu    xmm0  .64 160  4\n"
 		 "fpu    xmm0h .64 160  0\n"
 		 "fpu    xmm0l .64 168  0\n"
 
+		 "fpu    xmm1  .64 176  4\n"
 		 "fpu    xmm1h .64 176  0\n"
 		 "fpu    xmm1l .64 184  0\n"
 
+		 "fpu    xmm2  .64 192  4\n"
 		 "fpu    xmm2h .64 192  0\n"
 		 "fpu    xmm2l .64 200  0\n"
 
+		 "fpu    xmm3  .64 208  4\n"
 		 "fpu    xmm3h .64 208  0\n"
 		 "fpu    xmm3l .64 216  0\n"
 
+		 "fpu    xmm4  .64 224  4\n"
 		 "fpu    xmm4h .64 224  0\n"
 		 "fpu    xmm4l .64 232  0\n"
 
+		 "fpu    xmm5  .64 240  4\n"
 		 "fpu    xmm5h .64 240  0\n"
 		 "fpu    xmm5l .64 248  0\n"
 
+		 "fpu    xmm6  .64 256  4\n"
 		 "fpu    xmm6h .64 256  0\n"
 		 "fpu    xmm6l .64 264  0\n"
 
+		 "fpu    xmm7  .64 272  4\n"
 		 "fpu    xmm7h .64 272  0\n"
 		 "fpu    xmm7l .64 280  0\n"
 		 "fpu    x64   .64 288  0\n";
@@ -2998,15 +3026,8 @@ static char *get_reg_profile(RAnal *anal) {
 		 break;
 #endif
 	}
-	if (p && *p) return strdup (p);
-	return NULL;
+	return (p && *p)? strdup (p): NULL;
 }
-
-/*
-static int set_reg_profile(RAnal *anal) {
-	return r_reg_set_profile_string (anal->reg, p);
-}
-*/
 
 static int archinfo(RAnal *anal, int q) {
 	switch (q) {

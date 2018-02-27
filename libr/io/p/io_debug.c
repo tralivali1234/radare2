@@ -103,7 +103,7 @@ err_enable:
 
 static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	PROCESS_INFORMATION pi;
-	STARTUPINFOA si = { sizeof (si) };
+	STARTUPINFO si = { 0 } ;
 	DEBUG_EVENT de;
 	int pid, tid;
 	HANDLE th = INVALID_HANDLE_VALUE;
@@ -117,6 +117,8 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	// We need to build a command line with quoted argument and escaped quotes
 	int cmd_len = 0;
 	int i = 0;
+
+	si.cb = sizeof (si);
 	while (argv[i]) {
 		char *current = argv[i];
 		int quote_count = 0;
@@ -154,12 +156,18 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	}
 	cmdline[cmd_i] = '\0';
 
-	if (!CreateProcessA (argv[0], cmdline, NULL, NULL, FALSE,
+	LPTSTR appname_ = r_sys_conv_utf8_to_utf16 (argv[0]);
+	LPTSTR cmdline_ = r_sys_conv_utf8_to_utf16 (cmdline);
+	if (!CreateProcess (appname_, cmdline_, NULL, NULL, FALSE,
 						 CREATE_NEW_CONSOLE | DEBUG_ONLY_THIS_PROCESS,
 						 NULL, NULL, &si, &pi)) {
 		r_sys_perror ("fork_and_ptraceme/CreateProcess");
+		free (appname_);
+		free (cmdline_);
 		return -1;
 	}
+	free (appname_);
+	free (cmdline_);
 	free (cmdline);
 	r_str_argv_free (argv);
 	/* get process id and thread id */
@@ -409,6 +417,41 @@ static int fork_and_ptraceme_for_mac(RIO *io, int bits, const char *cmd) {
 }
 #endif
 
+static char *get_and_escape_path (char *str)
+{
+	char *path_bin = strdup (str);
+	char *final = NULL;
+
+	if (path_bin) {
+		char *p = (char*) r_str_lchr (str, '/');
+		char *pp = (char*) r_str_tok (p, ' ', -1);
+		char *args;
+
+		if (!pp) {
+			// There is nothing more to parse
+			free (path_bin);
+			return str;
+		}
+
+		path_bin[pp - str] = '\0';
+		if (strstr (path_bin, "\\ ")) {
+		        path_bin = r_str_replace (path_bin, "\\ ", " ", true);
+		}
+		args = path_bin + (pp - str) + 1;
+
+		char *path_bin_escaped = r_str_arg_escape (path_bin);
+		int len = strlen (path_bin_escaped);
+
+		path_bin_escaped[len] = ' ';
+		path_bin_escaped[len + 1] = '\0';
+
+		final = r_str_append (path_bin_escaped, args);
+		free (path_bin);
+       }
+
+       return final;
+}
+
 static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 #if __APPLE__ && !__POWERPC__
 	return fork_and_ptraceme_for_mac(io, bits, cmd);
@@ -441,10 +484,14 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 			char *_cmd = io->args ?
 				r_str_appendf (strdup (cmd), " %s", io->args) :
 				strdup (cmd);
-
+			char *path_escaped = get_and_escape_path (_cmd);
 			trace_me ();
-			argv = r_str_argv (_cmd, NULL);
+			argv = r_str_argv (path_escaped, NULL);
+			if (argv && strstr (argv[0], "\\ ")) {
+				argv[0] = r_str_replace (argv[0], "\\ ", " ", true);
+			}
 			if (!argv) {
+				free (path_escaped);
 				free (_cmd);
 				return -1;
 			}
@@ -461,6 +508,7 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 				eprintf ("Invalid execvp\n");
 			}
 			r_str_argv_free (argv);
+			free (path_escaped);
 			free (_cmd);
 		}
 		perror ("fork_and_attach: execv");

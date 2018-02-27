@@ -6,7 +6,7 @@
 #include "r_reg.h"
 #ifdef _MSC_VER
 #include <time.h>
-#endif 
+#endif
 #define NOPTR 0
 #define PTRSEEK 1
 #define PTRBACK 2
@@ -29,7 +29,7 @@
 //TODO REWRITE THIS IS BECOMING A NIGHTMARE
 
 static float updateAddr(const ut8 *buf, int len, int endian, ut64 *addr, ut64 *addr64) {
-	float f = 0.0f;
+	float f = 0.0;
 	// assert sizeof (float) == sizeof (ut32))
 	ut32 tmpaddr;
 	// XXX 999 is used as an implicit buffer size, we should pass the buffer size to every function too, otherwise this code will give us some problems
@@ -358,7 +358,11 @@ static int r_print_format_string(const RPrint* p, ut64 seeki, ut64 addr64, ut64 
 		? p->iob.read_at (p->iob.io, addr64, buffer, sizeof (buffer) - 8)
 		: p->iob.read_at (p->iob.io, (ut64)addr, buffer, sizeof (buffer) - 8);
 	if (MUSTSEEJSON) {
-		p->cb_printf ("%d,\"string\":\"%s\"}", seeki, buffer);
+		char *encstr = r_str_utf16_encode ((const char *)buffer, -1);
+		if (encstr) {
+			p->cb_printf ("%d,\"string\":\"%s\"}", seeki, encstr);
+			free (encstr);
+		}
 	} else if (MUSTSEE) {
 		if (!SEEVALUE) p->cb_printf ("0x%08"PFMT64x" = ", seeki);
 		if (!SEEVALUE) p->cb_printf ("0x%08"PFMT64x" -> 0x%08"PFMT64x" ", seeki, addr);
@@ -854,6 +858,63 @@ static void r_print_format_float(const RPrint* p, int endian, int mode,
 	}
 }
 
+
+static void r_print_format_double(const RPrint* p, int endian, int mode,
+		const char* setval, ut64 seeki, ut8* buf, int i, int size) {
+	double val_f = 0.0;
+	ut64 addr = 0;
+	int elem = -1;
+	if (size >= ARRAYINDEX_COEF) {
+		elem = size/ARRAYINDEX_COEF - 1;
+		size %= ARRAYINDEX_COEF;
+	}
+	updateAddr (buf + i, 999, endian, &addr, NULL);
+	r_mem_swaporcopy ((ut8*)&val_f, buf + i, sizeof (double), endian);
+	if (MUSTSET) {
+		p->cb_printf ("wv8 %s @ 0x%08"PFMT64x"\n", setval,
+			seeki + ((elem >= 0) ? elem * 8 : 0));
+	} else if (mode & R_PRINT_DOT) {
+		p->cb_printf ("%f", val_f);
+	} else {
+		if (MUSTSEE) {
+			if (!SEEVALUE) {
+				p->cb_printf ("0x%08"PFMT64x" = ",
+					seeki + ((elem >= 0) ? elem * 8 : 0));
+			}
+		}
+		if (size == -1) {
+			p->cb_printf ("%f", val_f);
+		} else {
+			if (!SEEVALUE) {
+				p->cb_printf ("[ ");
+			}
+			while (size--) {
+				updateAddr (buf + i, 9999, endian, &addr, NULL);
+				r_mem_swaporcopy ((ut8*)&val_f, buf + i, sizeof (double), endian);
+				if (elem == -1 || elem == 0) {
+					p->cb_printf ("%f", val_f);
+					if (elem == 0) {
+						elem = -2;
+					}
+				}
+				if (size != 0 && elem == -1) {
+					p->cb_printf (", ");
+				}
+				if (elem > -1) {
+					elem--;
+				}
+				i += 8;
+			}
+			if (!SEEVALUE) {
+				p->cb_printf (" ]");
+			}
+		}
+		if (MUSTSEEJSON) {
+			p->cb_printf ("}");
+		}
+	}
+}
+
 static void r_print_format_word(const RPrint* p, int endian, int mode,
 		const char* setval, ut64 seeki, ut8* buf, int i, int size) {
 	ut64 addr;
@@ -866,7 +927,7 @@ static void r_print_format_word(const RPrint* p, int endian, int mode,
 		? (*(buf + i)) << 8 | (*(buf + i + 1))
 		: (*(buf + i + 1)) << 8 | (*(buf + i));
 	if (MUSTSET) {
-		p->cb_printf ("wx %s @ 0x%08"PFMT64x"\n", setval, seeki+((elem>=0)?elem*2:0));
+		p->cb_printf ("wv2 %s @ 0x%08"PFMT64x"\n", setval, seeki+((elem>=0)?elem*2:0));
 	} else if (mode & R_PRINT_DOT) {
 		if (size == -1) {
 			p->cb_printf ("0x%04x", addr);
@@ -1164,7 +1225,7 @@ static void r_print_format_num (const RPrint *p, int endian, int mode, const cha
 					updateAddr (buf + i, size - i, endian, &addr, NULL);
 				}
 				if (elem == -1 || elem == 0) {
-				    r_print_format_num_specifier (p, addr, bytes, sign);
+					r_print_format_num_specifier (p, addr, bytes, sign);
 					if (elem == 0) {
 						elem = -2;
 					}
@@ -1193,7 +1254,7 @@ static void r_print_format_num (const RPrint *p, int endian, int mode, const cha
 					updateAddr (buf + i, size, endian, &addr, NULL);
 				}
 				if (elem == -1 || elem == 0) {
-				    r_print_format_num_specifier (p, addr, bytes, sign);
+					r_print_format_num_specifier (p, addr, bytes, sign);
 					if (elem == 0) {
 						elem = -2;
 					}
@@ -1219,7 +1280,7 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode, int n) {
 	if (!f) {
 		return -1;
 	}
-	if (n >= 3) {
+	if (n >= 5) {  // This is the nesting level, is this not a bit arbitrary?!
 		return 0;
 	}
 	char *o = strdup (f);
@@ -1293,6 +1354,7 @@ int r_print_format_struct_size(const char *f, RPrint *p, int mode, int n) {
 			break;
 		case 'S':
 		case 'q':
+		case 'F':
 			size += tabsize * 8;
 			break;
 		case 'z':
@@ -1653,7 +1715,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					// Max byte number where updateAddr will look into
 				if (len - i < 7) {
 					updateAddr (buf + i, THRESHOLD - (len - i), endian, &addr, &addr64);
-				} else { 
+				} else {
 					updateAddr (buf + i, len - i, endian, &addr, &addr64);
 				}
 			} else {
@@ -1797,7 +1859,7 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				continue;
 			case 'p': // pointer reference
 				if (*(arg+1) == '2') {
-				    tmp = 'w';
+					tmp = 'w';
 					arg++;
 				} else if (*(arg+1) == '4') {
 					tmp = 'x';
@@ -1870,13 +1932,19 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 						p->cb_printf ("%c", tmp);
 					}
 				}
-				if (isptr) p->cb_printf ("*");
-				p->cb_printf ("\",\"offset\":%d,\"value\":",(isptr)?(seek+nexti-(p->bits/8)):seek+i);
+				if (isptr) {
+					p->cb_printf ("*");
+				}
+				p->cb_printf ("\",\"offset\":%d,\"value\":",
+					isptr? (seek + nexti - (p->bits / 8)) : seek + i);
 			}
 
 			if (isptr == NULLPTR) {
-				if (MUSTSEEJSON) p->cb_printf ("\"NULL\"}", tmp, seek+i);
-				else if (MUSTSEE) p->cb_printf (" NULL\n");
+				if (MUSTSEEJSON) {
+					p->cb_printf ("\"NULL\"}", tmp, seek + i);
+				} else if (MUSTSEE) {
+					p->cb_printf (" NULL\n");
+				}
 				isptr = PTRBACK;
 			} else
 			/* format chars */
@@ -1923,6 +1991,10 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				case 'f':
 					r_print_format_float (p, endian, mode, setval, seeki, buf, i, size);
 					i += (size==-1) ? 4 : 4*size;
+					break;
+				case 'F':
+					r_print_format_double (p, endian, mode, setval, seeki, buf, i, size);
+					i += (size==-1) ? 8 : 8*size;
 					break;
 				case 'i':
 					r_print_format_int (p, endian, mode, setval, seeki, buf, i, size);
@@ -2031,11 +2103,11 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 					slide += NESTEDSTRUCT;
 					if (size == -1) {
 						s = r_print_format_struct (p, seeki,
-									   buf+i, len-i, fmtname, slide,
-									   mode, setval, nxtfield, anon);
+									buf+i, len-i, fmtname, slide,
+									mode, setval, nxtfield, anon);
 						i += (isptr) ? (p->bits / 8) : s;
 						if (MUSTSEEJSON) {
-							 if (!isptr && (!arg[1] || arg[1] == ' ')) {
+							if (!isptr && (!arg[1] || arg[1] == ' ')) {
 								p->cb_printf ("]}");
 							}
 						}
@@ -2133,6 +2205,20 @@ R_API int r_print_format(RPrint *p, ut64 seek, const ut8* b, const int len,
 				p->cb_printf ("\n");
 			}
 			last = tmp;
+
+			// XXX: Due to the already noted issues with the above, we need to strip
+			// args from fmt:args the same way we strip fmt BUT only for enums as
+			// nested structs seem to be handled correctly above!
+			if (arg[0] == 'E') {
+				char *end_fmt = strchr (arg, ' ');
+				char *next_args = strchr (end_fmt+1, ' ');
+				if (next_args) {
+					while (*next_args != '\0') {
+						*end_fmt++ = *next_args++;
+					}
+				}
+				*end_fmt = '\0';
+			}
 		}
 		if (otimes > 1) {
 			if (MUSTSEEJSON) {

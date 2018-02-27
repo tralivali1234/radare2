@@ -81,7 +81,8 @@ struct r_bin_pe_addr_t *PE_(check_msvcseh) (struct PE_(r_bin_pe_obj_t) *bin) {
 			// E8 3E F9 FF FF  call    0x44B4FF
 			ut32 imageBase = bin->nt_headers->optional_header.ImageBase;
 			for (n = 0; n < sizeof (b) - 6; n++) {
-				if (b[n] == 0x68 && *((ut32*) &b[n + 1]) == imageBase && b[n + 5] == 0xe8) {
+				const ut32 tmp_imgbase = r_read_ble32 (b + n + 1, bin->big_endian);
+				if (b[n] == 0x68 && tmp_imgbase == imageBase && b[n + 5] == 0xe8) {
 					const st32 call_dst = r_read_ble32 (b + n + 6, bin->big_endian);
 					entry->paddr += (n + 5 + 5 + call_dst);
 					entry->vaddr += (n + 5 + 5 + call_dst);
@@ -294,14 +295,14 @@ struct r_bin_pe_addr_t *PE_(check_unknow) (struct PE_(r_bin_pe_obj_t) *bin) {
 }
 
 struct r_bin_pe_addr_t *PE_(r_bin_pe_get_main_vaddr)(struct PE_(r_bin_pe_obj_t) *bin) {
-	struct r_bin_pe_addr_t *main = PE_(check_msvcseh) (bin);
-	if (!main) {
-		main = PE_(check_mingw) (bin);
+	struct r_bin_pe_addr_t *winmain = PE_(check_msvcseh) (bin);
+	if (!winmain) {
+		winmain = PE_(check_mingw) (bin);
+		if (!winmain) {
+			winmain = PE_(check_unknow) (bin);
+		}
 	}
-	if (!main) {
-		main = PE_(check_unknow) (bin);
-	}
-	return main;
+	return winmain;
 }
 
 #define RBinPEObj struct PE_(r_bin_pe_obj_t)
@@ -409,6 +410,9 @@ static int bin_pe_parse_imports(struct PE_(r_bin_pe_obj_t)* bin,
 
 				if (!sdb_module || strcmp (symdllname, sdb_module)) {
 					sdb_free (db);
+					if (db) {
+						sdb_free (db);
+					}
 					db = NULL;
 					free (sdb_module);
 					sdb_module = strdup (symdllname);
@@ -418,13 +422,14 @@ static int bin_pe_parse_imports(struct PE_(r_bin_pe_obj_t)* bin,
 					} else {
 #if __WINDOWS__
 						char invoke_dir[MAX_PATH];
-						if (r_sys_get_src_dir_w32(invoke_dir)) {
+						if (r_sys_get_src_dir_w32 (invoke_dir)) {
 							filename = sdb_fmt (1, "%s\\share\\radare2\\"R2_VERSION "\\format\\dll\\%s.sdb", invoke_dir, symdllname);
 						} else {
 							filename = sdb_fmt (1, "share/radare2/"R2_VERSION "/format/dll/%s.sdb", symdllname);
 						}
 #else
-						filename = sdb_fmt (1, R2_PREFIX "/share/radare2/" R2_VERSION "/format/dll/%s.sdb", symdllname);
+						const char *dirPrefix = r_sys_prefix (NULL);
+						filename = sdb_fmt (1, "%s/share/radare2/" R2_VERSION "/format/dll/%s.sdb", dirPrefix, symdllname);
 #endif
 						if (r_file_exists (filename)) {
 							db = sdb_new (NULL, filename, 0);
@@ -435,6 +440,7 @@ static int bin_pe_parse_imports(struct PE_(r_bin_pe_obj_t)* bin,
 					symname = resolveModuleOrdinal (db, symdllname, import_ordinal);
 					if (symname) {
 						snprintf (import_name, PE_NAME_LENGTH, "%s_%s", dll_name, symname);
+						R_FREE (symname);
 					}
 				} else {
 					bprintf ("Cannot find %s\n", filename);
@@ -479,17 +485,33 @@ static int bin_pe_parse_imports(struct PE_(r_bin_pe_obj_t)* bin,
 		}
 	} while (import_table);
 
+	if (db) {
+		sdb_free (db);
+		db = NULL;
+	}
 	free (symdllname);
 	free (sdb_module);
 	return i;
 
 error:
+	if (db) {
+		sdb_free (db);
+		db = NULL;
+	}
 	free (symdllname);
 	free (sdb_module);
 	return false;
 }
 
 static char *_time_stamp_to_str(ut32 timeStamp) {
+#ifdef _MSC_VER
+	time_t rawtime;
+	struct tm *tminfo;
+	rawtime = (time_t)timeStamp;
+	tminfo = localtime (&rawtime);
+	//tminfo = gmtime (&rawtime);
+	return r_str_trim (strdup (asctime (tminfo)));
+#else
 	struct my_timezone {
 		int tz_minuteswest;     /* minutes west of Greenwich */
 		int tz_dsttime;         /* type of DST correction */
@@ -499,8 +521,9 @@ static char *_time_stamp_to_str(ut32 timeStamp) {
 	time_t ts = (time_t) timeStamp;
 	gettimeofday (&tv, (void*) &tz);
 	gmtoff = (int) (tz.tz_minuteswest * 60); // in seconds
-	ts += gmtoff;
-	return r_str_chop (strdup (ctime (&ts)));
+	ts += (time_t)gmtoff;
+	return r_str_trim (strdup (ctime (&ts)));
+#endif
 }
 
 static int bin_pe_init_hdr(struct PE_(r_bin_pe_obj_t)* bin) {
@@ -586,7 +609,9 @@ static int bin_pe_init_hdr(struct PE_(r_bin_pe_obj_t)* bin) {
 	bin->data_directory = (PE_(image_data_directory*)) & bin->optional_header->DataDirectory;
 
 	if (strncmp ((char*) &bin->dos_header->e_magic, "MZ", 2) ||
-	strncmp ((char*) &bin->nt_headers->Signature, "PE", 2)) {
+	(strncmp ((char*) &bin->nt_headers->Signature, "PE", 2) &&
+	/* Check also for Phar Lap TNT DOS extender PL executable */
+	strncmp ((char*) &bin->nt_headers->Signature, "PL", 2))) {
 		return false;
 	}
 	return true;
@@ -863,9 +888,13 @@ int PE_(bin_pe_get_overlay)(struct PE_(r_bin_pe_obj_t)* bin, ut64* size) {
 
 	if (bin->optional_header) {
 		for (i = 0; i < PE_IMAGE_DIRECTORY_ENTRIES; i++) {
+			if (i == PE_IMAGE_DIRECTORY_ENTRY_SECURITY) {
+				continue;
+			}
+
 			computeOverlayOffset (
-				bin_pe_rva_to_paddr (bin, bin->optional_header->DataDirectory[i].VirtualAddress),
-				bin->optional_header->DataDirectory[i].Size,
+				bin_pe_rva_to_paddr (bin, bin->data_directory[i].VirtualAddress),
+				bin->data_directory[i].Size,
 				bin->size,
 				&largest_offset,
 				&largest_size);
@@ -1959,6 +1988,8 @@ static Sdb* Pe_r_bin_store_string(String* string) {
 	}
 	sdb_set (sdb, "key",   encodedKey, 0);
 	sdb_set (sdb, "value", encodedVal, 0);
+	free (encodedKey);
+	free (encodedVal);
 	return sdb;
 }
 
@@ -1980,6 +2011,7 @@ static Sdb* Pe_r_bin_store_string_table(StringTable* stringTable) {
 		return NULL;
 	}
 	sdb_set (sdb, "key", encodedKey, 0);
+	free (encodedKey);
 	for (; i < stringTable->numOfChildren; i++) {
 		snprintf (key, 20, "string%d", i);
 		sdb_ns_set (sdb, key, Pe_r_bin_store_string (stringTable->Children[i]));
@@ -2694,6 +2726,7 @@ static void get_nb10(ut8* dbg_data, SCV_NB10_HEADER* res) {
 static int get_debug_info(struct PE_(r_bin_pe_obj_t)* bin, PE_(image_debug_directory_entry)* dbg_dir_entry, ut8* dbg_data, int dbg_data_len, SDebugInfo* res) {
 	#define SIZEOF_FILE_NAME 255
 	int i = 0;
+	const char* basename;
 	if (!dbg_data) {
 		return 0;
 	}
@@ -2720,8 +2753,9 @@ static int get_debug_info(struct PE_(r_bin_pe_obj_t)* bin, PE_(image_debug_direc
 				rsds_hdr.guid.data4[6],
 				rsds_hdr.guid.data4[7],
 				rsds_hdr.age);
+			basename = r_file_basename ((char*) rsds_hdr.file_name);
 			strncpy (res->file_name, (const char*)
-				rsds_hdr.file_name, sizeof (res->file_name));
+				basename, sizeof (res->file_name));
 			res->file_name[sizeof (res->file_name) - 1] = 0;
 			rsds_hdr.free ((struct SCV_RSDS_HEADER*) &rsds_hdr);
 		} else if (strncmp ((const char*) dbg_data, "NB10", 4) == 0) {
@@ -3400,6 +3434,7 @@ void* PE_(r_bin_pe_free)(struct PE_(r_bin_pe_obj_t)* bin) {
 	free (bin->import_directory);
 	free (bin->resource_directory);
 	free (bin->delay_import_directory);
+	free (bin->tls_directory);
 	r_list_free (bin->resources);
 	r_pkcs7_free_cms (bin->cms);
 	r_buf_free (bin->b);

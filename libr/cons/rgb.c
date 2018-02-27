@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2013-2016 - pancake */
+/* radare - LGPL - Copyright 2013-2018 - pancake, xarkes */
 /* ansi 256 color extension for r_cons */
 /* https://en.wikipedia.org/wiki/ANSI_color */
 
@@ -9,6 +9,7 @@ int value_range[6] = { 0x00, 0x5f, 0x87, 0xaf, 0xd7, 0xff};
 
 static void init_color_table () {
 	int i, r, g, b;
+	// ansi colors
 	color_table[0] = 0x000000;
 	color_table[1] = 0x800000;
 	color_table[2] = 0x008000;
@@ -25,6 +26,7 @@ static void init_color_table () {
 	color_table[13] = 0xff00ff;
 	color_table[14] = 0x00ffff;
 	color_table[15] = 0xffffff;
+	// color palette
 	for (i = 0; i < 216; i++) {
 		r = value_range[(i / 36) % 6];
 		g = value_range[(i / 6) % 6];
@@ -32,6 +34,7 @@ static void init_color_table () {
 		color_table[i + 16] = ((r << 16) & 0xffffff) +
 			((g << 8) & 0xffff) + (b & 0xff);
 	}
+	// grayscale
 	for (i = 0; i < 24; i++) {
 		r = 8 + (i * 10);
 		color_table[i + 232] = ((r << 16) & 0xffffff) +
@@ -50,75 +53,83 @@ static int lookup_rgb (int r, int g, int b) {
 	return -1;
 }
 
-static int approximate_rgb (int r, int g, int b) {
+static ut32 approximate_rgb (int r, int g, int b) {
 	bool grey = (r > 0 && r < 255 && r == g && r == b);
-	const double k = (256.0 / 6.0);
 	if (grey) {
-		return 232 + (double)r / (255 / 24.1);
+		return 232 + (int)((double)r / (255 / 24.1));
 	}
-	r = R_DIM (r / k, 0, 5);
-	g = R_DIM (g / k, 0, 5);
-	b = R_DIM (b / k, 0, 5);
+#if 0
+	const double M = 16;
+	double R = r;
+	double G = g;
+	double B = b;
+	R = R /256 * 216;
+	R /= 256 * 216;
+	R /= 256 * 216;
+	r = R = R_DIM (R / 16, 0, 16);
+	g = G = R_DIM (G / 16, 0, 16);
+	b = B = R_DIM (B / 16, 0, 16);
+	r &= 0xff;
+	g &= 0xff;
+	b &= 0xff;
+	return (ut32)((G * M * M)  + (g * M) + b) + 16;
+#else
+	const int k = (256.0 / 6);
+	r = R_DIM (r / k, 0, 6);
+	g = R_DIM (g / k, 0, 6);
+	b = R_DIM (b / k, 0, 6);
 	return 16 + (r * 36) + (g * 6) + b;
+#endif
 }
 
 static int rgb (int r, int g, int b) {
 	int c = lookup_rgb (r, g, b);
-	if (c == -1) return approximate_rgb (r, g, b);
-	else return c;
+	if (c == -1) {
+		return approximate_rgb (r, g, b);
+	}
+	return c;
 }
 
 static void unrgb (int color, int *r, int *g, int *b) {
+	if (color < 0 || color > 256) {
+		*r = *g = *b = 0;
+		return;
+	}
 	int rgb = color_table[color];
 	*r = (rgb >> 16) & 0xff;
 	*g = (rgb >> 8) & 0xff;
 	*b = rgb & 0xff;
 }
 
-static inline void rgbinit (int r, int g, int b) {
-#if __UNIX__ || __CYGWIN__
-	r_cons_printf ("\x1b]4;%d;rgb:%2.2x/%2.2x/%2.2x\x1b\\",
-			16 + (r * 36) + (g * 6) + b,
-			(r ? (r * 40 + 55) : 0),
-			(g ? (g * 40 + 55) : 0),
-			(b ? (b * 40 + 55) : 0));
-#endif
-}
-
 R_API void r_cons_rgb_init (void) {
-	if (color_table[255] == 0) init_color_table ();
-	int r, g, b;
-	for (r = 0; r < 6; r++)
-		for (g = 0; g < 6; g++)
-			for (b = 0; b < 6; b++)
-				rgbinit (r, g, b);
+	if (color_table[255] == 0) {
+		init_color_table ();
+	}
 }
 
-R_API int r_cons_rgb_parse(const char *p, ut8 *r, ut8 *g, ut8 *b, int *is_bg) {
+/* Parse an ANSI code string into RGB values -- Used by HTML filter only */
+R_API int r_cons_rgb_parse(const char *p, ut8 *r, ut8 *g, ut8 *b, ut8 *a) {
 	const char *q = 0;
-	int isbg = 0, bold = 255; // 127; // 255 ?
-	//const double k = (256/6);
+	ut8 isbg = 0, bold = 127;
 	if (!p) return 0;
 	if (*p == 0x1b) p++;
-	//if (*p!='[') return 0;
 	if (*p != '[') p--;
 	switch (p[1]) {
-	case '1': bold = 255; break;
+	case '1': bold = 255; p += 2; break;
 	case '3': isbg = 0; break;
 	case '4': isbg = 1; break;
 	}
 #define SETRGB(x,y,z) if (r) *r = (x); if (g) *g = (y); if (b) *b = (z)
-	//if (bold != 255 && strchr (p, ';')) {
-	if (strchr (p, ';')) {
-		if (p[4] == '5')  {
+	if (bold != 255 && strchr (p, ';')) {
+		if (p[4] == '5')  { // \x1b[%d;5;%dm is 256 colors
 			int x, y, z;
 			int n = atoi (p + 6);
 			unrgb (n, &x, &y, &z);
 			SETRGB (x, y, z);
-		} else {
-			/* truecolor */
+		} else { // 16M colors (truecolor)
 			/* complex rgb */
-			if (r) *r = atoi (p + 6);
+			p += 6;
+			if (r) *r = atoi (p);
 			q = strchr (p, ';');
 			if (!q) return 0;
 			if (g) *g = atoi (q + 1);
@@ -129,7 +140,7 @@ R_API int r_cons_rgb_parse(const char *p, ut8 *r, ut8 *g, ut8 *b, int *is_bg) {
 		return 1;
 	} else {
 		/* plain ansi escape codes */
-		if (is_bg) *is_bg = isbg;
+		if (a) *a = isbg;
 		switch (p[2]) {
 		case '0': SETRGB (0, 0, 0); break;
 		case '1': SETRGB (bold, 0, 0); break;
@@ -145,54 +156,56 @@ R_API int r_cons_rgb_parse(const char *p, ut8 *r, ut8 *g, ut8 *b, int *is_bg) {
 }
 
 R_API char *r_cons_rgb_str_off(char *outstr, ut64 off) {
-	const int r = (off >> 2) & 0xff;
-	const int g = (off >> 6) & 0xff;
-	const int b = (off >> 12) & 0xff;
-	return r_cons_rgb_str (outstr, r, g, b, false);
+	RColor rc = RColor_BLACK;
+	rc.r = (off >> 2) & 0xff;
+	rc.g = (off >> 6) & 0xff;
+	rc.b = (off >> 12) & 0xff;
+	return r_cons_rgb_str (outstr, &rc);
 }
 
-R_API char *r_cons_rgb_str(char *outstr, ut8 r, ut8 g, ut8 b, int is_bg) {
-	int fgbg = is_bg ? 48: 38;
-	if (!outstr) outstr = malloc (32);
-	if (!outstr) return NULL;
-
-	switch (r_cons_singleton ()->truecolor) {
-	case 1: // 256 color palette
-		sprintf (outstr, "\x1b[%d;5;%dm", fgbg, rgb (r, g, b));
+/* Compute color string depending on cons->color */
+static void r_cons_rgb_gen (char *outstr, ut8 a, ut8 r, ut8 g, ut8 b) {
+	ut8 fgbg = (a == ALPHA_BG)? 48: 38; // ANSI codes for Background/Foreground
+	const char *bold = (a & ALPHA_BOLD)? "1;": "";
+	switch (r_cons_singleton ()->color) {
+	case COLOR_MODE_256: // 256 color palette
+		sprintf (outstr, "\x1b[%s%d;5;%dm", bold, fgbg, rgb (r, g, b));
 		break;
-	case 2: // 16M - xterm only
-		sprintf (outstr, "\x1b[%d;2;%d;%d;%dm", fgbg, r, g, b);
+	case COLOR_MODE_16M: // 16M (truecolor)
+		sprintf (outstr, "\x1b[%s%d;2;%d;%d;%dm", bold, fgbg, r, g, b);
 		break;
-	case 0: // ansi 16 colors
-	default: {
-		int k = (r + g + b) / 3;
-		r = (r > k) ? 1 : 0;
-		g = (g > k) ? 1 : 0;
-		b = (b > k) ? 1 : 0;
+	case COLOR_MODE_16: // ansi 16 colors
+		{
+		fgbg -= 8;
+		ut8 k = (r + g + b) / 3;
+		r = (r >= k) ? 1 : 0;
+		g = (g >= k) ? 1 : 0;
+		b = (b >= k) ? 1 : 0;
 		k = (r ? 1 : 0) + (g ? (b ? 6 : 2) : (b ? 4 : 0));
-		sprintf (outstr, "\x1b[%dm", 30 + k);
+		sprintf (outstr, "\x1b[%s%dm", bold, fgbg + k);
 		}
 		break;
 	}
+}
+
+/* Return the computed color string for the specified color */
+R_API char *r_cons_rgb_str (char *outstr, RColor *rcolor) {
+	if (!rcolor || (!outstr && !(outstr = malloc (32)))) {
+		return NULL;
+	}
+	*outstr = 0;
+	if (rcolor->a == ALPHA_RESET) {
+		sprintf (outstr, "%s", Color_RESET);
+		return outstr;
+	}
+	r_cons_rgb_gen (outstr, rcolor->a, rcolor->r, rcolor->g, rcolor->b);
+	// If the color handles both foreground and background, also add background
+	if (rcolor->a == ALPHA_FGBG) {
+		ut8 length = strlen (outstr);
+		r_cons_rgb_gen (outstr + length, ALPHA_BG, rcolor->r2, rcolor->g2, rcolor->b2);
+	}
+
 	return outstr;
-}
-
-R_API void r_cons_rgb (ut8 r, ut8 g, ut8 b, int is_bg) {
-#if __WINDOWS__ && !__CYGWIN__
-#ifdef _MSC_VER
-#pragma message ("r_cons_rgb not yet supported on windows")
-#else
-#warning r_cons_rgb not yet supported on windows
-#endif
-#else
-	char outstr[64];
-	r_cons_strcat (r_cons_rgb_str (outstr, r, g, b, is_bg));
-#endif
-}
-
-R_API void r_cons_rgb_fgbg (ut8 r, ut8 g, ut8 b, ut8 R, ut8 G, ut8 B) {
-	r_cons_rgb (r, g, b, 0);
-	r_cons_rgb (R, G, B, 1);
 }
 
 R_API char *r_cons_rgb_tostring(ut8 r, ut8 g, ut8 b) {
@@ -205,6 +218,5 @@ R_API char *r_cons_rgb_tostring(ut8 r, ut8 g, ut8 b) {
 	if (r == 0xff && g == 0xff && b == 0x00) str = "yellow";
 	if (r == 0x00 && g == 0xff && b == 0xff) str = "cyan";
 	if (r == 0xff && g == 0x00 && b == 0xff) str = "magenta";
-	if (str) return strdup (str);
-	return r_str_newf ("#%02x%02x%02x", r, g, b);
+	return str? strdup (str) : r_str_newf ("#%02x%02x%02x", r, g, b);
 }

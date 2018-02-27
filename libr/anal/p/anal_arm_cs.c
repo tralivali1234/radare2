@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2016 - pancake */
+/* radare2 - LGPL - Copyright 2013-2017 - pancake */
 
 #include <r_anal.h>
 #include <r_lib.h>
@@ -227,7 +227,7 @@ static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 			break;
 		case ARM_OP_IMM:
 			r_strbuf_append (buf, "\"type\":\"imm\"");
-			r_strbuf_appendf (buf, ",\"value\":%"PFMT64d, op->imm);
+			r_strbuf_appendf (buf, ",\"value\":%d", (st32)op->imm);
 			break;
 		case ARM_OP_MEM:
 			r_strbuf_append (buf, "\"type\":\"mem\"");
@@ -246,11 +246,11 @@ static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 			break;
 		case ARM_OP_CIMM:
 			r_strbuf_append (buf, "\"type\":\"cimm\"");
-			r_strbuf_appendf (buf, ",\"value\":%"PFMT64d, op->imm);
+			r_strbuf_appendf (buf, ",\"value\":%d", (st32)op->imm);
 			break;
 		case ARM_OP_PIMM:
 			r_strbuf_append (buf, "\"type\":\"pimm\"");
-			r_strbuf_appendf (buf, ",\"value\":%"PFMT64d, op->imm);
+			r_strbuf_appendf (buf, ",\"value\":%d", (st32)op->imm);
 			break;
 		case ARM_OP_SETEND:
 			r_strbuf_append (buf, "\"type\":\"setend\"");
@@ -291,7 +291,7 @@ static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 			case ARM_SFT_ROR_REG:
 			case ARM_SFT_RRX_REG:
 				r_strbuf_appendf (buf, "\"type\":\"%s\"", shift_type_name (op->shift.type));
-				r_strbuf_appendf (buf, ",\"value\":\"%x\"", cs_reg_name (handle, op->shift.value));
+				r_strbuf_appendf (buf, ",\"value\":\"%d\"", cs_reg_name (handle, op->shift.value));
 				break;
 			default:
 				break;
@@ -525,7 +525,19 @@ static void opex64(RStrBuf *buf, csh handle, cs_insn *insn) {
 			break;
 		case ARM64_OP_PSTATE:
 			r_strbuf_append (buf, "\"type\":\"pstate\"");
-			r_strbuf_appendf (buf, ",\"value\":%x", op->pstate);
+			switch (op->pstate) {
+			case ARM64_PSTATE_SPSEL:
+				r_strbuf_append (buf, ",\"value\":\"spsel\"");
+				break;
+			case ARM64_PSTATE_DAIFSET:
+				r_strbuf_append (buf, ",\"value\":\"daifset\"");
+				break;
+			case ARM64_PSTATE_DAIFCLR:
+				r_strbuf_append (buf, ",\"value\":\"daifclr\"");
+				break;
+			default:
+				r_strbuf_appendf (buf, ",\"value\":%d", op->pstate);
+			}
 			break;
 		case ARM64_OP_SYS:
 			r_strbuf_append (buf, "\"type\":\"sys\"");
@@ -533,11 +545,11 @@ static void opex64(RStrBuf *buf, csh handle, cs_insn *insn) {
 			break;
 		case ARM64_OP_PREFETCH:
 			r_strbuf_append (buf, "\"type\":\"prefetch\"");
-			r_strbuf_appendf (buf, ",\"value\":%x", op->prefetch - 1);
+			r_strbuf_appendf (buf, ",\"value\":%d", op->prefetch - 1);
 			break;
 		case ARM64_OP_BARRIER:
 			r_strbuf_append (buf, "\"type\":\"prefetch\"");
-			r_strbuf_appendf (buf, ",\"value\":%x", op->barrier - 1);
+			r_strbuf_appendf (buf, ",\"value\":%d", op->barrier - 1);
 			break;
 		default:
 			r_strbuf_append (buf, ",\"type\":\"invalid\"");
@@ -894,12 +906,28 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		r_strbuf_setf (&op->esil, "%s,%s,*,%s,-,%s,=",
 			REG64 (2), REG64 (1), REG64 (3), REG64 (0));
 		break;
+	case ARM64_INS_UBFX: // Unsigned bitfield extract.
+	case ARM64_INS_UXTW:
+	case ARM64_INS_UBFM:
+	case ARM64_INS_UBFIZ:
+		op->type = R_ANAL_OP_TYPE_MOV;
+		break;
 	case ARM64_INS_DMB:
 	case ARM64_INS_DSB:
 	case ARM64_INS_ISB:
-		op->type = R_ANAL_OP_TYPE_SYNC;
+	case ARM64_INS_IC: // instruction cache invalidate
+	case ARM64_INS_DC: // data cache invalidate
+		op->type = R_ANAL_OP_TYPE_SYNC; // or cache
+		break;
+	case ARM64_INS_CLS: // Count leading sign bits.
+	case ARM64_INS_CLZ: // Count leading zero bits.
+		op->type = R_ANAL_OP_TYPE_MOV; // XXX
+		break;
+	case ARM64_INS_BIC:
+		op->type = R_ANAL_OP_TYPE_MOV;
 		break;
 	case ARM64_INS_ADD:
+	case ARM64_INS_ADC: // Add with carry.
 		op->cycles = 1;
 		op->type = R_ANAL_OP_TYPE_ADD;
 		OPCALL("+");
@@ -994,52 +1022,50 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		default:
 		    break;
 		}
-		if ((int)MEMDISP64(1) < 0) {
-			r_strbuf_setf (&op->esil, "%s,%s,%"PFMT64d",-,=[%d]",
-				REG64(0), MEMBASE64(1), -(int)MEMDISP64(1), size);
-		} else {
-			if (ISMEM64(1)) {
-				if (HASMEMINDEX64(1)) {
-					if (LSHIFT2_64(1)) {
-						r_strbuf_appendf (&op->esil, "%s,%d,%s,%s,+,[%d],%s,=",
-								MEMBASE64(1), LSHIFT2_64(1), MEMINDEX64(1), DECODE_SHIFT64(1), size, REG64(0));
-					} else {
-						r_strbuf_appendf (&op->esil, "%s,%s,+,[%d],%s,=",
-								MEMBASE64(1), MEMINDEX64(1), size, REG64(0));
-					}
+		if (ISMEM64(1)) {
+			if (HASMEMINDEX64(1)) {
+				if (LSHIFT2_64(1)) {
+					r_strbuf_appendf (&op->esil, "%s,%d,%s,%s,+,[%d],%s,=",
+							MEMBASE64(1), LSHIFT2_64(1), MEMINDEX64(1), DECODE_SHIFT64(1), size, REG64(0));
 				} else {
-					if (LSHIFT2_64(1)) {
-						r_strbuf_appendf (&op->esil, "%s,%d,%"PFMT64d",%s,+,[%d],%s,=",
-								MEMBASE64(1), LSHIFT2_64(1), MEMDISP64(1), DECODE_SHIFT64(1), size, REG64(0));
-					} else {
-						r_strbuf_appendf (&op->esil, "%s,%"PFMT64d",+,DUP,tmp,=,[%d],%s,=,",
-								MEMBASE64(1), MEMDISP64(1), size, REG64(0));
-					}
+					r_strbuf_appendf (&op->esil, "%s,%s,+,[%d],%s,=",
+							MEMBASE64(1), MEMINDEX64(1), size, REG64(0));
 				}
-				op->refptr = 4;
 			} else {
-				if (ISREG64(1)) {
-					if (OPCOUNT64() == 2) {
-						r_strbuf_setf (&op->esil, "%s,[%d],%s,=",
-							REG64(1), size, REG64(0));
-					} else if (OPCOUNT64() == 3) {
-						/*
-							This seems like a capstone bug:
-							instructions like
-								ldr x16, [x13, x9]
-								ldrb w2, [x19, x23]
-							are not detected as ARM64_OP_MEM type and
-							fall in this case instead.
-						*/
-						if (ISREG64(2)) {
-							r_strbuf_setf (&op->esil, "%s,%s,+,[%d],%s,=",
-								REG64(1), REG64(2), size, REG64(0));
-						}
-					}
+				if (LSHIFT2_64(1)) {
+					r_strbuf_appendf (&op->esil, "%s,%d,%"PFMT64d",%s,+,[%d],%s,=",
+							MEMBASE64(1), LSHIFT2_64(1), MEMDISP64(1), DECODE_SHIFT64(1), size, REG64(0));
+				} else if ((int)MEMDISP64(1) < 0){
+					r_strbuf_appendf (&op->esil, "%"PFMT64d",%s,-,DUP,tmp,=,[%d],%s,=,",
+							-(int)MEMDISP64(1), MEMBASE64(1), size, REG64(0));
 				} else {
-					r_strbuf_setf (&op->esil, "%"PFMT64d",[%d],%s,=",
-						IMM64(1), size, REG64(0));
+					r_strbuf_appendf (&op->esil, "%s,%"PFMT64d",+,DUP,tmp,=,[%d],%s,=,",
+							MEMBASE64(1), MEMDISP64(1), size, REG64(0));
 				}
+			}
+			op->refptr = 4;
+		} else {
+			if (ISREG64(1)) {
+				if (OPCOUNT64() == 2) {
+					r_strbuf_setf (&op->esil, "%s,[%d],%s,=",
+						REG64(1), size, REG64(0));
+				} else if (OPCOUNT64() == 3) {
+					/*
+						This seems like a capstone bug:
+						instructions like
+							ldr x16, [x13, x9]
+							ldrb w2, [x19, x23]
+						are not detected as ARM64_OP_MEM type and
+						fall in this case instead.
+					*/
+					if (ISREG64(2)) {
+						r_strbuf_setf (&op->esil, "%s,%s,+,[%d],%s,=",
+							REG64(1), REG64(2), size, REG64(0));
+					}
+				}
+			} else {
+				r_strbuf_setf (&op->esil, "%"PFMT64d",[%d],%s,=",
+					IMM64(1), size, REG64(0));
 			}
 		}
 		break;
@@ -1105,11 +1131,11 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		break;
 		}
 	case ARM64_INS_CBZ:
-		r_strbuf_setf (&op->esil, "%s,?{,%"PFMT64d",pc,=,}",
+		r_strbuf_setf (&op->esil, "%s,!,?{,%"PFMT64d",pc,=,}",
 			REG64(0), IMM64(1));
 		break;
 	case ARM64_INS_CBNZ:
-		r_strbuf_setf (&op->esil, "%s,!,?{,%"PFMT64d",pc,=,}",
+		r_strbuf_setf (&op->esil, "%s,?{,%"PFMT64d",pc,=,}",
 			REG64(0), IMM64(1));
 		break;
 	case ARM64_INS_TBZ:
@@ -1171,34 +1197,34 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		// x2,x8,32,+,=[8],x3,x8,32,+,8,+,=[8]
 		if (ISPREINDEX64()) {
 			// "ldp x0, x1, [x8, -0x10]!"
-			// 16,x8,-=,x0,x8,[8],x1,x8,8,+,[8]
+			// 16,x8,-=,x8,[8],x0,=,x8,8,+,[8],x1,=
 			r_strbuf_setf (&op->esil,
 					"%"PFMT64d",%s,%c=,"
-					"%s,%s,[%d],"
-					"%s,%s,%d,+,[%d]",
+					"%s,[%d],%s,=,"
+					"%s,%d,+,[%d],%s,=",
 					abs, MEMBASE64(2), sign,
-					REG64(0), MEMBASE64(2), size,
-					REG64(1), MEMBASE64(2), size, size);
+					MEMBASE64(2), size, REG64(0),
+					MEMBASE64(2), size, size, REG64(1));
 		// Post-index case
 		} else if (ISPOSTINDEX64()) {
 			int val = IMM64(3);
 			sign = val>=0?'+':'-';
 			abs = val>=0? val: -val;
 			// ldp x4, x5, [x8], -0x10
-			// x4,x8,[8],x5,x8,8,+,[8],16,x8,+=
+			// x8,[8],x4,=,x8,8,+,[8],x5,=,16,x8,+=
 			r_strbuf_setf (&op->esil,
-					"%s,%s,[%d],"
-					"%s,%s,%d,+,[%d],"
+					"%s,[%d],%s,=,"
+					"%s,%d,+,[%d],%s,=,"
 					"%d,%s,%c=",
-					REG64(0), MEMBASE64(2), size,
-					REG64(1), MEMBASE64(2), size, size,
+					MEMBASE64(2), size, REG64(0),
+					MEMBASE64(2), size, size, REG64(1),
 					abs, MEMBASE64(2), sign);
 		} else {
 			r_strbuf_setf (&op->esil,
-					"%s,%s,%"PFMT64d",%c,[%d],"
-					"%s,%s,%"PFMT64d",%c,%d,+,[%d]",
-					REG64(0), MEMBASE64(2), abs, sign, size,
-					REG64(1), MEMBASE64(2), abs, sign, size, size);
+					"%s,%"PFMT64d",%c,[%d],%s,=,"
+					"%s,%"PFMT64d",%c,%d,%c,[%d],%s,=",
+					MEMBASE64(2), abs, sign, size, REG64(0),
+					MEMBASE64(2), abs, sign, size, sign, size, REG64(1));
 		}
 		}
 		break;
@@ -1279,6 +1305,9 @@ static int analop64_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int l
 		r_strbuf_setf (&op->esil, "%s,0xffff,&,%s,=", REG64(1),REG64(0));
 		break;
 	case ARM64_INS_RET:
+		r_strbuf_setf (&op->esil, "lr,pc,=");
+		break;
+	case ARM64_INS_ERET:
 		r_strbuf_setf (&op->esil, "lr,pc,=");
 		break;
 	case ARM64_INS_BFI: // bfi w8, w8, 2, 1
@@ -1502,10 +1531,12 @@ r4,r5,r6,3,sp,[*],12,sp,+=
 		r_strbuf_appendf (&op->esil, "%s,%s,=", ARG(1), REG(0));
 		break;
 	case ARM_INS_CBZ:
-		r_strbuf_appendf (&op->esil, "zf,?{,%s,pc,=", ARG(0));
+		r_strbuf_appendf (&op->esil, "%s,!,?{,%"PFMT32u",pc,=,}",
+			REG(0), IMM(1));
 		break;
 	case ARM_INS_CBNZ:
-		r_strbuf_appendf (&op->esil, "zf,!,?{,%s,pc,=", ARG(0));
+		r_strbuf_appendf (&op->esil, "%s,?{,%"PFMT32u",pc,=,}",
+			REG(0), IMM(1));
 		break;
 		// TODO (maybe?): ARM Cortex allows for a STRD "double word" 64-bit store
 		// e.g. 'strD r1, r2, [r3]'
@@ -2140,6 +2171,10 @@ static void anop64 (csh handle, RAnalOp *op, cs_insn *insn) {
 	case ARM64_INS_BRK:
 		op->type = R_ANAL_OP_TYPE_TRAP;
 		break;
+	case ARM64_INS_HLT:
+		op->type = R_ANAL_OP_TYPE_TRAP;
+		// hlt stops the process, not skips some cycles like in x86
+		break;
 	case ARM64_INS_CCMP:
 	case ARM64_INS_CCMN:
 	case ARM64_INS_CMP:
@@ -2206,6 +2241,10 @@ static void anop64 (csh handle, RAnalOp *op, cs_insn *insn) {
 				op->refptr = 4;
 			}
 		}
+		break;
+	case ARM64_INS_ERET:
+		op->type = R_ANAL_OP_TYPE_RET;
+		op->family = R_ANAL_OP_FAMILY_PRIV;
 		break;
 	case ARM64_INS_RET:
 		op->type = R_ANAL_OP_TYPE_RET;
@@ -2321,6 +2360,18 @@ jmp $$ + 4 + ( [delta] * 2 )
 	case ARM_INS_TBB: // byte table
 		op->type = R_ANAL_OP_TYPE_UJMP;
 		// TABLE JUMP  used for switch statements
+		break;
+	case ARM_INS_PLD:
+		op->type = R_ANAL_OP_TYPE_LEA; // not really a lea, just a prefetch
+		if (ISMEM (0)) {
+			int regBase = REGBASE(0);
+			int delta = MEMDISP(0);
+			if (regBase == ARM_REG_PC) {
+				op->ptr = addr + 4 + delta;
+			} else {
+				// exotic pld
+			}
+		}
 		break;
 	case ARM_INS_IT:
 		op->type = R_ANAL_OP_TYPE_CJMP;

@@ -433,7 +433,7 @@ R_API void r_line_autocomplete() {
 	char *p;
 	const char **argv = NULL;
 	int i, j, opt = 0, plen, len = 0;
-	int cols = r_cons_get_size (NULL) * 0.82;
+	int cols = (int)(r_cons_get_size (NULL) * 0.82);
 
 	/* prepare argc and argv */
 	if (I.completion.run) {
@@ -461,6 +461,7 @@ R_API void r_line_autocomplete() {
 				end_word: I.buffer.data + I.buffer.index;
 		int largv0 = strlen (argv[0]? argv[0]: "");
 		size_t len_t = strlen (t);
+		p[largv0]='\0';
 
 		if ((p - I.buffer.data) + largv0 + 1 + len_t < plen) {
 			if (len_t > 0) {
@@ -471,12 +472,15 @@ R_API void r_line_autocomplete() {
 				memmove (p + tt, t, len_t);
 			}
 			memcpy (p, argv[0], largv0);
-			p[largv0] = ' ';
-			if (!len_t) {
-				p[largv0 + 1] = '\0';
+
+			if (p[largv0 - 1] != '/') {
+				p[largv0] = ' ';
+				if (!len_t) {
+					p[largv0 + 1] = '\0';
+				}
 			}
 			I.buffer.length = strlen (I.buffer.data);
-			I.buffer.index = (p - I.buffer.data) + largv0 + 1;
+			I.buffer.index = I.buffer.length;
 		}
 	} else if (argc > 0) {
 		if (*p) {

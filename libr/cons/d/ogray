@@ -8,6 +8,7 @@ ec call rgb:f72 rgb:333
 ec cjmp rgb:f72
 ec cmp rgb:aaa
 ec comment rgb:f72
+ec usrcmt rgb:000 rgb:f72
 ec reg rgb:fff
 ec creg rgb:f72
 ec flag rgb:f72
@@ -36,9 +37,11 @@ ec graph.false rgb:777
 ec graph.trufae rgb:ddd
 ec graph.current rgb:f72
 ec graph.traced rgb:f00
-ec gui.cflow rgb:f72
-ec gui.dataoffset rgb:f72
+ec graph.box rgb:fff
 ec graph.box2 rgb:f72
 ec graph.box3 rgb:f00
+ec graph.box4 rgb:f00
+ec gui.cflow rgb:f72
+ec gui.dataoffset rgb:f72
 ec crypto rgb:f72
 ec floc rgb:777

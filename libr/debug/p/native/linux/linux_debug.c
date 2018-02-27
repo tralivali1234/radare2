@@ -17,7 +17,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-const char *linux_reg_profile (RDebug *dbg) {
+char *linux_reg_profile (RDebug *dbg) {
 #if __arm__
 #include "reg/linux-arm.h"
 #elif __arm64__ || __aarch64__
@@ -48,6 +48,14 @@ const char *linux_reg_profile (RDebug *dbg) {
 #error "Unsupported Linux CPU"
 #endif
 }
+
+static void linux_detach_all (RDebug *dbg);
+static char *read_link (int pid, const char *file);
+static int linux_attach_single_pid (RDebug *dbg, int ptid);
+static void linux_attach_all (RDebug *dbg);
+static void linux_remove_thread (RDebug *dbg, int pid);
+static void linux_add_and_attach_new_thread (RDebug *dbg, int tid);
+static int linux_stop_process(int pid);
 
 int linux_handle_signals (RDebug *dbg) {
 	siginfo_t siginfo = {0};
@@ -287,28 +295,6 @@ void linux_attach_new_process (RDebug *dbg) {
 	r_debug_select (dbg, dbg->forked_pid, dbg->forked_pid);
 }
 
-static RDebugPid *find_rdebug_pid (RDebug *dbg, int pid) {
-	RList *list = dbg->threads;
-	if (list) {
-		RDebugPid *th;
-		RListIter *it;
-		r_list_foreach (list, it, th) {
-			if (th->pid == pid) {
-				return th;
-			}
-		}
-	}
-	return NULL;
-}
-
-static bool get_pid_signalled_status (RDebug *dbg, int pid) {
-	RDebugPid *th = find_rdebug_pid (dbg, pid);
-	if (th) {
-		return th->signalled;
-	}
-	return false;
-}
-
 RDebugReasonType linux_dbg_wait(RDebug *dbg, int my_pid) {
 	RDebugReasonType reason = R_DEBUG_REASON_UNKNOWN;
 	int pid = (dbg->continue_all_threads && dbg->n_threads) ? -1 : dbg->main_pid;
@@ -353,6 +339,7 @@ repeat:
 				if (WSTOPSIG (status) != SIGTRAP &&
 					WSTOPSIG (status) != SIGSTOP) {
 					eprintf ("child stopped with signal %d\n", WSTOPSIG (status));
+					reason = R_DEBUG_REASON_DEAD;
 				}
 				if (!linux_handle_signals (dbg)) {
 					eprintf ("can't handle signals\n");
@@ -406,7 +393,6 @@ static void linux_add_and_attach_new_thread(RDebug *dbg, int tid) {
 	dbg->tid = tid;
 	dbg->n_threads++;
 }
-
 
 static int linux_stop_process(int pid) {
 	int status;

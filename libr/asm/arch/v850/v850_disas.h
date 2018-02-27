@@ -232,7 +232,7 @@ enum v850_regs {
 	V850_LP = 0x1F,
 };
 
-static char* V850_REG_NAMES[] = {
+static const char* V850_REG_NAMES[] = {
 	"zero",
 	"r1",
 	"r2",

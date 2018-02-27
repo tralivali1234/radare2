@@ -94,7 +94,7 @@ static int projectInit(RCore *core) {
 	return ret;
 }
 
-static bool r_core_is_project(RCore *core, const char *name) {
+R_API bool r_core_is_project(RCore *core, const char *name) {
 	bool ret = false;
 	if (name && *name && *name != '.') {
 		char *path = projectScriptPath (core, name);
@@ -382,6 +382,10 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 		free (prj);
 		return false;
 	}
+
+	if (!filepath[0]) {
+		goto cookiefactory;
+	}
 	if (!strstr (filepath, "://")) {
 		/* check if path exists */
 		if (!r_file_exists (filepath)) {
@@ -391,6 +395,8 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 			return false;
 		}
 	}
+ cookiefactory:
+	;
 	const char *file_path = r_config_get (core->config, "file.path");
 	if (!file_path || !*file_path) {
 		file_path = r_config_get (core->config, "file.lastpath");
@@ -411,7 +417,6 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 		}
 	}
 	if (close_current_session) {
-		RCoreFile *fh;
 		// delete
 		r_core_file_close_fd (core, -1);
 		r_io_close_all (core->io);
@@ -420,17 +425,18 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 		r_bin_file_delete_all (core->bin);
 		// open new file
 		// TODO: handle read/read-write mode
-		// TODO: handle mapaddr (io.maps are not saved in projects yet)
 		r_io_desc_init (core->io);
-		fh = r_core_file_open (core, filepath, 0, 0);
-		if (!fh) {
-			eprintf ("Cannot open file '%s'\n", filepath);
-			ret = false;
-			goto beach;
+		if (filepath[0]) {
+			/* Old-style project without embedded on commands to open all files.  */
+			if (!r_core_file_open (core, filepath, 0, 0)) {
+				eprintf ("Cannot open file '%s'\n", filepath);
+				ret = false;
+				goto beach;
+			}
 		}
 	}
 
-	if (close_current_session && r_config_get_i (core->config, "file.info")) {
+	if (filepath[0] && close_current_session && r_config_get_i (core->config, "file.info")) {
 		mapaddr = r_config_get_i (core->config, "file.offset");
 		(void)r_core_bin_load (core, filepath, mapaddr? mapaddr: UT64_MAX);
 	}
@@ -441,12 +447,14 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 		/* load sdb stuff in here */
 		ret = r_core_project_load (core, prjfile, prj);
 	}
-	newbin = r_config_get (core->config, "file.path");
-	if (!newbin || !*newbin) {
-		newbin = r_config_get (core->config, "file.lastpath");
-	}
-	if (strcmp (oldbin, newbin)) {
-		eprintf ("WARNING: file.path changed: %s => %s\n", oldbin, newbin);
+	if (filepath[0]) {
+		newbin = r_config_get (core->config, "file.path");
+		if (!newbin || !*newbin) {
+			newbin = r_config_get (core->config, "file.lastpath");
+		}
+		if (strcmp (oldbin, newbin)) {
+			eprintf ("WARNING: file.path changed: %s => %s\n", oldbin, newbin);
+		}
 	}
 beach:
 	free (oldbin);
@@ -501,6 +509,100 @@ R_API char *r_core_project_info(RCore *core, const char *prjfile) {
 	return file;
 }
 
+static int fdc;		//this is a ugly, remove it, when we have $fd
+
+static bool store_files_and_maps (RCore *core, RIODesc *desc, ut32 id) {
+	RList *maps = NULL;
+	RListIter *iter;
+	RIOMap *map;
+	if (desc) {
+		r_cons_printf ("ofs %s %s\n", desc->uri, r_str_rwx_i (desc->flags));
+		if ((maps = r_io_map_get_for_fd (core->io, id))) {
+			r_list_foreach (maps, iter, map) {
+				r_cons_printf ("om %d 0x%"PFMT64x" 0x%"PFMT64x" 0x%"PFMT64x" %s%s%s\n", fdc,
+					map->itv.addr, map->itv.size, map->delta, r_str_rwx_i(map->flags),
+					map->name ? " " : "", map->name ? map->name : "");
+			}
+			r_list_free (maps);
+		}
+		fdc++;
+	}
+	return true;
+}
+
+static bool simpleProjectSaveScript(RCore *core, const char *file, int opts) {
+	char *filename, *hl, *ohl = NULL;
+	int fd, fdold;
+
+	if (!file || * file == '\0') {
+		return false;
+	}
+
+	filename = r_str_word_get_first (file);
+	fd = r_sandbox_open (file, O_BINARY | O_RDWR | O_CREAT | O_TRUNC, 0644);
+	if (fd == -1) {
+		free (filename);
+		return false;
+	}
+
+	hl = r_cons_singleton ()->highlight;
+	if (hl) {
+		ohl = strdup (hl);
+		r_cons_highlight (NULL);
+	}
+
+	fdold = r_cons_singleton ()->fdout;
+	r_cons_singleton ()->fdout = fd;
+	r_cons_singleton ()->is_interactive = false;
+
+	r_str_write (fd, "# r2 rdb project file\n");
+
+	if (opts & R_CORE_PRJ_EVAL) {
+		r_str_write (fd, "# eval\n");
+		r_config_list (core->config, NULL, true);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_META) {
+		r_str_write (fd, "# meta\n");
+		r_meta_list (core->anal, R_META_TYPE_ANY, 1);
+		r_cons_flush ();
+		r_core_cmd (core, "fV*", 0);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_XREFS) {
+		r_str_write (fd, "# xrefs\n");
+		r_core_cmd (core, "ax*", 0);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_FCNS) {
+		r_str_write (fd, "# functions\n");
+		r_core_cmd (core, "afl*", 0);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_FLAGS) {
+		r_str_write (fd, "# flags\n");
+		r_core_cmd (core, "f.**", 0);
+		r_cons_flush ();
+	}
+
+	r_cons_singleton ()->fdout = fdold;
+	r_cons_singleton ()->is_interactive = true;
+
+	if (ohl) {
+		r_cons_highlight (ohl);
+		free (ohl);
+	}
+
+	close (fd);
+	free (filename);
+
+	return true;
+}
+
 static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	char *filename, *hl, *ohl = NULL;
 	int fd, fdold, tmp;
@@ -536,13 +638,18 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 		core->flags->space_idx = tmp;
 		r_cons_flush ();
 	}
+	// Set file.path and file.lastpath to empty string to signal
+	// new behaviour to project load routine (see io maps below).
+	r_config_set (core->config, "file.path", "");
+	r_config_set (core->config, "file.lastpath", "");
 	if (opts & R_CORE_PRJ_EVAL) {
 		r_str_write (fd, "# eval\n");
 		r_config_list (core->config, NULL, true);
 		r_cons_flush ();
 	}
-	if (opts & R_CORE_PRJ_IO_MAPS) {
-		r_core_cmd (core, "om*", 0);
+	if (opts & R_CORE_PRJ_IO_MAPS && core->io && core->io->files) {
+		fdc = 3;
+		r_id_storage_foreach (core->io->files, (RIDStorageForeachCb)store_files_and_maps, core);
 		r_cons_flush ();
 	}
 	{
@@ -694,11 +801,18 @@ R_API bool r_core_project_save(RCore *core, const char *prjName) {
 		oldPrjName = strdup (oldPrjNameC);
 	}
 	r_config_set (core->config, "prj.name", prjName);
-
-	if (!projectSaveScript (core, scriptPath, R_CORE_PRJ_ALL ^ R_CORE_PRJ_XREFS)) {
-		eprintf ("Cannot open '%s' for writing\n", prjName);
-		ret = false;
+	if (r_config_get_i (core->config, "prj.simple")) {
+		if (!simpleProjectSaveScript (core, scriptPath, R_CORE_PRJ_ALL ^ R_CORE_PRJ_XREFS)) {
+			eprintf ("Cannot open '%s' for writing\n", prjName);
+			ret = false;
+		}
+	} else {
+		if (!projectSaveScript (core, scriptPath, R_CORE_PRJ_ALL ^ R_CORE_PRJ_XREFS)) {
+			eprintf ("Cannot open '%s' for writing\n", prjName);
+			ret = false;
+		}
 	}
+
 	if (r_config_get_i (core->config, "prj.files")) {
 		eprintf ("TODO: prj.files: support copying more than one file into the project directory\n");
 		char *binFile = r_core_project_info (core, prjName);

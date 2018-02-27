@@ -135,7 +135,10 @@ R_API int r_cmd_alias_set (RCmd *cmd, const char *k, const char *v, int remote) 
 
 R_API char *r_cmd_alias_get (RCmd *cmd, const char *k, int remote) {
 	int matches, i;
-	for (i=0; i<cmd->aliases.count; i++) {
+	if (!cmd || !k) {
+		return NULL;
+	}
+	for (i=0; i < cmd->aliases.count; i++) {
 		matches = 0;
 		if (remote) {
 			if (cmd->aliases.remote[i]) {
@@ -200,6 +203,9 @@ R_API int r_cmd_call(RCmd *cmd, const char *input) {
 	int ret = -1;
 	RListIter *iter;
 	RCorePlugin *cp;
+	if (!cmd || !input) {
+		return -1;
+	}
 	if (!input || !*input) {
 		if (cmd->nullcallback) {
 			ret = cmd->nullcallback (cmd->data);
@@ -654,7 +660,7 @@ R_API int r_cmd_macro_call(RCmdMacro *mac, const char *name) {
 				if (!ptr2) {
 					eprintf ("Oops. invalid label name\n");
 					break;
-				} else if (ptr != ptr2) { 
+				} else if (ptr != ptr2) {
 					ptr = ptr2;
 					if (end) *end ='\n';
 					end = strchr (ptr, '\n');

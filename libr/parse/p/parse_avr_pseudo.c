@@ -59,7 +59,8 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "brge",    "if(var >= 0) goto A"},
 		{ "brlt",    "if(var < 0) goto A"},
 		{ "mov",     "A = B"},
-		{ "ldi",     "A = *(B)"},
+		{ "movw",    "A+1:A = B+1:B"},
+		{ "ldi",     "A = B"},
 		{ "lds",     "A = *(B)"},
 		{ "ld",      "A = *(B)"},
 		{ "ldd",     "A = *(B)"},
@@ -93,6 +94,9 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "nop",     ""},
 		{ "halt",    "_halt()"},
 		{ "wdr",     "_watchdog_reset()"},
+		{ "std",     "*(A) = B"},
+		{ "st",      "*(A) = B"},
+		{ "sts",     "*(A) = B"},
 		{ NULL }
 	};
 
@@ -142,7 +146,7 @@ static int parse(RParse *p, const char *data, char *str) {
 	}
 	memcpy (buf, data, len + 1);
 
-	r_str_chop (buf);
+	r_str_trim (buf);
 	if (*buf) {
 		w0[0] = '\0';
 		w1[0] = '\0';

@@ -149,7 +149,7 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 						r_cons_printf (" %c %s\n", first_line? '-': ' ', current_entry);
 					} else {
 						// otherwise we need to emphasize the matching part
-						if (I (use_color)) {
+						if (I (color)) {
 							last_color_change = 0;
 							last_mask = 0;
 							r_cons_printf (" %c ", first_line? '-': ' ');
@@ -279,7 +279,7 @@ R_API char *r_cons_hud_path(const char *path, int dir) {
 	char *tmp, *ret = NULL;
 	RList *files;
 	if (path) {
-		path = r_str_chop_ro (path);
+		path = r_str_trim_ro (path);
 		tmp = strdup (*path? path: "./");
 	} else {
 		tmp = strdup ("./");

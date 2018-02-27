@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2008-2017 - pancake, Jody Frankowski */
+/* radare2 - LGPL - Copyright 2008-2018 - pancake, Jody Frankowski */
 
 #include <r_cons.h>
 #include <r_print.h>
@@ -71,64 +71,35 @@ static inline void r_cons_write(const char *buf, int len) {
 #endif
 }
 
-R_API char *r_cons_color_random_string(int bg) {
-	int r, g, b;
-	if (I.truecolor > 0) {
-		char out[32];
-		r = r_num_rand (0xff);
-		g = r_num_rand (0xff);
-		b = r_num_rand (0xff);
-		r_cons_rgb_str (out, r, g, b, bg);
-		return strdup (out);
+R_API RColor r_cons_color_random(ut8 alpha) {
+	RColor rcolor;
+	if (I.color > COLOR_MODE_16) {
+		rcolor.r = r_num_rand (0xff);
+		rcolor.g = r_num_rand (0xff);
+		rcolor.b = r_num_rand (0xff);
+		rcolor.a = alpha;
+		return rcolor;
 	}
-	// random ansi
-	const char *color = "white";
-	r = r_num_rand (8);
+	int r = r_num_rand (16);
 	switch (r) {
-	case 0: color = "red"; break;
-	case 1: color = "white"; break;
-	case 2: color = "green"; break;
-	case 3: color = "magenta"; break;
-	case 4: color = "yellow"; break;
-	case 5: color = "cyan"; break;
-	case 6: color = "blue"; break;
-	case 7: color = "gray"; break;
+	case 0: rcolor = (RColor) RColor_RED; break;
+	case 1: rcolor = (RColor) RColor_BRED; break;
+	case 2: rcolor = (RColor) RColor_WHITE; break;
+	case 3: rcolor = (RColor) RColor_BWHITE; break;
+	case 4: rcolor = (RColor) RColor_GREEN; break;
+	case 5: rcolor = (RColor) RColor_BGREEN; break;
+	case 6: rcolor = (RColor) RColor_MAGENTA; break;
+	case 7: rcolor = (RColor) RColor_BMAGENTA; break;
+	case 8: rcolor = (RColor) RColor_YELLOW; break;
+	case 9: rcolor = (RColor) RColor_BYELLOW; break;
+	case 10: rcolor = (RColor) RColor_CYAN; break;
+	case 11: rcolor = (RColor) RColor_BCYAN; break;
+	case 12: rcolor = (RColor) RColor_BLUE; break;
+	case 13: rcolor = (RColor) RColor_BBLUE; break;
+	case 14: rcolor = (RColor) RColor_GRAY; break;
+	case 15: rcolor = (RColor) RColor_BGRAY; break;
 	}
-	return strdup (color);
-}
-
-R_API char *r_cons_color_random(int bg) {
-	int r, g, b;
-	if (I.truecolor > 0) {
-		char out[32];
-		r = r_num_rand (0xff);
-		g = r_num_rand (0xff);
-		b = r_num_rand (0xff);
-		r_cons_rgb_str (out, r, g, b, bg);
-		return strdup (out);
-	}
-	const char *color = Color_RESET;
-	// random ansi
-	r = r_num_rand (16);
-	switch (r) {
-	case 0: color = Color_RED; break;
-	case 1: color = Color_BRED; break;
-	case 2: color = Color_WHITE; break;
-	case 3: color = Color_BWHITE; break;
-	case 4: color = Color_GREEN; break;
-	case 5: color = Color_BGREEN; break;
-	case 6: color = Color_MAGENTA; break;
-	case 7: color = Color_BMAGENTA; break;
-	case 8: color = Color_YELLOW; break;
-	case 9: color = Color_BYELLOW; break;
-	case 10: color = Color_CYAN; break;
-	case 11: color = Color_BCYAN; break;
-	case 12: color = Color_BLUE; break;
-	case 13: color = Color_BBLUE; break;
-	case 14: color = Color_GRAY; break;
-	case 15: color = Color_BGRAY; break;
-	}
-	return strdup (color);
+	return rcolor;
 }
 
 R_API void r_cons_color (int fg, int r, int g, int b) {
@@ -155,7 +126,7 @@ R_API void r_cons_println(const char* str) {
 R_API void r_cons_strcat_justify(const char *str, int j, char c) {
 	int i, o, len;
 	for (o = i = len = 0; str[i]; i++, len++) {
-		if (str[i]=='\n') {
+		if (str[i] == '\n') {
 			r_cons_memset (' ', j);
 			if (c) {
 				r_cons_memset (c, 1);
@@ -295,14 +266,6 @@ R_API bool r_cons_enable_mouse(const bool enable) {
 #endif
 }
 
-static void r_cons_pal_null() {
-	int i;
-	RCons *cons = r_cons_singleton ();
-	for (i = 0; i < R_CONS_PALETTE_LIST_SIZE; i++){
-		cons->pal.list[i] = NULL;
-	}
-}
-
 R_API RCons *r_cons_new() {
 	I.refcnt++;
 	if (I.refcnt != 1) {
@@ -314,7 +277,7 @@ R_API RCons *r_cons_new() {
 	I.event_interrupt = NULL;
 	I.is_wine = -1;
 	I.fps = 0;
-	I.use_color = false;
+	I.color = COLOR_MODE_DISABLED;
 	I.blankline = true;
 	I.teefile = NULL;
 	I.fix_columns = 0;
@@ -332,7 +295,7 @@ R_API RCons *r_cons_new() {
 	I.fdout = 1;
 	I.breaked = false;
 	I.break_lines = false;
-	//I.lines = 0;
+	I.lines = 0;
 	I.buffer = NULL;
 	I.buffer_sz = 0;
 	I.buffer_len = 0;
@@ -355,21 +318,19 @@ R_API RCons *r_cons_new() {
 	signal (SIGWINCH, resize);
 #elif __WINDOWS__
 	h = GetStdHandle (STD_INPUT_HANDLE);
-	GetConsoleMode (h, (PDWORD) &I.term_buf);
+	GetConsoleMode (h, &I.term_buf);
 	I.term_raw = 0;
 	if (!SetConsoleCtrlHandler ((PHANDLER_ROUTINE)__w32_control, TRUE)) {
 		eprintf ("r_cons: Cannot set control console handler\n");
 	}
 #endif
 	I.pager = NULL; /* no pager by default */
-	I.truecolor = 0;
 	I.mouse = 0;
 	I.cons_stack = r_stack_newf (6, cons_stack_free);
 	I.break_stack = r_stack_newf (6, break_stack_free);
-	r_cons_pal_null ();
-	r_cons_pal_init (NULL);
-	r_cons_rgb_init ();
 	r_cons_reset ();
+	r_cons_rgb_init ();
+	r_cons_pal_init ();
 	return &I;
 }
 
@@ -632,7 +593,7 @@ R_API void r_cons_flush() {
 			}
 #endif
 			// fix | more | less problem
-			r_cons_set_raw (1);
+			r_cons_set_raw (true);
 		}
 	}
 	if (tee && *tee) {
@@ -706,8 +667,12 @@ R_API void r_cons_visual_flush() {
 		fps = 0;
 		if (prev) {
 			ut64 now = r_sys_now ();
-			ut64 diff = now-prev;
-			fps = (diff<1000000)? (1000000/diff): 0;
+			st64 diff = (st64)(now - prev);
+			if (diff < 0) {
+				fps = 0;
+			} else {
+				fps = (diff < 1000000)? (1000000.0/diff): 0;
+			}
 			prev = now;
 		} else {
 			prev = r_sys_now ();
@@ -720,7 +685,7 @@ static int real_strlen(const char *ptr, int len) {
 	int utf8len = r_str_len_utf8 (ptr);
 	int ansilen = r_str_ansi_len (ptr);
 	int diff = len - utf8len;
-	if (diff) {
+	if (diff > 0) {
 		diff--;
 	}
 	return ansilen - diff;
@@ -1074,7 +1039,7 @@ R_API void r_cons_show_cursor (int cursor) {
  *
  */
 static int oldraw = -1;
-R_API void r_cons_set_raw(int is_raw) {
+R_API void r_cons_set_raw(bool is_raw) {
 	if (oldraw != -1) {
 		if (is_raw == oldraw) {
 			return;
@@ -1092,9 +1057,9 @@ R_API void r_cons_set_raw(int is_raw) {
 	}
 #elif __WINDOWS__
 	if (is_raw) {
-		SetConsoleMode (h, (DWORD)I.term_raw);
+		SetConsoleMode (h, I.term_raw);
 	} else {
-		SetConsoleMode (h, (DWORD)I.term_buf);
+		SetConsoleMode (h, I.term_buf);
 	}
 #else
 #warning No raw console supported for this platform
@@ -1162,7 +1127,7 @@ R_API void r_cons_column(int c) {
 
 static int lasti = 0; /* last interactive mode */
 
-R_API void r_cons_set_interactive(int x) {
+R_API void r_cons_set_interactive(bool x) {
 	lasti = r_cons_singleton ()->is_interactive;
 	r_cons_singleton ()->is_interactive = x;
 }
@@ -1307,6 +1272,10 @@ R_API const char* r_cons_get_rune(const ut8 ch) {
 		case RUNECODE_CORNER_TR:  return RUNE_CORNER_TR;
 		case RUNECODE_CORNER_BR:  return RUNE_CORNER_BR;
 		case RUNECODE_CORNER_BL:  return RUNE_CORNER_BL;
+		case RUNECODE_CURVE_CORNER_TL:  return RUNE_CURVE_CORNER_TL;
+		case RUNECODE_CURVE_CORNER_TR:  return RUNE_CURVE_CORNER_TR;
+		case RUNECODE_CURVE_CORNER_BR:  return RUNE_CURVE_CORNER_BR;
+		case RUNECODE_CURVE_CORNER_BL:  return RUNE_CURVE_CORNER_BL;
 		}
 	}
 	return NULL;

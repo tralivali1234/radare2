@@ -171,7 +171,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 			return r_io_desc_new (io, &r_io_plugin_bfdbg,
 				pathname, rw, mode, mal);
 		}
-		eprintf ("Cannot allocate (%s) %d bytes\n",
+		eprintf ("Cannot allocate (%s) %d byte(s)\n",
 			pathname+9, mal->size);
 		free (mal);
 		free (out);
@@ -192,7 +192,7 @@ RIOPlugin r_io_plugin_bfdbg = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_bfdbg,
 	.version = R2_VERSION

@@ -1646,7 +1646,7 @@ static int parse(RParse *p, const char *data, char *str) {
 
 	r_str_replace_char (buf, '(', ',');
 	r_str_replace_char (buf, ')', ' ');
-	r_str_chop (buf);
+	r_str_trim (buf);
 	if (*buf) {
 		w0[0] = '\0';
 		w1[0] = '\0';
@@ -1743,14 +1743,14 @@ static int parse(RParse *p, const char *data, char *str) {
 	return true;
 }
 
-struct r_parse_plugin_t r_parse_plugin_ppc_pseudo = {
+RParsePlugin r_parse_plugin_ppc_pseudo = {
 	.name = "ppc.pseudo",
 	.desc = "PowerPC pseudo syntax",
 	.parse = parse,
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_PARSE,
 	.data = &r_parse_plugin_ppc_pseudo,
 	.version = R2_VERSION

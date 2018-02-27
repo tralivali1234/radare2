@@ -60,9 +60,9 @@ static RDebugMap *add_map(RList *list, const char *name, ut64 addr, ut64 len, ME
 		goto err_add_map;
 	}
 	mr = r_debug_map_new (map_name,
-			     addr,
-			     addr + len, perm, mbi->Type == MEM_PRIVATE);
-	if (mr)  {
+				addr,
+				addr + len, perm, mbi->Type == MEM_PRIVATE);
+	if (mr) {
 		r_list_append (list, mr);
 	}
 err_add_map:
@@ -70,7 +70,7 @@ err_add_map:
 	return mr;
 }
 
-static RDebugMap *add_map_reg(RList *list, const char *name, MEMORY_BASIC_INFORMATION *mbi) {
+static inline RDebugMap *add_map_reg(RList *list, const char *name, MEMORY_BASIC_INFORMATION *mbi) {
 	return add_map (list, name, (ut64)(size_t)mbi->BaseAddress, (ut64)mbi->RegionSize, mbi);
 }
 
@@ -93,20 +93,24 @@ static RList *w32_dbg_modules(RDebug *dbg) {
 		goto err_w32_dbg_modules;
 	}
 	do {
+		char *mod_name;
 		ut64 baddr = (ut64)(size_t)me32.modBaseAddr;
-                mr = r_debug_map_new (me32.szModule, baddr, baddr + me32.modBaseSize, 0, 0);
-                if (mr) {
-                        mr->file = strdup (me32.szExePath);
+
+		mod_name = r_sys_conv_utf16_to_utf8 (me32.szModule);
+		mr = r_debug_map_new (mod_name, baddr, baddr + me32.modBaseSize, 0, 0);
+		free (mod_name);
+		if (mr) {
+			mr->file = r_sys_conv_utf16_to_utf8 (me32.szExePath);
 			if (mr->file) {
 				r_list_append (list, mr);
 			}
-                }
-        } while (Module32Next (h_mod_snap, &me32));
+		}
+	} while (Module32Next (h_mod_snap, &me32));
 err_w32_dbg_modules:
 	if (h_mod_snap) {
-        	CloseHandle (h_mod_snap);
+		CloseHandle (h_mod_snap);
 	}
-        return list;
+	return list;
 }
 
 static int set_mod_inf(HANDLE h_proc, RDebugMap *map, RWinModInfo *mod) {
@@ -115,14 +119,14 @@ static int set_mod_inf(HANDLE h_proc, RDebugMap *map, RWinModInfo *mod) {
 	IMAGE_NT_HEADERS32 *nt_hdrs32;
 	IMAGE_SECTION_HEADER *sect_hdr;
 	ut8 pe_hdr[0x1000];
-	ut64 len;
+	SIZE_T len;
 	int mod_inf_fill;
 
 	len = 0;
 	sect_hdr = NULL;
 	mod_inf_fill = -1;
-	ReadProcessMemory (h_proc, (LPCVOID)(size_t)map->addr, (LPVOID)pe_hdr, sizeof (pe_hdr), (PDWORD)&len);
-	if (len == sizeof (pe_hdr) && is_pe_hdr (pe_hdr)) {
+	ReadProcessMemory (h_proc, (LPCVOID)(size_t)map->addr, (LPVOID)pe_hdr, sizeof (pe_hdr), &len);
+	if (len == (SIZE_T)sizeof (pe_hdr) && is_pe_hdr (pe_hdr)) {
 		dos_hdr = (IMAGE_DOS_HEADER *)pe_hdr;
 		if (!dos_hdr) {
 			goto err_set_mod_info;
@@ -180,7 +184,7 @@ static void proc_mem_img(HANDLE h_proc, RList *map_list, RList *mod_list, RWinMo
 		for (i = 0; i < mod->sect_count; i++) {
 			IMAGE_SECTION_HEADER *sect_hdr = &mod->sect_hdr[i];
 			ut64 sect_addr = mod->map->addr + (ut64)sect_hdr->VirtualAddress;
-		       	ut64 sect_len= (((ut64)sect_hdr->Misc.VirtualSize) + p_mask) & ~p_mask;
+			ut64 sect_len = (((ut64)sect_hdr->Misc.VirtualSize) + p_mask) & ~p_mask;
 			int sect_found = 0;
 
 			/* section in memory region? */
@@ -220,10 +224,13 @@ err_proc_mem_img:
 }
 
 static void proc_mem_map(HANDLE h_proc, RList *map_list, MEMORY_BASIC_INFORMATION *mbi) {
-	char f_name[MAX_PATH + 1];
+	TCHAR f_name[MAX_PATH + 1];
+
 	DWORD len = w32_GetMappedFileName (h_proc, mbi->BaseAddress, f_name, MAX_PATH);
 	if (len > 0) {
-		add_map_reg (map_list, f_name, mbi);
+		char *f_name_ = r_sys_conv_utf16_to_utf8 (f_name);
+		add_map_reg (map_list, f_name_, mbi);
+		free (f_name_);
 	} else {
 		add_map_reg (map_list, "", mbi);
 	}
@@ -248,8 +255,8 @@ static RList *w32_dbg_maps(RDebug *dbg) {
 	mod_list = w32_dbg_modules (dbg);
 	/* process memory map */
 	while (cur_addr < si.lpMaximumApplicationAddress && 
-	       VirtualQueryEx (h_proc, cur_addr, &mbi, sizeof (mbi)) != 0) {
-	       	if (mbi.State != MEM_FREE) {
+		VirtualQueryEx (h_proc, cur_addr, &mbi, sizeof (mbi)) != 0) {
+		if (mbi.State != MEM_FREE) {
 			switch (mbi.Type) {
 			case MEM_IMAGE:
 				proc_mem_img (h_proc, map_list, mod_list, &mod_inf, &si, &mbi);
@@ -261,7 +268,7 @@ static RList *w32_dbg_maps(RDebug *dbg) {
 				add_map_reg (map_list, "", &mbi);
 			}
 		}
-	   	cur_addr = (LPVOID)(size_t)((ut64)(size_t)mbi.BaseAddress + mbi.RegionSize);
+		cur_addr = (LPVOID)(size_t)((ut64)(size_t)mbi.BaseAddress + mbi.RegionSize);
 	}
 err_w32_dbg_maps:
 	free (mod_inf.sect_hdr);

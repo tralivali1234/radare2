@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2017 - pancake, nibble */
+/* radare - LGPL - Copyright 2010-2018 - pancake, nibble */
 
 #include <r_anal.h>
 #include <r_util.h>
@@ -50,6 +50,7 @@ R_API bool r_anal_op_fini(RAnalOp *op) {
 	r_strbuf_fini (&op->opex);
 	r_strbuf_fini (&op->esil);
 	r_anal_switch_op_free (op->switch_op);
+	op->switch_op = NULL;
 	R_FREE (op->mnemonic);
 	return true;
 }
@@ -219,6 +220,7 @@ R_API const char *r_anal_optype_to_string(int t) {
 	case R_ANAL_OP_TYPE_IO    : return "io";
 	case R_ANAL_OP_TYPE_ACMP  : return "acmp";
 	case R_ANAL_OP_TYPE_ADD   : return "add";
+	case R_ANAL_OP_TYPE_SYNC  : return "sync";
 	case R_ANAL_OP_TYPE_AND   : return "and";
 	case R_ANAL_OP_TYPE_CALL  : return "call";
 	case R_ANAL_OP_TYPE_CCALL : return "ccall";

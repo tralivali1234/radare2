@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake */
+/* radare - LGPL - Copyright 2009-2018 - pancake */
 
 #include "r_types.h"
 #include "r_config.h"
@@ -31,7 +31,7 @@ static const char *help_msg_s[] = {
 	"sf.", "", "Seek to the beginning of current function",
 	"sg/sG", "", "Seek begin (sg) or end (sG) of section or file",
 	"sl", "[?] [+-]line", "Seek to line",
-	"sn/sp", "", "Seek to next/prev location, as specified by scr.nkey",
+	"sn/sp", " ([nkey])", "Seek to next/prev location, as specified by scr.nkey",
 	"so", " [N]", "Seek to N next opcode(s)",
 	"sr", " pc", "Seek to register",
 	"ss", "", "Seek silently (without adding an entry to the seek history)",
@@ -225,7 +225,7 @@ static void seek_to_register(RCore *core, const char *input, bool is_silent) {
 static int cmd_seek(void *data, const char *input) {
 	RCore *core = (RCore *) data;
 	char *cmd, *p;
-	ut64 off;
+	ut64 off = core->offset;
 
 	if (!*input) {
 		r_cons_printf ("0x%"PFMT64x "\n", core->offset);
@@ -244,20 +244,22 @@ static int cmd_seek(void *data, const char *input) {
 		const char *u_num = inputnum? inputnum + 1: input + 1;
 		off = r_num_math (core->num, u_num);
 		if (*u_num == '-') {
-			off = -off;
+			off = -(st64)off;
 		}
 	}
-	int sign = 1;
+#if 1
+//	int sign = 1;
 	if (input[0] == ' ') {
 		switch (input[1]) {
 		case '-':
-			sign = -1;
+//			sign = -1;
 			/* pass thru */
 		case '+':
 			input++;
 			break;
 		}
 	}
+#endif
 	bool silent = false;
 	if (*input == 's') {
 		silent = true;
@@ -348,14 +350,14 @@ static int cmd_seek(void *data, const char *input) {
 		if (!silent) {
 			r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
 		}
-		r_core_seek (core, off * sign, 1);
+		r_core_seek (core, r_num_math (core->num, input + 1), 1);
 		r_core_block_read (core);
 		break;
 	case '/': // "s/"
 	{
 		const char *pfx = r_config_get (core->config, "search.prefix");
-		const ut64 saved_from = r_config_get_i (core->config, "search.from"),
-				saved_maxhits = r_config_get_i (core->config, "search.maxhits");
+		const ut64 saved_from = r_config_get_i (core->config, "search.from");
+		const ut64 saved_maxhits = r_config_get_i (core->config, "search.maxhits");
 // kwidx cfg var is ignored
 		int kwidx = core->search->n_kws; // (int)r_config_get_i (core->config, "search.kwidx")-1;
 		if (kwidx < 0) {
@@ -561,16 +563,26 @@ static int cmd_seek(void *data, const char *input) {
 		}
 		break;
 	case 'n': // "sn"
-		if (!silent) {
-			r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
+		{
+			if (!silent) {
+				r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
+			}
+			const char *nkey = (input[1] == ' ')
+				? input + 2
+				: r_config_get (core->config, "scr.nkey");
+			r_core_seek_next (core, nkey);
 		}
-		r_core_seek_next (core, r_config_get (core->config, "scr.nkey"));
 		break;
 	case 'p': // "sp"
-		if (!silent) {
-			r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
+		{
+			if (!silent) {
+				r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
+			}
+			const char *nkey = (input[1] == ' ')
+				? input + 2
+				: r_config_get (core->config, "scr.nkey");
+			r_core_seek_previous (core, nkey);
 		}
-		r_core_seek_previous (core, r_config_get (core->config, "scr.nkey"));
 		break;
 	case 'a': // "sa"
 		off = core->blocksize;
@@ -625,7 +637,9 @@ static int cmd_seek(void *data, const char *input) {
 		break;
 	}
 	case 'o': // "so"
-	{
+	if (input[1] == '?') {
+		eprintf ("Usage: so [n-instructions]\n");
+	} else {
 		int val = 0, ret, i, n = r_num_math (core->num, input + 1);
 		if (n == 0) {
 			n = 1;
@@ -725,6 +739,18 @@ static int cmd_seek(void *data, const char *input) {
 		break;
 	case '?': // "s?"
 		r_core_cmd_help (core, help_msg_s);
+		break;
+	default:
+		{
+			ut64 n = r_num_math (core->num, input);
+			if (n) {
+				if (!silent) {
+					r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
+				}
+				r_core_seek (core, n, 1);
+				r_core_block_read (core);
+			}
+		}
 		break;
 	}
 	return 0;

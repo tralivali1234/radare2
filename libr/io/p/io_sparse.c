@@ -78,7 +78,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 		if (size > 0) {
 			ut8 *data = malloc (size);
 			if (!data) {
-				eprintf ("Cannot allocate (%s) %d bytes\n",
+				eprintf ("Cannot allocate (%s) %d byte(s)\n",
 					pathname+9, size);
 				mal->offset = 0;
 			} else {
@@ -111,7 +111,7 @@ RIOPlugin r_io_plugin_sparse = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_sparse,
 	.version = R2_VERSION

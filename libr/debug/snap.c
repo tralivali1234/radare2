@@ -25,13 +25,12 @@ R_API void r_debug_snap_free(void *p) {
 R_API int r_debug_snap_delete(RDebug *dbg, int idx) {
 	ut32 count = 0;
 	RListIter *iter;
-	RDebugSnap *snap;
 	if (idx == -1) {
 		r_list_free (dbg->snaps);
 		dbg->snaps = r_list_newf (r_debug_snap_free);
 		return 1;
 	}
-	r_list_foreach (dbg->snaps, iter, snap) {
+	r_list_foreach_iter (dbg->snaps, iter) {
 		if (idx != -1) {
 			if (idx != count) {
 				continue;
@@ -243,7 +242,7 @@ R_API RDebugSnapDiff *r_debug_snap_map(RDebug *dbg, RDebugMap *map) {
 			free (snap->data);
 			goto error;
 		}
-		eprintf ("Reading %d bytes from 0x%08"PFMT64x "...\n", snap->size, snap->addr);
+		eprintf ("Reading %d byte(s) from 0x%08"PFMT64x "...\n", snap->size, snap->addr);
 		dbg->iob.read_at (dbg->iob.io, snap->addr, snap->data, snap->size);
 
 		ut32 clust_page = R_MIN (SNAP_PAGE_SIZE, snap->size);
@@ -306,7 +305,7 @@ R_API int r_debug_snap_comment(RDebug *dbg, int idx, const char *msg) {
 	r_list_foreach (dbg->snaps, iter, snap) {
 		if (count == idx) {
 			free (snap->comment);
-			snap->comment = strdup (r_str_trim_const (msg));
+			snap->comment = strdup (r_str_trim_ro (msg));
 			break;
 		}
 		count++;

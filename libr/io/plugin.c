@@ -1,8 +1,4 @@
-/* radare - LGPL - Copyright 2008-2017 - pancake */
-
-/* TODO: write li->fds setter/getter helpers */
-// TODO: return true/false everywhere,, not -1 or 0
-// TODO: use RList here
+/* radare - LGPL - Copyright 2008-2018 - pancake */
 
 #include "r_io.h"
 #include "config.h"
@@ -44,9 +40,9 @@ R_API bool r_io_plugin_init(RIO *io) {
 }
 
 R_API RIOPlugin *r_io_plugin_get_default(RIO *io, const char *filename, bool many) {
-	if (!DEFAULT ||
-		!DEFAULT->check ||
-		!DEFAULT->check (io, filename, many) ) return NULL;
+	if (!DEFAULT || !DEFAULT->check || !DEFAULT->check (io, filename, many) ) {
+		return NULL;
+	}
 	return (RIOPlugin*) DEFAULT;
 }
 
@@ -57,8 +53,9 @@ R_API RIOPlugin *r_io_plugin_resolve(RIO *io, const char *filename, bool many) {
 		if (!ret || !ret->check) {
 			continue;
 		}
-		if (ret->check (io, filename, many))
+		if (ret->check (io, filename, many)) {
 			return ret;
+		}
 	}
 	return r_io_plugin_get_default (io, filename, many);
 }
@@ -97,5 +94,33 @@ R_API int r_io_plugin_list(RIO *io) {
 		io->cb_printf ("\n");
 		n++;
 	}
+	return n;
+}
+
+R_API int r_io_plugin_list_json(RIO *io) {
+	RIOPlugin *plugin;
+	SdbListIter *iter;
+	char str[4];
+	int n = 0;
+	io->cb_printf("{\"IO_Plugins\":[");
+	ls_foreach (io->plugins, iter, plugin) {
+		str[0] = 'r';
+		str[1] = plugin->write ? 'w' : '_';
+		str[2] = plugin->isdbg ? 'd' : '_';
+		str[3] = 0;
+
+		io->cb_printf ("{\"Permissions\":\"%s\",\"Name\":\"%s\",\"Description\":\"%s\",\"License\":\"%s\"",
+				str, plugin->name,
+			plugin->desc, plugin->license);
+		if (plugin->version) {
+			io->cb_printf (",\"version\":\"%s\"", plugin->version);
+		}
+		if (plugin->author) {
+			io->cb_printf (",\"plugin\":\"%s\"", plugin->author);
+		}
+		io->cb_printf ("}");
+		n++;
+	}
+	io->cb_printf("]}");
 	return n;
 }

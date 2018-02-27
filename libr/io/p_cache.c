@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017 - condret, alvaro */
+/* radare2 - LGPL - Copyright 2017-2018 - condret, alvaro */
 
 #include <r_io.h>
 #include <r_types.h>
@@ -152,14 +152,14 @@ R_API int r_io_desc_cache_read(RIODesc *desc, ut64 paddr, ut8 *buf, int len) {
 	cbaddr = paddr % R_IO_DESC_CACHE_SIZE;
 	while (amount < len) {
 		sdb_itoa (caddr, k, 10);
-		//get an existing desc-cache, if it exists
+		// get an existing desc-cache, if it exists
 		if (!(cache = (RIODescCache *)(size_t)sdb_num_get (desc->cache, k, NULL))) {	
 			amount += (R_IO_DESC_CACHE_SIZE - cbaddr);
 			goto beach;
 		}
 		if ((len - amount) > (R_IO_DESC_CACHE_SIZE - cbaddr)) {
 			amount += (R_IO_DESC_CACHE_SIZE - cbaddr);
-			for (;cbaddr < R_IO_DESC_CACHE_SIZE; cbaddr++) {
+			for (; cbaddr < R_IO_DESC_CACHE_SIZE; cbaddr++) {
 				if (cache->cached & (0x1ULL << cbaddr)) {
 					*ptr = cache->cdata[cbaddr];
 				}
@@ -217,7 +217,7 @@ static int __desc_cache_list_cb(void *user, const char *k, const char *v) {
 					free (cache);
 					return false;
 				}
-				cache->from = blockaddr + byteaddr;
+				cache->itv.addr = blockaddr + byteaddr;
 			}
 			cache->data[i] = dcache->cdata[byteaddr];
 			i++;
@@ -228,44 +228,45 @@ static int __desc_cache_list_cb(void *user, const char *k, const char *v) {
 				return false;
 			}
 			cache->data = data;
-			cache->size = i;
-			cache->to = cache->from + i;
+			cache->itv.size = i;
 			i = 0;
 			r_list_push (writes, cache);
 			cache = NULL;
 		}
 	}
 	if (cache) {
+#if 0
 		cache->size = i;
 		cache->to = blockaddr + R_IO_DESC_CACHE_SIZE;
+#endif
+		cache->itv.size = i;
 		r_list_push (writes, cache);
 	}
 	return true;
 }
 
 R_API RList *r_io_desc_cache_list(RIODesc *desc) {
-	RList *writes;
-	RIODesc *current;
-	RListIter *iter;
-	RIOCache *c;
 	if (!desc || !desc->io || !desc->io->desc || !desc->io->p_cache || !desc->cache) {
 		return NULL;
 	}
-	writes = r_list_newf ((RListFree)__riocache_free);
+	RList *writes = r_list_newf ((RListFree)__riocache_free);
 	if (!writes) {
 		return NULL;
 	}
 	sdb_foreach (desc->cache, __desc_cache_list_cb, writes);
-	current = desc->io->desc;
+	RIODesc *current = desc->io->desc;
 	desc->io->desc = desc;
 	desc->io->p_cache = false;
+
+	RIOCache *c;
+	RListIter *iter;
 	r_list_foreach (writes, iter, c) {
-		c->odata = malloc (c->size);
+		c->odata = calloc (1, R_ITV_SIZE (c));
 		if (!c->odata) {
 			r_list_free (writes);
 			return NULL;
 		}
-		r_io_pread_at (desc->io, c->from, c->odata, c->size);
+		r_io_pread_at (desc->io, R_ITV_BEGIN (c), c->odata, R_ITV_SIZE (c));
 	}
 	desc->io->p_cache = true;
 	desc->io->desc = current;
@@ -289,12 +290,12 @@ static int __desc_cache_commit_cb(void *user, const char *k, const char *v) {
 		if (dcache->cached & (0x1LL << byteaddr)) {
 			buf[i] = dcache->cdata[byteaddr];
 			i++;
-		} else if (i) {
+		} else if (i > 0) {
 			r_io_pwrite_at (desc->io, blockaddr + byteaddr - i, buf, i);
 			i = 0;
 		}
 	}
-	if (i) {
+	if (i > 0) {
 		r_io_pwrite_at (desc->io, blockaddr + R_IO_DESC_CACHE_SIZE - i, buf, i);
 	}
 	free (dcache);
@@ -345,10 +346,9 @@ static int __desc_cache_cleanup_cb(void *user, const char *k, const char *v) {
 }
 
 R_API void r_io_desc_cache_cleanup(RIODesc *desc) {
-	if (!desc || !desc->cache) {
-		return;
+	if (desc && desc->cache) {
+		sdb_foreach (desc->cache, __desc_cache_cleanup_cb, desc);
 	}
-	sdb_foreach (desc->cache, __desc_cache_cleanup_cb, desc);
 }
 
 static int __desc_cache_free_cb(void *user, const char* k, const char *v) {
@@ -372,8 +372,7 @@ R_API void r_io_desc_cache_fini(RIODesc *desc) {
 }
 
 R_API void r_io_desc_cache_fini_all(RIO *io) {
-	if (!io || !io->files) {
-		return;
+	if (io && io->files) {
+		r_id_storage_foreach (io->files, __desc_fini_cb, NULL);
 	}
-	r_id_storage_foreach (io->files, __desc_fini_cb, NULL);
 }

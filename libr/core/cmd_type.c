@@ -9,11 +9,13 @@
 static const char *help_msg_t[] = {
 	"Usage: t", "", "# cparse types commands",
 	"t", "", "List all loaded types",
+	"tj", "", "List all loaded types as json",
 	"t", " <type>", "Show type in 'pf' syntax",
 	"t*", "", "List types info in r2 commands",
 	"t-", " <name>", "Delete types by its name",
 	"t-*", "", "Remove all types",
 	//"t-!", "",          "Use to open $EDITOR",
+	"ta", " <type>", "Mark immediate as a type offset",
 	"tb", " <enum> <value>", "Show matching enum bitfield for given number",
 	"tc", " ([cctype])", "calling conventions listing and manipulations",
 	"te", "[?]", "List all loaded enums",
@@ -36,6 +38,14 @@ static const char *help_msg_t[] = {
 
 static const char *help_msg_t_minus[] = {
 	"Usage: t-", " <type>", "Delete type by its name",
+	NULL
+};
+
+static const char *help_msg_ta[] = {
+	"USAGE ta[...]", "", "",
+	"tas", " <offset>", "List all matching structure offsets",
+	"ta", " <struct member>", "Change immediate to structure offset",
+	"ta?", "", "show this help",
 	NULL
 };
 
@@ -107,6 +117,7 @@ static const char *help_msg_tu[] = {
 static void cmd_type_init(RCore *core) {
 	DEFINE_CMD_DESCRIPTOR (core, t);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, t-, t_minus);
+	DEFINE_CMD_DESCRIPTOR (core, ta);
 	DEFINE_CMD_DESCRIPTOR (core, tc);
 	DEFINE_CMD_DESCRIPTOR (core, td);
 	DEFINE_CMD_DESCRIPTOR (core, te);
@@ -127,7 +138,7 @@ static void showFormat(RCore *core, const char *name) {
 	} else {
 		char *fmt = r_anal_type_format (core->anal, name);
 		if (fmt) {
-			r_str_chop (fmt);
+			r_str_trim (fmt);
 			r_cons_printf ("pf %s\n", fmt);
 			free (fmt);
 		} else {
@@ -301,31 +312,56 @@ static int typelist(void *p, const char *k, const char *v) {
 	return 1;
 }
 
-static int sdbforcb (void *p, const char *k, const char *v) {
-	if (!strncmp (v, "type", strlen ("type") + 1)) {
-		r_cons_println (k);
-	}
+static int sdbforcb_default (void *p, const char *k, const char *v) {
+	r_cons_println (k);
+	return 1;
+}
+
+static int sdbforcb_json (void *p, const char *k, const char *v) {
+	Sdb *sdb = (Sdb *)p;
+	char *sizecmd = r_str_newf ("type.%s.size", k);
+	char *size_s = sdb_querys (sdb, NULL, -1, sizecmd);
+	char *formatcmd = r_str_newf ("type.%s", k);
+	r_cons_printf ("{\"type\":\"%s\",\"size\":%d,\"format\":\"%s\"}", k,
+			size_s ? atoi (size_s) : -1,
+			r_str_trim (sdb_querys (sdb, NULL, -1, formatcmd)));
+	free (sizecmd);
+	free (formatcmd);
 	return 1;
 }
 
 static void typesList(RCore *core, int mode) {
 	switch (mode) {
-	case 'j':
-		eprintf ("TODO\n");
-		break;
 	case 1:
 	case '*':
 		sdb_foreach (core->anal->sdb_types, typelist, core);
 		break;
+	case 'j':
 	default:
 		{
 		SdbList *ls = sdb_foreach_list (core->anal->sdb_types, true);
+		SdbList *filtls = ls_new ();
 		SdbListIter *it;
 		SdbKv *kv;
 		ls_foreach (ls, it, kv) {
-			sdbforcb ((void *)core, kv->key, kv->value);
+			if (!strncmp (kv->value, "type", strlen ("type") + 1)) {
+				ls_append (filtls, kv);
+			}
+		}
+		if (mode == 'j') {
+			r_cons_print ("[");
+			ls_foreach (filtls, it, kv) {
+				sdbforcb_json ((void *)core->anal->sdb_types, kv->key, kv->value);
+				if (it->n) { r_cons_print (","); }
+			}
+			r_cons_println ("]");
+		} else {
+			ls_foreach (filtls, it, kv) {
+				sdbforcb_default ((void *)core->anal->sdb_types, kv->key, kv->value);
+			}
 		}
 		ls_free (ls);
+		ls_free (filtls);
 		}
 		break;
 	}
@@ -373,12 +409,12 @@ static int cmd_type(void *data, const char *input) {
 		case 'r':
 			{ /* very slow, but im tired of waiting for having this, so this is the quickest implementation */
 				int i;
-				char *cc = r_str_chop (r_core_cmd_str (core, "k anal/cc/default.cc"));
+				char *cc = r_str_trim (r_core_cmd_str (core, "k anal/cc/default.cc"));
 				for (i = 0; i < 8; i++) {
 					char *res = r_core_cmd_strf (core, "k anal/cc/cc.%s.arg%d", cc, i);
-					r_str_clean (res);
+					r_str_trim_nc (res);
 					if (*res) {
-						char *row = r_str_chop (r_core_cmd_strf (core, "drr~%s 0x", res));
+						char *row = r_str_trim (r_core_cmd_strf (core, "drr~%s 0x", res));
 						r_cons_printf ("arg[%d] %s\n", i, row);
 						free (row);
 					}
@@ -559,6 +595,88 @@ static int cmd_type(void *data, const char *input) {
 			eprintf ("Invalid use of td. See td? for help\n");
 		}
 		break;
+	// ta - link immediate type offset to an address
+	case 'a': // "ta"
+		switch (input[1]) {
+		case 's': {
+			char *off = strdup (input + 2);
+			r_str_trim (off);
+			int toff = r_num_math (NULL, off);
+			if (toff) {
+				RList *typeoffs = r_anal_type_get_by_offset (core->anal, toff);
+				RListIter *iter;
+				char *ty;
+				r_list_foreach (typeoffs, iter, ty) {
+					r_cons_printf ("%s\n", ty);
+				}
+			}
+			break;
+		}
+		case ' ': {
+			char *type = strdup (input + 2);
+			char *ptr = strchr (type, '=');
+			ut64 offimm = 0;
+			int i = 0;
+			ut64 addr;
+
+			if (ptr) {
+				*ptr++ = 0;
+				r_str_trim (ptr);
+				if (ptr && *ptr) {
+					addr = r_num_math (core->num, ptr);
+				} else {
+					eprintf ("address is unvalid\n");
+					free (type);
+					break;
+				}
+			} else {
+				addr = core->offset;
+			}
+			r_str_trim (type);
+			RAsmOp asmop;
+			RAnalOp op;
+			ut8 code[128] = {0};
+			(void)r_io_read_at (core->io, core->offset, code, sizeof (code));
+			r_asm_set_pc (core->assembler, addr);
+			int ret = r_asm_disassemble (core->assembler, &asmop, code, core->blocksize);
+			ret = r_anal_op (core->anal, &op, core->offset, code, core->blocksize);
+			if (ret >= 0) {
+				// HACK: Just convert only the first imm seen
+				for (i = 0; i < 3; i++) {
+					if (op.src[i]) {
+						if (op.src[i]->imm) {
+							offimm = op.src[i]->imm;
+						} else if (op.src[i]->delta) {
+							offimm = op.src[i]->delta;
+						}
+					}
+				}
+				if (offimm != 0) {
+					// TODO: Allow to select from multiple choices
+					RList* otypes = r_anal_type_get_by_offset (core->anal, offimm);
+					RListIter *iter;
+					char *otype = NULL;
+					r_list_foreach (otypes, iter, otype) {
+						if (!strcmp(type, otype)) {
+							//eprintf ("Adding type offset %s\n", type);
+							r_anal_type_link_offset (core->anal, type, addr);
+							r_anal_hint_set_offset (core->anal, addr, otype);
+							break;
+						}
+					}
+					if (!otype) {
+						eprintf ("wrong type for opcode offset\n");
+					}
+				}
+			}
+			free (type);
+		}
+		break;
+		case '?':
+			r_core_cmd_help (core, help_msg_ta);
+			break;
+		}
+		break;
 	// tl - link a type to an address
 	case 'l': // "tl"
 		switch (input[1]) {
@@ -572,7 +690,7 @@ static int cmd_type(void *data, const char *input) {
 
 			if (ptr) {
 				*ptr++ = 0;
-				r_str_chop (ptr);
+				r_str_trim (ptr);
 				if (ptr && *ptr) {
 					addr = r_num_math (core->num, ptr);
 				} else {
@@ -583,7 +701,7 @@ static int cmd_type(void *data, const char *input) {
 			} else {
 				addr = core->offset;
 			}
-			r_str_chop (type);
+			r_str_trim (type);
 			char *tmp = sdb_get (core->anal->sdb_types, type, 0);
 			if (tmp && *tmp) {
 				r_anal_type_link (core->anal, type, addr);
@@ -600,7 +718,7 @@ static int cmd_type(void *data, const char *input) {
 			SdbKv *kv;
 			SdbListIter *sdb_iter;
 			SdbList *sdb_list = sdb_foreach_list (core->anal->sdb_types, true);
-			r_str_chop (addr);
+			r_str_trim (addr);
 			ptr = r_num_math (NULL, addr);
 			//r_core_cmdf (core, "tl~0x%08"PFMT64x" = ", addr);
 			ls_foreach (sdb_list, sdb_iter, kv) {
@@ -685,6 +803,7 @@ static int cmd_type(void *data, const char *input) {
 							r_anal_type_del (core->anal, kv->key);
 						}
 					}
+					ls_free (l);
 					free (tmp);
 				}
 			} else eprintf ("Invalid use of t- . See t-? for help.\n");

@@ -1,8 +1,6 @@
-#undef UNICODE
 #include <windows.h>
 #include <tlhelp32.h>
 #include <stdio.h>
-#include <winbase.h>
 #include <psapi.h>
 #include <tchar.h>
 
@@ -153,20 +151,20 @@ typedef struct _OBJECT_TYPE_INFORMATION
 	ULONG NonPagedPoolUsage;
 } OBJECT_TYPE_INFORMATION, *POBJECT_TYPE_INFORMATION;
 
-static void (*w32_GetModuleBaseName)(HANDLE, HMODULE, LPCSTR, int) = NULL;
-static int (*w32_GetModuleInformation)(HANDLE, HMODULE, LPMODULEINFO, int) = NULL;
+static DWORD (WINAPI *w32_GetModuleBaseName)(HANDLE, HMODULE, LPTSTR, DWORD) = NULL;
+static BOOL (WINAPI *w32_GetModuleInformation)(HANDLE, HMODULE, LPMODULEINFO, DWORD) = NULL;
 static BOOL (WINAPI *w32_DebugActiveProcessStop)(DWORD) = NULL;
-static HANDLE (WINAPI *w32_openthread)(DWORD, BOOL, DWORD) = NULL;
+static HANDLE (WINAPI *w32_OpenThread)(DWORD, BOOL, DWORD) = NULL;
 static BOOL (WINAPI *w32_DebugBreakProcess)(HANDLE) = NULL;
-static DWORD (WINAPI *w32_getthreadid)(HANDLE) = NULL; // Vista
-static DWORD (WINAPI *w32_getprocessid)(HANDLE) = NULL; // XP
+static DWORD (WINAPI *w32_GetThreadId)(HANDLE) = NULL; // Vista
+static DWORD (WINAPI *w32_GetProcessId)(HANDLE) = NULL; // XP
 static HANDLE (WINAPI *w32_OpenProcess)(DWORD, BOOL, DWORD) = NULL;
-static BOOL (WINAPI *w32_queryfullprocessimagename)(HANDLE, DWORD, LPCSTR, PDWORD) = NULL;
-static DWORD (WINAPI *w32_GetMappedFileName)(HANDLE, LPVOID, LPCSTR, DWORD) = NULL;
-static NTSTATUS (WINAPI *w32_ntquerysysteminformation)(ULONG, PVOID, ULONG, PULONG) = NULL;
-static NTSTATUS (WINAPI *w32_ntqueryinformationthread)(HANDLE, ULONG, PVOID, ULONG, PULONG) = NULL;
-static NTSTATUS (WINAPI *w32_ntduplicateobject)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG) = NULL;
-static NTSTATUS (WINAPI *w32_ntqueryobject)(HANDLE, ULONG, PVOID, ULONG, PULONG) = NULL;
+static BOOL (WINAPI *w32_QueryFullProcessImageName)(HANDLE, DWORD, LPTSTR, PDWORD) = NULL;
+static DWORD (WINAPI *w32_GetMappedFileName)(HANDLE, LPVOID, LPTSTR, DWORD) = NULL;
+static NTSTATUS (WINAPI *w32_NtQuerySystemInformation)(ULONG, PVOID, ULONG, PULONG) = NULL;
+static NTSTATUS (WINAPI *w32_NtQueryInformationThread)(HANDLE, ULONG, PVOID, ULONG, PULONG) = NULL;
+static NTSTATUS (WINAPI *w32_NtDuplicateObject)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG) = NULL;
+static NTSTATUS (WINAPI *w32_NtQueryObject)(HANDLE, ULONG, PVOID, ULONG, PULONG) = NULL;
 // fpu access API
 static ut64 (WINAPI *w32_GetEnabledXStateFeatures)() = NULL;
 static BOOL (WINAPI *w32_InitializeContext)(PVOID, DWORD, PCONTEXT*, PDWORD) = NULL;
@@ -245,61 +243,60 @@ static int w32_dbg_init() {
 	w32dbg_SeDebugPrivilege ();
 	/* lookup function pointers for portability */
 	w32_DebugActiveProcessStop = (BOOL (WINAPI *)(DWORD))
-		GetProcAddress (GetModuleHandleA ("kernel32"),
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")),
 				"DebugActiveProcessStop");
-	w32_openthread = (HANDLE (WINAPI *)(DWORD, BOOL, DWORD))
-		GetProcAddress (GetModuleHandleA ("kernel32"), "OpenThread");
+	w32_OpenThread = (HANDLE (WINAPI *)(DWORD, BOOL, DWORD))
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")), "OpenThread");
 	w32_OpenProcess = (HANDLE (WINAPI *)(DWORD, BOOL, DWORD))
-		GetProcAddress (GetModuleHandleA ("kernel32"), "OpenProcess");
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")), "OpenProcess");
 	w32_DebugBreakProcess = (BOOL (WINAPI *)(HANDLE))
-		GetProcAddress (GetModuleHandleA ("kernel32"),
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")),
 				"DebugBreakProcess");
 	w32_CreateToolhelp32Snapshot = (HANDLE (WINAPI *)(DWORD, DWORD))
-		GetProcAddress (GetModuleHandleA ("kernel32"),
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")),
 			       "CreateToolhelp32Snapshot");
 	// only windows vista :(
-	w32_getthreadid = (DWORD (WINAPI *)(HANDLE))
-		GetProcAddress (GetModuleHandleA ("kernel32"), "GetThreadId");
+	w32_GetThreadId = (DWORD (WINAPI *)(HANDLE))
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")), "GetThreadId");
 	// from xp1
-	w32_getprocessid = (DWORD (WINAPI *)(HANDLE))
-		GetProcAddress (GetModuleHandleA ("kernel32"), "GetProcessId");
-	w32_queryfullprocessimagename = (BOOL (WINAPI *)(HANDLE, DWORD, LPCSTR, PDWORD))
-		GetProcAddress (GetModuleHandleA ("kernel32"), "QueryFullProcessImageNameA");
+	w32_GetProcessId = (DWORD (WINAPI *)(HANDLE))
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")), "GetProcessId");
+	w32_QueryFullProcessImageName = (BOOL (WINAPI *)(HANDLE, DWORD, LPTSTR, PDWORD))
+		GetProcAddress (GetModuleHandle (TEXT ("kernel32")), W32_TCALL ("QueryFullProcessImageName"));
 	// api to retrieve YMM from w7 sp1
 	w32_GetEnabledXStateFeatures = (ut64 (WINAPI *) ())
-		GetProcAddress(GetModuleHandleA ("kernel32"), "GetEnabledXStateFeatures");
+		GetProcAddress(GetModuleHandle (TEXT ("kernel32")), "GetEnabledXStateFeatures");
 	w32_InitializeContext = (BOOL (WINAPI *) (PVOID, DWORD, PCONTEXT*, PDWORD))
-		GetProcAddress(GetModuleHandleA ("kernel32"), "InitializeContext");
+		GetProcAddress(GetModuleHandle (TEXT ("kernel32")), "InitializeContext");
 	w32_GetXStateFeaturesMask = (BOOL (WINAPI *) (PCONTEXT Context, PDWORD64))
-		GetProcAddress(GetModuleHandleA ("kernel32"), "GetXStateFeaturesMask");
+		GetProcAddress(GetModuleHandle (TEXT ("kernel32")), "GetXStateFeaturesMask");
 	w32_LocateXStateFeature = (PVOID (WINAPI *) (PCONTEXT Context, DWORD ,PDWORD))
-		GetProcAddress(GetModuleHandleA ("kernel32"), "LocateXStateFeature");
+		GetProcAddress(GetModuleHandle (TEXT ("kernel32")), "LocateXStateFeature");
 	w32_SetXStateFeaturesMask = (BOOL (WINAPI *) (PCONTEXT Context, DWORD64))
-		GetProcAddress(GetModuleHandleA ("kernel32"), "SetXStateFeaturesMask");
-	lib = LoadLibraryA ("psapi.dll");
+		GetProcAddress(GetModuleHandle (TEXT ("kernel32")), "SetXStateFeaturesMask");
+	lib = LoadLibrary (TEXT("psapi.dll"));
 	if(!lib) {
 		eprintf ("Cannot load psapi.dll. Aborting\n");
 		return false;
 	}
-	w32_GetMappedFileName = (DWORD (WINAPI *)(HANDLE, LPVOID, LPCSTR, DWORD))
-		GetProcAddress (lib, "GetMappedFileNameA");
-	w32_GetModuleBaseName = (void (*)(HANDLE, HMODULE, LPCSTR, int))
-		GetProcAddress (lib, "GetModuleBaseNameA");
-	w32_GetModuleInformation = (int (*)(HANDLE, HMODULE, LPMODULEINFO, int))
+	w32_GetMappedFileName = (DWORD (WINAPI *)(HANDLE, LPVOID, LPTSTR, DWORD))
+		GetProcAddress (lib, W32_TCALL ("GetMappedFileName"));
+	w32_GetModuleBaseName = (DWORD (WINAPI *)(HANDLE, HMODULE, LPTSTR, DWORD))
+		GetProcAddress (lib, W32_TCALL ("GetModuleBaseName"));
+	w32_GetModuleInformation = (BOOL (WINAPI *)(HANDLE, HMODULE, LPMODULEINFO, DWORD))
 		GetProcAddress (lib, "GetModuleInformation");
 	w32_GetModuleFileNameEx = (DWORD (WINAPI *)(HANDLE, HMODULE, LPTSTR, DWORD))
-		GetProcAddress (lib, "GetModuleFileNameExA");
-
-	lib=LoadLibraryA("ntdll.dll");
-	w32_ntquerysysteminformation = (NTSTATUS  (WINAPI *)(ULONG, PVOID, ULONG, PULONG))
+		GetProcAddress (lib, W32_TCALL ("GetModuleFileNameEx"));
+	lib = LoadLibrary (TEXT("ntdll.dll"));
+	w32_NtQuerySystemInformation = (NTSTATUS  (WINAPI *)(ULONG, PVOID, ULONG, PULONG))
 		GetProcAddress (lib, "NtQuerySystemInformation");
-	w32_ntduplicateobject = (NTSTATUS  (WINAPI *)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG))
+	w32_NtDuplicateObject = (NTSTATUS  (WINAPI *)(HANDLE, HANDLE, HANDLE, PHANDLE, ACCESS_MASK, ULONG, ULONG))
 		GetProcAddress (lib, "NtDuplicateObject");
-	w32_ntqueryobject = (NTSTATUS  (WINAPI *)(HANDLE, ULONG, PVOID, ULONG, PULONG))
+	w32_NtQueryObject = (NTSTATUS  (WINAPI *)(HANDLE, ULONG, PVOID, ULONG, PULONG))
 		GetProcAddress(lib,"NtQueryObject");
-	w32_ntqueryinformationthread = (NTSTATUS  (WINAPI *)(HANDLE, ULONG, PVOID, ULONG, PULONG))
+	w32_NtQueryInformationThread = (NTSTATUS  (WINAPI *)(HANDLE, ULONG, PVOID, ULONG, PULONG))
 		GetProcAddress (lib, "NtQueryInformationThread");
-	if (!w32_DebugActiveProcessStop || !w32_openthread || !w32_DebugBreakProcess ||
+	if (!w32_DebugActiveProcessStop || !w32_OpenThread || !w32_DebugBreakProcess ||
 	    !w32_GetModuleBaseName || !w32_GetModuleInformation) {
 		// OOPS!
 		eprintf ("debug_init_calls:\n"
@@ -307,7 +304,7 @@ static int w32_dbg_init() {
 			"OpenThread: 0x%p\n"
 			"DebugBreakProcess: 0x%p\n"
 			"GetThreadId: 0x%p\n",
-			w32_DebugActiveProcessStop, w32_openthread, w32_DebugBreakProcess, w32_getthreadid);
+			w32_DebugActiveProcessStop, w32_OpenThread, w32_DebugBreakProcess, w32_GetThreadId);
 		return false;
 	}
 	return true;
@@ -329,15 +326,15 @@ static HANDLE w32_t2h(pid_t tid) {
 #endif
 
 inline static int w32_h2t(HANDLE h) {
-	if (w32_getthreadid != NULL) // >= Windows Vista
-		return w32_getthreadid (h);
-	if (w32_getprocessid != NULL) // >= Windows XP1
-		return w32_getprocessid (h);
+	if (w32_GetThreadId != NULL) // >= Windows Vista
+		return w32_GetThreadId (h);
+	if (w32_GetProcessId != NULL) // >= Windows XP1
+		return w32_GetProcessId (h);
 	return (int)(size_t)h; // XXX broken
 }
 
 static inline int w32_h2p(HANDLE h) {
-	return w32_getprocessid (h);
+	return w32_GetProcessId (h);
 }
 
 static int w32_first_thread(int pid) {
@@ -346,8 +343,8 @@ static int w32_first_thread(int pid) {
 	THREADENTRY32 te32;
 	te32.dwSize = sizeof (THREADENTRY32);
 
-	if (!w32_openthread) {
-		eprintf("w32_thread_list: no w32_openthread?\n");
+	if (!w32_OpenThread) {
+		eprintf("w32_thread_list: no w32_OpenThread?\n");
 		return -1;
 	}
 	th = CreateToolhelp32Snapshot (TH32CS_SNAPTHREAD, pid);
@@ -363,7 +360,7 @@ static int w32_first_thread(int pid) {
 	do {
 		/* get all threads of process */
 		if (te32.th32OwnerProcessID == pid) {
-			thid = w32_openthread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
+			thid = w32_OpenThread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
 			if (!thid) {
 				r_sys_perror ("w32_first_thread/OpenThread");
 				goto err_load_th;
@@ -407,10 +404,6 @@ static char *get_w32_excep_name(unsigned long code) {
 static int debug_exception_event (DEBUG_EVENT *de) {
 	unsigned long code = de->u.Exception.ExceptionRecord.ExceptionCode;
 	switch (code) {
-	case EXCEPTION_BREAKPOINT:
-		break;
-	case EXCEPTION_SINGLE_STEP:
-		break;
 	/* fatal exceptions */
 	case EXCEPTION_ACCESS_VIOLATION:
 	case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
@@ -422,12 +415,6 @@ static int debug_exception_event (DEBUG_EVENT *de) {
 			get_w32_excep_name(code),
 			(int)de->dwThreadId);
 		break;
-#if __MINGW64__ || _WIN64
-	/* STATUS_WX86_BREAKPOINT */
-	case 0x4000001f:
-		eprintf ("(%d) WOW64 loaded.\n", (int)de->dwProcessId);
-		return 1;
-#endif
 	/* MS_VC_EXCEPTION */
 	case 0x406D1388:
 		eprintf ("(%d) MS_VC_EXCEPTION (%x) in thread %d\n",
@@ -442,81 +429,70 @@ static int debug_exception_event (DEBUG_EVENT *de) {
 }
 
 static char *get_file_name_from_handle (HANDLE handle_file) {
-	HANDLE handle_file_map;
-	CHAR *filename = NULL;
-
+	HANDLE handle_file_map = NULL;
+	LPTSTR filename = NULL;
 	DWORD file_size_high = 0;
+	LPVOID map = NULL;
 	DWORD file_size_low = GetFileSize (handle_file, &file_size_high);
+
 	if (file_size_low == 0 && file_size_high == 0) {
 		return NULL;
 	}
-
-	handle_file_map = CreateFileMappingA (handle_file, NULL, PAGE_READONLY, 0, 1, NULL);
-
+	handle_file_map = CreateFileMapping (handle_file, NULL, PAGE_READONLY, 0, 1, NULL);
 	if (!handle_file_map) {
-		return NULL;
+		goto err_get_file_name_from_handle;
 	}
-	filename = malloc(MAX_PATH+1);
-
+	filename = malloc ((MAX_PATH + 1) * sizeof (TCHAR));
+	if (!filename) {
+		goto err_get_file_name_from_handle;
+	}
 	/* Create a file mapping to get the file name. */
-	void* map = MapViewOfFile (handle_file_map, FILE_MAP_READ, 0, 0, 1);
-
-	if (!map) {
-		free (filename);
-		CloseHandle (handle_file_map);
-		return NULL;
+	map = MapViewOfFile (handle_file_map, FILE_MAP_READ, 0, 0, 1);
+	if (!map || !w32_GetMappedFileName (GetCurrentProcess (), map, filename, MAX_PATH)) {
+		goto err_get_file_name_from_handle;
 	}
-
-	if (!w32_GetMappedFileName (GetCurrentProcess (),
-		map,
-		filename,
-		MAX_PATH)) {
-
-		free(filename);
-		UnmapViewOfFile (map);
-		CloseHandle (handle_file_map);
-		return NULL;
-	}
-
+	TCHAR temp_buffer[512];
 	/* Translate path with device name to drive letters. */
-	CHAR temp_buffer[512];
-	temp_buffer[0] = '\0';
-
-	if (!GetLogicalDriveStringsA (511, temp_buffer)) {
-		free (filename);
-		UnmapViewOfFile (map);
-		CloseHandle (handle_file_map);
-		return NULL;
+	if (!GetLogicalDriveStrings (sizeof (temp_buffer) - 1, temp_buffer)) {
+		goto err_get_file_name_from_handle;
 	}
-
-	CHAR name[MAX_PATH];
-	CHAR drive[3] =  " :";
-	BOOL found = FALSE;
-	CHAR *p = temp_buffer;
-	do {
+	TCHAR name[MAX_PATH];
+	TCHAR drive[3] =  TEXT (" :");
+	LPTSTR cur_drive = temp_buffer;
+	while (*cur_drive) {
 		/* Look up each device name */
-		*drive = *p;
-		if (QueryDosDeviceA (drive, name, MAX_PATH)) {
-			size_t name_length = strlen (name);
+		*drive = *cur_drive;
+		if (QueryDosDevice (drive, name, MAX_PATH)) {
+			size_t name_length = _tcslen (name);
 
 			if (name_length < MAX_PATH) {
-				found = strncmp (filename, name, name_length) == 0
-					&& *(filename + name_length) == _T ('\\');
-
-				if (found) {
-					CHAR temp_filename[MAX_PATH];
-					snprintf (temp_filename, MAX_PATH-1, "%s%s",
-						drive, filename+name_length);
-					strncpy (filename, temp_filename, MAX_PATH-1);
+				if (_tcsnicmp (filename, name, name_length) == 0
+					&& *(filename + name_length) == TEXT ('\\')) {
+					TCHAR temp_filename[MAX_PATH];
+					_sntprintf (temp_filename, MAX_PATH, TEXT ("%s%s"),
+						drive, filename + name_length);
+					_tcsncpy (filename, temp_filename,
+						_tcslen (temp_filename) + 1);
+					break;
 				}
 			}
 		}
-		while (*p++);
-	} while (!found && *p);
+		cur_drive++;
+	} 
+err_get_file_name_from_handle:
+	if (map) {
+		UnmapViewOfFile (map);
+	}
+	if (handle_file_map) {
+		CloseHandle (handle_file_map);
+	}
+	if (filename) {
+		char *filename_ = r_sys_conv_utf16_to_utf8(filename);
+		free (filename);
+		return filename_;
 
-	UnmapViewOfFile (map);
-	CloseHandle (handle_file_map);
-	return filename;
+	}	
+	return NULL;
 }
 
 typedef struct{
@@ -605,7 +581,7 @@ static void r_debug_lstThreadAdd (DWORD pid, DWORD tid, HANDLE hThread, LPVOID  
 			lstThreadPtr->hThread = hThread;
 			lstThreadPtr->lpThreadLocalBase = lpThreadLocalBase;
 			lstThreadPtr->lpStartAddress = lpStartAddress;
-			if (w32_ntqueryinformationthread (hThread, 0x9 /*ThreadQuerySetWin32StartAddress*/, &startAddress, sizeof (PVOID), NULL) == 0) {
+			if (w32_NtQueryInformationThread (hThread, 0x9 /*ThreadQuerySetWin32StartAddress*/, &startAddress, sizeof (PVOID), NULL) == 0) {
 				lstThreadPtr->lpThreadEntryPoint = startAddress;
 			}
 			return;
@@ -729,12 +705,15 @@ static int w32_dbg_wait(RDebug *dbg, int pid) {
 		case EXCEPTION_DEBUG_EVENT:
 			switch (de.u.Exception.ExceptionRecord.ExceptionCode) {
 #if __MINGW64__ || _WIN64
-			case 0x4000001f:
+			case 0x4000001f: /* STATUS_WX86_BREAKPOINT */
 #endif
 			case EXCEPTION_BREAKPOINT:
 				ret = R_DEBUG_REASON_BREAKPOINT;
 				next_event = 0;
 				break;
+#if __MINGW64__ || _WIN64
+			case 0x4000001e: /* STATUS_WX86_SINGLE_STEP */
+#endif
 			case EXCEPTION_SINGLE_STEP:
 				ret = R_DEBUG_REASON_STEP;
 				next_event = 0;
@@ -773,7 +752,7 @@ static inline int is_pe_hdr(unsigned char *pe_hdr) {
 }
 
 static HANDLE w32_open_thread (int pid, int tid) {
-	HANDLE thread = w32_openthread (THREAD_ALL_ACCESS, 0, tid);
+	HANDLE thread = w32_OpenThread (THREAD_ALL_ACCESS, 0, tid);
 	if (thread == INVALID_HANDLE_VALUE) {
 		r_sys_perror ("w32_open_thread/OpenThread");
 	}
@@ -787,8 +766,8 @@ RList *w32_thread_list (int pid, RList *list) {
 
         te32.dwSize = sizeof(THREADENTRY32);
 
-	if (!w32_openthread) {
-		eprintf("w32_thread_list: no w32_openthread?\n");
+	if (!w32_OpenThread) {
+		eprintf("w32_thread_list: no w32_OpenThread?\n");
 		return list;
 	}
         th = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, pid);
@@ -810,7 +789,7 @@ RList *w32_thread_list (int pid, RList *list) {
  81         LONG tpDeltaPri;
  82         DWORD dwFlags;
 #endif
-			thid = w32_openthread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
+			thid = w32_OpenThread (THREAD_ALL_ACCESS, 0, te32.th32ThreadID);
 			if (!thid) {
 				r_sys_perror ("w32_thread_list/OpenThread");
                                 goto err_load_th;
@@ -825,25 +804,28 @@ err_load_th:
 }
 
 static RDebugPid *build_debug_pid(PROCESSENTRY32 *pe) {
+	TCHAR image_name[MAX_PATH + 1];
+	DWORD length = MAX_PATH;
+	RDebugPid *ret;
+	char *name;
 	HANDLE process = w32_OpenProcess (0x1000, //PROCESS_QUERY_LIMITED_INFORMATION,
 		FALSE, pe->th32ProcessID);
 
-	if (!process || !w32_queryfullprocessimagename) {
-		return r_debug_pid_new (pe->szExeFile, pe->th32ProcessID, 0, 's', 0);
-	}
-
-	char image_name[MAX_PATH + 1];
-	image_name[0] = '\0';
-	DWORD length = MAX_PATH;
-
-	if (w32_queryfullprocessimagename (process, 0,
-		image_name, (PDWORD)&length)) {
+	*image_name = '\0';
+	if (process) {
+		if (w32_QueryFullProcessImageName) {
+			w32_QueryFullProcessImageName (process, 0, image_name, &length);
+		}
 		CloseHandle(process);
-		return r_debug_pid_new (image_name, pe->th32ProcessID, 0, 's', 0);
 	}
-
-	CloseHandle(process);
-	return r_debug_pid_new (pe->szExeFile, pe->th32ProcessID, 0, 's', 0);
+	if (*image_name) {
+		name = r_sys_conv_utf16_to_utf8 (image_name);
+	} else {
+		name = r_sys_conv_utf16_to_utf8 (pe->szExeFile);
+	}
+	ret = r_debug_pid_new (name, pe->th32ProcessID, 0, 's', 0);
+	free (name);
+	return ret;
 }
 
 RList *w32_pids (int pid, RList *list) {
@@ -1136,6 +1118,102 @@ static int w32_reg_write (RDebug *dbg, int type, const ut8* buf, int size) {
 	return ret;
 }
 
+static void w32_info_user(RDebug *dbg, RDebugInfo *rdi) {
+	HANDLE h_tok = NULL;
+	DWORD tok_len = 0;
+	PTOKEN_USER tok_usr = NULL;
+	LPTSTR usr = NULL, usr_dom = NULL;
+	DWORD usr_len = 512;
+	DWORD usr_dom_len = 512;
+	SID_NAME_USE snu = {0};
+	HANDLE h_proc = OpenProcess (PROCESS_QUERY_INFORMATION, FALSE, dbg->pid);
+
+	if (!h_proc) {
+		r_sys_perror ("w32_info_user/OpenProcess");
+		goto err_w32_info_user;
+	}
+	if (!OpenProcessToken (h_proc, TOKEN_QUERY, &h_tok)) {
+		r_sys_perror ("w32_info_user/OpenProcessToken");
+		goto err_w32_info_user;
+	}
+	if (!GetTokenInformation (h_tok, TokenUser, (LPVOID)&tok_usr, 0, &tok_len) && GetLastError () != ERROR_INSUFFICIENT_BUFFER) {
+		r_sys_perror ("w32_info_user/GetTokenInformation");
+		goto err_w32_info_user;
+	}
+	tok_usr = (PTOKEN_USER)malloc (tok_len);
+	if (!tok_usr) {
+		perror ("w32_info_user/malloc tok_usr");
+		goto err_w32_info_user;
+	}
+	if (!GetTokenInformation (h_tok, TokenUser, (LPVOID)tok_usr, tok_len, &tok_len)) {
+		r_sys_perror ("w32_info_user/GetTokenInformation");
+		goto err_w32_info_user;
+	}
+	usr = (LPTSTR)malloc (usr_len);
+	if (!usr) {
+		perror ("w32_info_user/malloc usr");
+		goto err_w32_info_user;
+	}
+	*usr = '\0';
+	usr_dom = (LPTSTR)malloc (usr_dom_len);
+	if (!usr_dom) {
+		perror ("w32_info_user/malloc usr_dom");
+		goto err_w32_info_user;
+	}
+	*usr_dom = '\0';
+	if (!LookupAccountSid (NULL, tok_usr->User.Sid, usr, &usr_len, usr_dom, &usr_dom_len, &snu)) {
+		r_sys_perror ("w32_info_user/LookupAccountSid");
+		goto err_w32_info_user;
+	}
+	if (*usr_dom) {
+		rdi->usr = r_str_newf (W32_TCHAR_FSTR"\\"W32_TCHAR_FSTR, usr_dom, usr);		
+	} else {
+		rdi->usr = r_sys_conv_utf16_to_utf8 (usr);
+	}
+err_w32_info_user:
+    if (h_proc) {
+	CloseHandle (h_proc);
+    }
+    if (h_tok) {
+	CloseHandle (h_tok);
+    }
+    free (usr);
+    free (usr_dom);
+    free (tok_usr);
+}
+
+static void w32_info_exe(RDebug *dbg, RDebugInfo *rdi) {
+	LPTSTR path = NULL;
+	HANDLE h_proc;
+	DWORD len;
+
+	if (!w32_QueryFullProcessImageName) {
+		return;
+	}
+	h_proc = OpenProcess (PROCESS_QUERY_INFORMATION, FALSE, dbg->pid);
+	if (!h_proc) {
+		r_sys_perror ("w32_info_exe/OpenProcess");
+		goto err_w32_info_exe;
+	}
+	path = (LPTSTR)malloc (MAX_PATH + 1);
+	if (!path) {
+		perror ("w32_info_exe/malloc path");
+		goto err_w32_info_exe;
+	}
+	len = MAX_PATH;
+	if (w32_QueryFullProcessImageName (h_proc, 0, path, &len)) {
+		path[len] = '\0';
+		rdi->exe = r_sys_conv_utf16_to_utf8 (path);
+	} else {
+		r_sys_perror ("w32_info_exe/QueryFullProcessImageName");
+	}
+err_w32_info_exe:
+	if (h_proc) {
+		CloseHandle (h_proc);
+	}
+	free (path);
+}
+
 static RDebugInfo* w32_info (RDebug *dbg, const char *arg) {
 	RDebugInfo *rdi = R_NEW0 (RDebugInfo);
 	rdi->status = R_DBG_PROC_SLEEP; // TODO: Fix this
@@ -1143,12 +1221,14 @@ static RDebugInfo* w32_info (RDebug *dbg, const char *arg) {
 	rdi->tid = dbg->tid;
 	rdi->lib = (void *) r_debug_get_lib_item();
 	rdi->thread = (void *)r_debug_get_thread_item ();
-	rdi->uid = -1;// TODO
-	rdi->gid = -1;// TODO
+	rdi->uid = -1;
+	rdi->gid = -1;
 	rdi->cwd = NULL;
 	rdi->exe = NULL;
 	rdi->cmdline = NULL;
 	rdi->libname = NULL;
+	w32_info_user (dbg, rdi);
+	w32_info_exe (dbg, rdi);
 	return rdi;
 }
 

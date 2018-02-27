@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2016 - pancake */
+/* radare - LGPL - Copyright 2009-2017 - pancake */
 
 #include <stdio.h>
 #include <string.h>
@@ -86,7 +86,7 @@ static void do_hash_hexprint(const ut8 *c, int len, int ule, int rad) {
 	}
 }
 
-static void do_hash_print(RHash *ctx, int hash, int dlen, int rad, int ule) {
+static void do_hash_print(RHash *ctx, ut64 hash, int dlen, int rad, int ule) {
 	char *o;
 	const ut8 *c = ctx->digest;
 	const char *hname = r_hash_name (hash);
@@ -518,7 +518,7 @@ int main(int argc, char **argv) {
 			return 1;
 		} else if (compareBin_len != r_hash_size (algobit))   {
 			eprintf (
-				"rahash2: Given -c hash has %d bytes but the selected algorithm returns %d bytes.\n",
+				"rahash2: Given -c hash has %d byte(s) but the selected algorithm returns %d byte(s).\n",
 				compareBin_len,
 				r_hash_size (algobit));
 			free (compareBin);

@@ -3,6 +3,7 @@
 #include <r_cons.h>
 
 #define useUtf8 (r_cons_singleton()->use_utf8)
+#define useUtf8Curvy (r_cons_singleton()->use_utf8_curvy)
 
 #define W(y) r_cons_canvas_write (c, y)
 #define G(x, y) r_cons_canvas_gotoxy (c, x, y)
@@ -268,6 +269,7 @@ R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
 		if (attr_len > 0) {
 			stamp_attr (c, attr_len);
 		}
+		// XXX this is a bug if we scroll in the middle of \033
 		x = c->x - c->sx;
 		if (G (x, c->y - c->sy)) {
 			memcpy (p, s_part, slen);
@@ -335,13 +337,11 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 R_API void r_cons_canvas_print_region(RConsCanvas *c) {
 	char *o = r_cons_canvas_to_string (c);
 	if (o) {
-		char *p = r_str_trim_tail (o);
-		if (p) {
-			r_cons_strcat (p);
-			free (p);
-		} else {
-			free (o);
+		r_str_trim_tail (o);
+		if (*o) {
+			r_cons_strcat (o);
 		}
+		free (o);
 	}
 }
 
@@ -385,10 +385,10 @@ R_API int r_cons_canvas_resize(RConsCanvas *c, int w, int h) {
 R_API void r_cons_canvas_box(RConsCanvas *c, int x, int y, int w, int h, const char *color) {
 	const char *hline = useUtf8? RUNECODESTR_LINE_HORIZ : "-";
 	const char *vline = useUtf8? RUNECODESTR_LINE_VERT : "|";
-	const char *tl_corner = useUtf8? RUNECODESTR_CORNER_TL: ".";
-	const char *tr_corner = useUtf8? RUNECODESTR_CORNER_TR: ".";
-	const char *bl_corner = useUtf8? RUNECODESTR_CORNER_BL: "`";
-	const char *br_corner = useUtf8? RUNECODESTR_CORNER_BR: "'";
+	const char *tl_corner = useUtf8 ? (useUtf8Curvy ? RUNECODESTR_CURVE_CORNER_TL : RUNECODESTR_CORNER_TL) : ".";
+	const char *tr_corner = useUtf8 ? (useUtf8Curvy ? RUNECODESTR_CURVE_CORNER_TR : RUNECODESTR_CORNER_TR) : ".";
+	const char *bl_corner = useUtf8 ? (useUtf8Curvy ? RUNECODESTR_CURVE_CORNER_BL : RUNECODESTR_CORNER_BL) : "`";
+	const char *br_corner = useUtf8 ? (useUtf8Curvy ? RUNECODESTR_CURVE_CORNER_BR : RUNECODESTR_CORNER_BR) : "'";
 	int i, x_mod;
 	int roundcorners = 0;
 	char *row = NULL, *row_ptr;
@@ -436,11 +436,10 @@ R_API void r_cons_canvas_box(RConsCanvas *c, int x, int y, int w, int h, const c
 
 R_API void r_cons_canvas_fill(RConsCanvas *c, int x, int y, int w, int h, char ch, int replace) {
 	int i;
-	char *row = NULL;
 	if (w < 0) {
 		return;
 	}
-	row = malloc (w + 1);
+	char *row = malloc (w + 1);
 	if (!row) {
 		return;
 	}

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2017 - pancake */
+/* radare - LGPL - Copyright 2015-2018 - pancake */
 
 #include <stdio.h>
 #include <string.h>
@@ -244,7 +244,7 @@ static ut32 cmp(ArmOp *op) {
 }
 
 
-static ut32 sturop(ArmOp *op, int k) {
+static ut32 regsluop(ArmOp *op, int k) {
 	ut32 data = UT32_MAX;
 
 	if (op->operands[1].reg_type & ARM_REG32) {
@@ -487,6 +487,8 @@ static ut32 mem_barrier (ArmOp *op, ut64 addr, int k) {
 	}
 	if (op->operands[0].type == ARM_MEM_OPT) {
 		data |= op->operands[0].mem_option << 16;
+	} else if (op->operands_count == 1 && op->operands[0].type == ARM_CONSTANT) {
+		data |= (op->operands[0].immediate << 16);
 	}
 	return data;
 }
@@ -912,7 +914,11 @@ bool arm64ass(const char *str, ut64 addr, ut32 *op) {
 		return *op != -1;
 	}
 	if (!strncmp (str, "stur", 4)) {
-		*op = sturop (&ops, 0x000000f8);
+		*op = regsluop (&ops, 0x000000f8);
+		return *op != -1;
+	}
+	if (!strncmp (str, "ldur", 4)) {
+		*op = regsluop (&ops, 0x000040f8);
 		return *op != -1;
 	}
 	if (!strncmp (str, "str", 3)) {
@@ -941,6 +947,10 @@ bool arm64ass(const char *str, ut64 addr, ut32 *op) {
 	}
 	if (!strncmp (str, "adrp x", 6)) {
 		*op = adrp (&ops, addr, 0x00000090);
+		return *op != -1;
+	}
+	if (!strcmp (str, "isb")) {
+		*op = 0xdf3f03d5;
 		return *op != -1;
 	}
 	if (!strcmp (str, "nop")) {

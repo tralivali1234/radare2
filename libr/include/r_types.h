@@ -107,9 +107,6 @@
   /* Must be included before windows.h */
   #include <winsock2.h>
   #define WIN32_LEAN_AND_MEAN
-  #else
-  /* Deprecated */
-  //#include <winsock.h>
   #endif
   typedef int socklen_t;
   #undef USE_SOCKETS
@@ -135,6 +132,7 @@
   #define FUNC_ATTR_ALLOC_ALIGN(x) __attribute__((alloc_align(x)))
   #define FUNC_ATTR_PURE __attribute__ ((pure))
   #define FUNC_ATTR_CONST __attribute__((const))
+  #define FUNC_ATTR_USED __attribute__((used))
   #define FUNC_ATTR_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
   #define FUNC_ATTR_ALWAYS_INLINE __attribute__((always_inline))
 
@@ -152,6 +150,7 @@
   #define FUNC_ATTR_ALLOC_ALIGN(x)
   #define FUNC_ATTR_PURE
   #define FUNC_ATTR_CONST
+  #define FUNC_ATTR_USED
   #define FUNC_ATTR_WARN_UNUSED_RESULT
   #define FUNC_ATTR_ALWAYS_INLINE
 #endif
@@ -279,7 +278,7 @@ static inline void *r_new_copy(int size, void *data) {
 
 #define R_BIT_SET(x,y) (((ut8*)x)[y>>4] |= (1<<(y&0xf)))
 #define R_BIT_UNSET(x,y) (((ut8*)x)[y>>4] &= ~(1<<(y&0xf)))
-#define R_BIT_SWAP(x, y) ( R_BIT_CHK (x, y) ? \
+#define R_BIT_TOGGLE(x, y) ( R_BIT_CHK (x, y) ? \
 		R_BIT_UNSET (x, y): R_BIT_SET (x, y))
 
 //#define R_BIT_CHK(x,y) ((((const ut8*)x)[y>>4] & (1<<(y&0xf))))
@@ -402,7 +401,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define R_SYS_ARCH "x86"
 #define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
 #define R_SYS_ENDIAN 0
-#elif __powerpc__
+#elif __POWERPC__
 # define R_SYS_ARCH "ppc"
 # ifdef __powerpc64__
 #  define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)

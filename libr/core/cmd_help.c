@@ -1,9 +1,24 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake */
+/* radare - LGPL - Copyright 2009-2018 - pancake */
 
 #include <stddef.h>
 #include "r_cons.h"
 #include "r_core.h"
 #include "r_util.h"
+
+static ut32 vernum(const char *s) {
+	// XXX this is known to be buggy, only works for strings like "x.x.x"
+	// XXX anything like "x.xx.x" will break the parsing
+	// XXX -git is ignored, maybe we should shift for it
+	char *a = strdup (s);
+	a = r_str_replace (a, ".", "0", 1);
+	char *dash = strchr (a, '-');
+	if (dash) {
+		*dash = 0;
+	}
+	ut32 res = atoi (a);
+	free (a);
+	return res;
+}
 
 static const char *help_msg_root[] = {
 	"%var", "=value", "Alias for 'env' command",
@@ -44,7 +59,6 @@ static const char *help_msg_root[] = {
 	"?[??]","[expr]", "Help or evaluate math expression",
 	"?$?", "", "Show available '$' variables and aliases",
 	"?@?", "", "Misc help for '@' (seek), '~' (grep) (see ~?""?)",
-	"?:?", "", "List and manage core plugins",
 	NULL
 };
 
@@ -63,6 +77,7 @@ static const char *help_msg_question[] = {
 	"?_", " hudfile", "load hud menu with given file",
 	"?b", " [num]", "show binary value of number",
 	"?b64[-]", " [str]", "encode/decode in base64",
+	"?btw", " num|expr num|expr num|expr", "returns boolean value of a <= b <= c",
 	"?B", " [elem]", "show range boundaries like 'e?search.in",
 	"?d[.]", " opcode", "describe opcode for asm.arch",
 	"?e[nbgc]", " string", "echo string (nonl, gotoxy, column, bars)",
@@ -74,7 +89,7 @@ static const char *help_msg_question[] = {
 	"?im", " message", "show message centered in screen",
 	"?in", " prompt", "noyes input prompt",
 	"?iy", " prompt", "yesno input prompt",
-	"?l", " str", "returns the length of string",
+	"?l", "[q] str", "returns the length of string ('q' for quiet, just set $?)",
 	"?o", " num", "get octal value",
 	"?O", " [id]", "List mnemonics for current asm.arch / asm.bits",
 	"?p", " vaddr", "get physical address for given virtual address",
@@ -94,13 +109,6 @@ static const char *help_msg_question[] = {
 	"?x", "-hexst", "convert hexpair into raw string with newline",
 	"?X", " num|expr", "returns the hexadecimal value numeric expr",
 	"?y", " [str]", "show contents of yank buffer, or set with string",
-	NULL
-};
-
-static const char *help_msg_question_colon[] = {
-	"Usage:", "?:[plugin] [args]", "",
-	":", "", "list RCore plugins",
-	":java", "", "run java plugin",
 	NULL
 };
 
@@ -151,6 +159,7 @@ static const char *help_msg_question_v[] = {
 static const char *help_msg_question_V[] = {
 	"Usage: ?V[jq]","","",
 	"?V", "", "show version information",
+	"?Vc", "", "show numeric version",
 	"?Vj", "", "same as above but in JSON",
 	"?Vq", "", "quiet mode, just show the version number",
 	NULL
@@ -158,7 +167,6 @@ static const char *help_msg_question_V[] = {
 
 static void cmd_help_init(RCore *core) {
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?, question);
-	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?:, question_colon);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?v, question_v);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?V, question_V);
 }
@@ -251,22 +259,6 @@ static int cmd_help(void *data, const char *input) {
 		}
 		core->curtab ++;
 		break;
-	case ':': // "?:"
-		{
-		RListIter *iter;
-		RCorePlugin *cp;
-		if (input[1]=='?') {
-			r_core_cmd_help (core, help_msg_question_colon);
-			return 0;
-		}
-		if (input[1]) {
-			return r_core_cmd0 (core, input + 1);
-		}
-		r_list_foreach (core->rcmd->plist, iter, cp) {
-			r_cons_printf ("%s: %s\n", cp->name, cp->desc);
-		}
-	}
-		break;
 	case 'r': // "?r"
 		{ // TODO : Add support for 64bit random numbers
 		ut64 b = 0;
@@ -306,6 +298,10 @@ static int cmd_help(void *data, const char *input) {
 			}
 			r_cons_println (buf);
 			free (buf);
+		} else if (input[1] == 't' && input[2] == 'w') { // "?btw"
+			if (r_num_between (core->num, input + 3) == -1) {
+				eprintf ("Usage: ?btw num|(expr) num|(expr) num|(expr)\n");
+			}
 		} else {
 			n = r_num_get (core->num, input+1);
 			r_num_to_bits (out, n);
@@ -313,8 +309,8 @@ static int cmd_help(void *data, const char *input) {
 		}
 		break;
 	case 'B': // "?B"
-		k = r_str_chop_ro (input + 1);
-		tmp = r_core_get_boundaries (core, k);
+		k = r_str_trim_ro (input + 1);
+		tmp = r_core_get_boundaries_prot (core, -1, k, "search");
 		r_list_foreach (tmp, iter, map) {
 			r_cons_printf ("0x%"PFMT64x" 0x%"PFMT64x"\n", map->itv.addr, r_itv_end (map->itv));
 		}
@@ -443,31 +439,48 @@ static int cmd_help(void *data, const char *input) {
 			ut32 s, a;
 			double d;
 			float f;
-			n = r_num_math (core->num, input + 1);
-			if (core->num->dbz) {
-				eprintf ("RNum ERROR: Division by Zero\n");
+			char * const inputs = strdup (input + 1);
+			RList *list = r_num_str_split_list (inputs);
+			const int list_len = r_list_length (list);
+			for (i = 0; i < list_len; i++) {
+				const char *str = r_list_pop_head (list);
+				if (*str == '\0') {
+					continue;
+				}
+				n = r_num_math (core->num, str);
+				if (core->num->dbz) {
+					eprintf ("RNum ERROR: Division by Zero\n");
+				}
+				asnum  = r_num_as_string (NULL, n, false);
+				/* decimal, hexa, octal */
+				s = n >> 16 << 12;
+				a = n & 0x0fff;
+				r_num_units (unit, n);
+				r_cons_printf ("%"PFMT64d" 0x%"PFMT64x" 0%"PFMT64o
+					" %s %04x:%04x ",
+					n, n, n, unit, s, a);
+				if (n >> 32) {
+					r_cons_printf ("%"PFMT64d" ", (st64)n);
+				} else {
+					r_cons_printf ("%d ", (st32)n);
+				}
+				if (asnum) {
+					r_cons_printf ("\"%s\" ", asnum);
+					free (asnum);
+				}
+				/* binary and floating point */
+				r_str_bits64 (out, n);
+				f = d = core->num->fvalue;
+				r_cons_printf ("0b%s %.01lf %ff %lf ", out, core->num->fvalue, f, d);
+
+				/* ternary */
+				r_num_to_trits (out, n);
+				r_cons_printf ("0t%s", out);
+
+				r_cons_printf ("\n");
 			}
-			asnum  = r_num_as_string (NULL, n, false);
-			/* decimal, hexa, octal */
-			s = n >> 16 << 12;
-			a = n & 0x0fff;
-			r_num_units (unit, n);
-			r_cons_printf ("%"PFMT64d" 0x%"PFMT64x" 0%"PFMT64o
-				" %s %04x:%04x ",
-				n, n, n, unit, s, a);
-			if (n >> 32) {
-				r_cons_printf ("%"PFMT64d" ", (st64)n);
-			} else {
-				r_cons_printf ("%d ", (st32)n);
-			}
-			if (asnum) {
-				r_cons_printf ("\"%s\" ", asnum);
-				free (asnum);
-			}
-			/* binary and floating point */
-			r_str_bits64 (out, n);
-			f = d = core->num->fvalue;
-			r_cons_printf ("%s %.01lf %ff %lf\n", out, core->num->fvalue, f, d);
+			free (inputs);
+			r_list_free (list);
 		}
 		break;
 	case 'v': // "?v"
@@ -606,9 +619,17 @@ static int cmd_help(void *data, const char *input) {
 			}
 #endif
 			break;
+		case 'c': // "?Vc"
+			r_cons_printf ("%d\n", vernum (R2_VERSION));
+			break;
 		case 'j': // "?Vj"
-			r_cons_printf ("{\"system\":\"%s-%s\"", R_SYS_OS, R_SYS_ARCH);
-			r_cons_printf (",\"version\":\"%s\"}\n",  R2_VERSION);
+			r_cons_printf ("{\"archos\":\"%s-%s\"", R_SYS_OS, R_SYS_ARCH);
+			r_cons_printf (",\"arch\":\"%s\"", R_SYS_ARCH);
+			r_cons_printf (",\"os\":\"%s\"", R_SYS_OS);
+			r_cons_printf (",\"commit\":%d", R2_VERSION_COMMIT);
+			r_cons_printf (",\"tap\":\"%s\"", R2_GITTAP);
+			r_cons_printf (",\"nversion\":%d", vernum (R2_VERSION));
+			r_cons_printf (",\"version\":\"%s\"}\n", R2_VERSION);
 			break;
 		case 'q': // "?Vq"
 			r_cons_println (R2_VERSION);
@@ -616,8 +637,14 @@ static int cmd_help(void *data, const char *input) {
 		}
 		break;
 	case 'l': // "?l"
-		for (input++; input[0] == ' '; input++);
-		core->num->value = strlen (input);
+		if (input[1] == 'q') {
+			for (input+=2; input[0] == ' '; input++);
+			core->num->value = strlen (input);
+		} else {
+			for (input++; input[0] == ' '; input++);
+			core->num->value = strlen (input);
+			r_cons_printf ("%d\n", core->num->value);
+		}
 		break;
 	case 'X': // "?X"
 		for (input++; input[0] == ' '; input++);
@@ -650,12 +677,12 @@ static int cmd_help(void *data, const char *input) {
 		}
 		break;
 	case 'E': // "?E" clippy echo
-		r_core_clippy (r_str_chop_ro (input + 1));
+		r_core_clippy (r_str_trim_ro (input + 1));
 		break;
 	case 'e': // "?e" echo
 		switch (input[1]) {
 		case 'b': { // "?eb"
-			char *arg = strdup (r_str_chop_ro (input + 2));
+			char *arg = strdup (r_str_trim_ro (input + 2));
 			int n = r_str_split (arg, ' ');
 			ut64 *portions = calloc (n, sizeof (ut64));
 			for (i = 0; i < n; i++) {
@@ -667,7 +694,7 @@ static int cmd_help(void *data, const char *input) {
 		}
 		case 's': { // "?es"
 			char *msg = strdup (input + 2);
-			msg = r_str_chop (msg);
+			msg = r_str_trim (msg);
 			char *p = strchr (msg, '&');
 			if (p) *p = 0;
 			r_sys_tts (msg, p != NULL);
@@ -685,7 +712,7 @@ static int cmd_help(void *data, const char *input) {
 			}
 			break;
 		case 'n': { // "?en" echo -n
-			const char *msg = r_str_chop_ro (input + 2);
+			const char *msg = r_str_trim_ro (input + 2);
 			// TODO: replace all ${flagname} by its value in hexa
 			char *newmsg = filterFlags (core, msg);
 			r_str_unescape (newmsg);
@@ -694,7 +721,7 @@ static int cmd_help(void *data, const char *input) {
 			break;
 		}
 		default: {
-			const char *msg = r_str_chop_ro (input+1);
+			const char *msg = r_str_trim_ro (input+1);
 			// TODO: replace all ${flagname} by its value in hexa
 			char *newmsg = filterFlags (core, msg);
 			r_str_unescape (newmsg);

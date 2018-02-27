@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2018 - pancake, nibble */
 
 #include <r_anal.h>
 #include <r_sign.h>
@@ -44,16 +44,18 @@ R_API RList *r_sign_fcn_refs(RAnal *a, RAnalFunction *fcn) {
 		return NULL;
 	}
 
-	RList *refs = r_list_newf ((RListFree) free);
-	r_list_foreach (fcn->refs, iter, refi) {
+	RList *ret = r_list_newf ((RListFree) free);
+	RList *refs = r_anal_fcn_get_refs (a, fcn);
+	r_list_foreach (refs, iter, refi) {
 		if (refi->type == R_ANAL_REF_TYPE_CODE || refi->type == R_ANAL_REF_TYPE_CALL) {
 			const char *flag = getRealRef (core, refi->addr);
 			if (flag) {
-				r_list_append (refs, r_str_newf (flag));
+				r_list_append (ret, r_str_newf (flag));
 			}
 		}
 	}
-	return refs;
+	r_list_free (refs);
+	return ret;
 }
 
 static bool deserialize(RAnal *a, RSignItem *it, const char *k, const char *v) {
@@ -1178,8 +1180,9 @@ R_API char *r_sign_path(RAnal *a, const char *file) {
 		free (abs);
 	}
 
-	const char *pfx = R2_PREFIX "/share/radare2/" R2_VERSION "/zigns";
-	abs = r_str_newf ("%s%s%s", pfx, R_SYS_DIR, file);
+	/// XXX mixed / and R_SYS_DIR
+	const char *pfx = "/share/radare2/" R2_VERSION "/zigns";
+	abs = r_str_newf ("%s%s%s%s", r_sys_prefix (NULL), pfx, R_SYS_DIR, file);
 	if (r_file_is_regular (abs)) {
 		return abs;
 	}

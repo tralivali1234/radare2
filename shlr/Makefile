@@ -23,9 +23,9 @@ CS_PATCHES=0
 else
 CS_TAR=
 CS_URL=$(GIT_PREFIX)github.com/aquynh/capstone.git
-CS_UPD=20170902
+CS_UPD=20180106
 CS_BRA=next
-CS_TIP=596d31659c9e5b3f887c086c7a9a9bd27e048cc1
+CS_TIP=bdbc57de63725a98732ddc34b48de96f8ada66f2
 # REVERT THIS COMMIT BECAUSE ITS WRONG
 CS_REV=
 CS_PATCHES=1
@@ -39,6 +39,7 @@ AR?=ar
 RANLIB?=ranlib
 MODS=sdb zip udis86 java tcc
 MODS+=gdb qnx ar
+# lz4
 ifneq ($(CC),cccl)
 ifeq (1,$(WITH_GPL))
 MODS+=grub
@@ -194,10 +195,9 @@ tcc-sync sync-tcc:
 	$(GIT) add tcc
 	rm -rf _
 
-install:
-	#mkdir -p ${DESTDIR}${LIBDIR}
-	#cp -f tcc/libr_tcc* ${DESTDIR}${LIBDIR}
-	#cp -f zip/libr_z* ${DESTDIR}${LIBDIR}
+install: libr_shlr.${EXT_AR}
+	mkdir -p ${DESTDIR}/${LIBDIR}
+	cp -f libr_shlr.${EXT_AR} ${DESTDIR}/${LIBDIR}
 
 install-symlink symstall:
 	mkdir -p "${DESTDIR}${LIBDIR}"
@@ -205,8 +205,7 @@ install-symlink symstall:
 	#	ln -fs `pwd`/$$FILE ${DESTDIR}${LIBDIR}/$$FILE ; done
 
 uninstall deinstall:
-	#rm -f ${DESTDIR}${LIBDIR}/libr_tcc*
-	#rm -f ${DESTDIR}${LIBDIR}/libr_z*
+	rm -f ${DESTDIR}${LIBDIR}/libr_shlr.${EXT_AR}
 
 ifeq ($(USE_CAPSTONE),1)
 # Do nothing here
@@ -242,11 +241,15 @@ else
 capstone: capstone-sync
 
 capstone-sync:
+ifeq ($(WITHOUT_PULL),1)
+	@echo "Nothing to sync because of --without-pull"
+else
 	"$(SHELL)" capstone.sh "${CS_URL}" "${CS_BRA}" "${CS_TIP}" "${CS_REV}"
 ifeq ($(CS_PATCHES),1)
 	-cd capstone ; $(GIT) reset --hard
 	#cd capstone ; for PATCH in ../capstone-patches/* ; do patch -tp1 < $$PATCH ; done
 	cd capstone ; for PATCH in ../capstone-patches/* ; do patch -p1 < $$PATCH ; done
+endif
 endif
 
 .PHONY: capstone
@@ -270,7 +273,11 @@ endif
 	cd ../.. ; git clone --depth 1 https://github.com/radare/radare2-webui
 
 ../../radare2-webui/dist/m: ../../radare2-webui
-	cd ../../radare2-webui/www/m ; git pull ; npm install ; $(MAKE) release
+ifeq ($(WITHOUT_PULL),1)
+	cd ../../radare2-webui/www/m && npm i ; $(MAKE) release
+else
+	cd ../../radare2-webui/www/m && git pull ; npm i ; $(MAKE) release
+endif
 
 www-sync-m sync-www-m: ../../radare2-webui/dist/m
 	cp -rf ../../radare2-webui/dist/m www/m.tmp
@@ -302,6 +309,27 @@ spp-sync sync-spp:
 	git add spp
 
 spp: spp-sync
-	CFLAGS=-fPIC $(MAKE) -C spp
+	CFLAGS="-DHAVE_FORK=${HAVE_FORK} -fPIC" $(MAKE) -C spp
+
+SHLRS+=ar/libr_ar.a
+SHLRS+=bochs/lib/libbochs.a
+SHLRS+=capstone/libcapstone.a
+SHLRS+=gdb/lib/libgdbr.a
+SHLRS+=grub/libgrubfs.a
+SHLRS+=java/libr_java.a
+SHLRS+=lz4/liblz4.a
+SHLRS+=qnx/lib/libqnxr.a
+#SHLRS+=sdb/src/libsdb.a
+#SHLRS+=tcc/libr_tcc.a
+SHLRS+=windbg/libr_windbg.a
+SHLRS+=zip/librz.a
+
+libr_shlr.${EXT_AR}:
+	rm -rf .libr
+	mkdir .libr
+	for LIB in ${SHLRS} ; do \
+		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB} .a).o $${LIB} ; fi ; \
+	done
+	${AR} crs $@ .libr/*.o
 
 .PHONY: spp

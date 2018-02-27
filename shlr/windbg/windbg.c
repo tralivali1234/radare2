@@ -590,8 +590,9 @@ int windbg_sync(WindCtx *ctx) {
 	// Reset the sequence id
 	ctx->seq_id = 0x80800001;
 
-	ctx->cpu = PKT_STC (s)->cpu;
-	ctx->cpu_count = PKT_STC (s)->cpu_count;
+	kd_stc_64 *stc64 = (kd_stc_64*)s->data;
+	ctx->cpu = stc64->cpu;
+	ctx->cpu_count = stc64->cpu_count;
 	ctx->target = NULL;
 	ctx->plist_cache = NULL;
 	ctx->pae = 0;
@@ -1014,10 +1015,8 @@ int windbg_break_read(WindCtx *ctx) {
 #if __WINDOWS__ && !defined(_MSC_VER)
 	static BOOL WINAPI (*w32_CancelIoEx)(HANDLE, LPOVERLAPPED) = NULL;
 	if (!w32_CancelIoEx) {
-		HANDLE lib;
-		lib = LoadLibrary ("psapi.dll");
 		w32_CancelIoEx = (BOOL WINAPI (*)(HANDLE, LPOVERLAPPED))
-				 GetProcAddress (GetModuleHandle ("kernel32"),
+				 GetProcAddress (GetModuleHandle (TEXT ("kernel32")),
 			"CancelIoEx");
 	}
 	if (w32_CancelIoEx) {

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2015 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2017 - nibble, pancake */
 
 #include <r_types.h>
 #include <r_core.h>
@@ -14,8 +14,12 @@ static void add_hit_to_sorted_hits(RList* hits, ut64 addr, int len, ut8 is_valid
 static int prune_hits_in_addr_range(RList *hits, ut64 addr, ut64 len, ut8 is_valid);
 
 static int rcoreasm_address_comparator(RCoreAsmHit *a, RCoreAsmHit *b){
-	if (a->addr == b->addr) return 0;
-	if (a->addr < b->addr) return -1;
+	if (a->addr == b->addr) {
+		return 0;
+	}
+	if (a->addr < b->addr) {
+		return -1;
+	}
 	return 1; /* a->addr > b->addr */
 }
 
@@ -29,16 +33,18 @@ R_API RCoreAsmHit *r_core_asm_hit_new() {
 
 R_API RList *r_core_asm_hit_list_new() {
 	RList *list = r_list_new ();
-	if (!list) return NULL;
-	list->free = &r_core_asm_hit_free;
+	if (list) {
+		list->free = &r_core_asm_hit_free;
+	}
 	return list;
 }
 
 R_API void r_core_asm_hit_free(void *_hit) {
 	RCoreAsmHit *hit = _hit;
 	if (hit) {
-		if (hit->code)
+		if (hit->code) {
 			free (hit->code);
+		}
 		free (hit);
 	}
 }
@@ -56,7 +62,7 @@ R_API char* r_core_asm_search(RCore *core, const char *input) {
 
 #define OPSZ 8
 // TODO: add support for byte-per-byte opcode search
-R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut64 to, int maxhits, int regexp) {
+R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut64 to, int maxhits, int regexp, int everyByte, int mode) {
 	RCoreAsmHit *hit;
 	RAsmOp op;
 	RList *hits;
@@ -97,6 +103,8 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 	}
 	tokens[tokcount] = NULL;
 	r_cons_break_push (NULL, NULL);
+	// int opsz = 0;
+	char *opst = NULL;
 	for (at = from, matchcount = 0; at < to; at += core->blocksize) {
 		matches = 0;
 		if (r_cons_is_breaked ()) {
@@ -110,21 +118,34 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 		while (addrbytes * (idx + 1) <= core->blocksize) {
 			ut64 addr = at + idx;
 			r_asm_set_pc (core->assembler, addr);
-			if (!(len = r_asm_disassemble (
-				      core->assembler, &op,
-				      buf + addrbytes * idx,
-				      core->blocksize - addrbytes * idx))) {
-				idx = (matchcount)? tidx + 1: idx + 1;
-				matchcount = 0;
-				continue;
+			if (mode == 'e') {
+				RAnalOp analop = {0};
+				if (r_anal_op (core->anal, &analop, addr, buf + idx, 15) < 1) {
+					idx ++; // TODO: honor mininstrsz
+					continue;
+				}
+				//opsz = analop.size;
+				opst = strdup (r_strbuf_get (&analop.esil));
+				r_anal_op_fini (&analop);
+			} else {
+				if (!(len = r_asm_disassemble (
+					      core->assembler, &op,
+					      buf + addrbytes * idx,
+					      core->blocksize - addrbytes * idx))) {
+					idx = (matchcount)? tidx + 1: idx + 1;
+					matchcount = 0;
+					continue;
+				}
+				//opsz = op.size;
+				opst = strdup (op.buf_asm);
 			}
-			matches = strcmp (op.buf_asm, "invalid") && strcmp (op.buf_asm, "unaligned");
+			matches = strcmp (opst, "invalid") && strcmp (opst, "unaligned");
 			if (matches && tokens[matchcount]) {
 				if (!regexp) {
-					matches = strstr(op.buf_asm, tokens[matchcount]) != NULL;
+					matches = strstr (opst, tokens[matchcount]) != NULL;
 				} else {
 					rx = r_regex_new (tokens[matchcount], "");
-					matches = r_regex_exec (rx, op.buf_asm, 0, 0, 0) == 0;
+					matches = r_regex_exec (rx, opst, 0, 0, 0) == 0;
 					r_regex_free (rx);
 				}
 			}
@@ -134,7 +155,7 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 				}
 			}
 			if (matches) {
-				code = r_str_appendf (code, "%s; ", op.buf_asm);
+				code = r_str_appendf (code, "%s; ", opst);
 				if (matchcount == tokcount - 1) {
 					if (tokcount == 1) {
 						tidx = idx;
@@ -173,10 +194,15 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 					idx += len;
 				}
 			} else {
-				idx = matchcount? tidx + 1: idx + 1;
+				if (everyByte) {
+					idx = matchcount? tidx + 1: idx + 1;
+				} else {
+					idx += R_MAX (1, len);
+				}
 				R_FREE (code);
 				matchcount = 0;
 			}
+			R_FREE (opst);
 		}
 	}
 	r_cons_break_pop ();
@@ -185,6 +211,7 @@ beach:
 	free (buf);
 	free (ptr);
 	free (code);
+	R_FREE (opst);
 	r_cons_break_pop ();
 	return hits;
 }

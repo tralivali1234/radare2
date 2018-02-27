@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake */
+/* radare - LGPL - Copyright 2009-2018 - pancake */
 
 #define USE_THREADS 1
 #define UNCOLORIZE_NONTTY 0
@@ -8,15 +8,15 @@
 #endif
 #endif
 #include <sdb.h>
-#include <r_core.h>
+#include <r_th.h>
 #include <r_io.h>
 #include <stdio.h>
 #include <getopt.c>
+#include <r_core.h>
 #include "../blob/version.c"
 
 
 #if USE_THREADS
-#include <r_th.h>
 static char *rabin_cmd = NULL;
 #endif
 static bool threaded = false;
@@ -36,6 +36,32 @@ static char* get_file_in_cur_dir(const char *filepath) {
 		return r_file_abspath (filepath);
 	}
 	return NULL;
+}
+
+static RThread *thread = NULL;
+
+static int loading_thread(RThread *th) {
+	const char *tok = "\\|/-";
+	int i = 0;
+	if (th) {
+		while (!th->breaked) {
+			eprintf ("%c] Loading..%c     \r[", tok[i%4], "."[i%2]);
+			r_sys_usleep (100000);
+			i++;
+		}
+	}
+	return 0;
+}
+
+static void loading_start() {
+	thread = r_th_new (loading_thread, NULL, 1);
+	r_th_start (thread, true);
+}
+
+static void loading_stop() {
+	r_th_kill (thread, true);
+	r_th_free (thread);
+	thread = NULL;
 }
 
 static int verify_version(int show) {
@@ -97,7 +123,7 @@ static int verify_version(int show) {
 static int main_help(int line) {
 	if (line < 2) {
 		printf ("Usage: r2 [-ACdfLMnNqStuvwzX] [-P patch] [-p prj] [-a arch] [-b bits] [-i file]\n"
-			"          [-s addr] [-B baddr] [-M maddr] [-c cmd] [-e k=v] file|pid|-|--|=\n");
+			"          [-s addr] [-B baddr] [-m maddr] [-c cmd] [-e k=v] file|pid|-|--|=\n");
 	}
 	if (line != 1) {
 		printf (
@@ -144,18 +170,19 @@ static int main_help(int line) {
 		" -v, -V       show radare2 version (-V show lib versions)\n"
 		" -w           open file in write mode\n"
 		" -x           open without exec-flag (asm.emu will not work), See io.exec\n"
+		" -X           same as -e bin.usextr=false (useful for dyldcache)\n"
 		" -z, -zz      do not load strings or load them even in raw\n");
 	}
 	if (line == 2) {
 		char *homedir = r_str_home (R2_HOMEDIR);
 		printf (
 		"Scripts:\n"
-		" system   "R2_PREFIX"/share/radare2/radare2rc\n"
-		" user     ~/.radare2rc ${RHOMEDIR}/radare2/radare2rc (and radare2rc.d/)\n"
-		" file     ${filename}.r2\n"
+		" system       ${R2_PREFIX}/share/radare2/radare2rc\n"
+		" user         ~/.radare2rc ${RHOMEDIR}/radare2/radare2rc (and radare2rc.d/)\n"
+		" file         ${filename}.r2\n"
 		"Plugins:\n"
-		" binrc    ~/.config/radare2/rc.d/bin-<format>/ (elf, elf64, mach0, ..)\n"
-		" plugins  "R2_PREFIX"/lib/radare2/last\n"
+		" binrc        ~/.config/radare2/rc.d/bin-<format>/ (elf, elf64, mach0, ..)\n"
+		" plugins      "R2_PREFIX"/lib/radare2/last\n"
 		" USER_PLUGINS ~/.config/radare2/plugins\n"
 		" LIBR_PLUGINS "R2_PREFIX"/lib/radare2/"R2_VERSION"\n"
 		" USER_ZIGNS   ~/.config/radare2/zigns\n"
@@ -167,10 +194,10 @@ static int main_help(int line) {
 		" VAPIDIR      path to extra vapi directory\n"
 		" R2_NOPLUGINS do not load r2 shared plugins\n"
 		"Paths:\n"
-		" PREFIX       "R2_PREFIX"\n"
-		" INCDIR       "R2_INCDIR"\n"
-		" LIBDIR       "R2_LIBDIR"\n"
-		" LIBEXT       "R_LIB_EXT"\n"
+		" R2_PREFIX    "R2_PREFIX"\n"
+		" R2_INCDIR    "R2_INCDIR"\n"
+		" R2_LIBDIR    "R2_LIBDIR"\n"
+		" R2_LIBEXT    "R_LIB_EXT"\n"
 		, homedir);
 		free (homedir);
 	}
@@ -248,7 +275,9 @@ static int rabin_delegate(RThread *th) {
 		r_str_free (rabin_cmd);
 		rabin_cmd = NULL;
 	}
-	if (th) eprintf ("rabin2: done\n");
+	if (th) {
+		eprintf ("rabin2: done\n");
+	}
 	return 0;
 }
 #endif
@@ -260,7 +289,6 @@ static void radare2_rc(RCore *r) {
 		has_debug = true;
 		R_FREE (env_debug);
 	}
-
 	char *homerc = r_str_home (".radare2rc");
 	if (homerc && r_file_is_regular (homerc)) {
 		if (has_debug) {
@@ -443,7 +471,6 @@ int main(int argc, char **argv, char **envp) {
 			r_list_free (prefiles); \
 		}
 
-	int va = 1; // set va = 0 to load physical offsets from rbin
 	bool noStderr = false;
 
 	r_sys_set_environ (envp);
@@ -480,7 +507,7 @@ int main(int argc, char **argv, char **envp) {
 		return 0;
 	}
 
-	while ((c = getopt (argc, argv, "=02AMCwxfF:H:hm:e:nk:NdqQs:p:b:B:a:Lui:I:l:P:R:c:D:vVSzuX"
+	while ((c = getopt (argc, argv, "=02AMCwxfF:H:hm:e:nk:NdqQs:p:b:B:a:Lui:I:l:P:R:r:c:D:vVSzuX"
 #if USE_THREADS
 "t"
 #endif
@@ -494,11 +521,10 @@ int main(int argc, char **argv, char **envp) {
 			break;
 		case '0':
 			zerosep = true;
-			//r_config_set (r.config, "scr.color", "false");
 			/* implicit -q */
 			r_config_set (r.config, "scr.interactive", "false");
 			r_config_set (r.config, "scr.prompt", "false");
-			r_config_set (r.config, "scr.color", "false");
+			r_config_set_i (r.config, "scr.color", COLOR_MODE_DISABLED);
 			quiet = true;
 			break;
 		case 'u':
@@ -513,10 +539,14 @@ int main(int argc, char **argv, char **envp) {
 		case 'A':
 			do_analysis += do_analysis ? 1: 2;
 			break;
-		case 'b': asmbits = optarg; break;
+		case 'b':
+			asmbits = optarg;
+			break;
 		case 'B':
 			baddr = r_num_math (r.num, optarg);
-			va = 2;
+			break;
+		case 'X':
+			r_config_set (r.config, "bin.usextr", "false");
 			break;
 		case 'c':
 			r_list_append (cmds, optarg);
@@ -598,6 +628,9 @@ int main(int argc, char **argv, char **envp) {
 				return 0;
 			}
 			r_config_set (r.config, "prj.name", optarg);
+			// FIXME: Doing this here will overwrite -e flags coming before -p on the cmdline.
+			r_core_project_open (&r, r_config_get (r.config, "prj.name"), threaded);
+			r_config_set (r.config, "bin.strings", "false");
 			break;
 		case 'P':
 			patchfile = optarg;
@@ -654,7 +687,30 @@ int main(int argc, char **argv, char **envp) {
 		}
 	}
 	if (noStderr) {
-		close (2);
+		if (-1 == close (2)) {
+			eprintf ("Failed to close stderr");
+			return 1;
+		}
+#if __WINDOWS__ && !__CYGWIN__
+		const char nul[] = "nul";
+#else
+		const char nul[] = "/dev/null";
+#endif
+		int new_stderr = open (nul, O_RDWR);
+		if (-1 == new_stderr) {
+			eprintf ("Failed to open %s", nul);
+			return 1;
+		}
+		if (2 != new_stderr) {
+			if (-1 == dup2 (new_stderr, 2)) {
+				eprintf ("Failed to dup2 stderr");
+				return 1;
+			}
+			if (-1 == close (new_stderr)) {
+				eprintf ("Failed to close %s", nul);
+				return 1;
+			}
+		}
 	}
 	{
 		const char *dbg_profile = r_config_get (r.config, "dbg.profile");
@@ -720,13 +776,20 @@ int main(int argc, char **argv, char **envp) {
 		const char *src = haveRarunProfile? pfile: argv[optind];
 		if (src && *src) {
 			char *uri = strdup (src);
-			char *p = strstr (uri, "://");
-			if (p) {
-				*p = 0;
-				debugbackend = uri;
-				debug = 2;
-			} else {
-				free (uri);
+			if (uri) {
+				char *p = strstr (uri, "://");
+				if (p) {
+					*p = 0;
+					// TODO: this must be specified by the io plugin, not hardcoded here
+					if (!strcmp (uri, "winedbg")) {
+						debugbackend = "io";
+					} else {
+						debugbackend = uri;
+					}
+					debug = 2;
+				} else {
+					free (uri);
+				}
 			}
 		}
 	}
@@ -831,7 +894,10 @@ int main(int argc, char **argv, char **envp) {
 			eprintf ("Cannot slurp from stdin\n");
 			return 1;
 		}
-	} else if (strcmp (argv[optind - 1], "--")) {
+	} else if (strcmp (argv[optind - 1], "--") && !(r_config_get (r.config, "prj.name") && r_config_get (r.config, "prj.name")[0]) ) {
+		if (threaded) {
+			loading_start ();
+		}
 		if (debug) {
 			if (asmbits) {
 				r_config_set (r.config, "asm.bits", asmbits);
@@ -897,12 +963,6 @@ int main(int argc, char **argv, char **envp) {
 							}
 						}
 					}
-/*
-					if (fh) {
-						r_core_bin_load (&r, pfile);
-						r_debug_use (r.dbg, debugbackend);
-					}
-*/
 				}
 			} else {
 				const char *f = (haveRarunProfile && pfile)? pfile: argv[optind];
@@ -949,6 +1009,15 @@ int main(int argc, char **argv, char **envp) {
 				}
 				pfile = file;
 			}
+		}
+		if (asmarch) {
+			r_config_set (r.config, "asm.arch", asmarch);
+		}
+		if (asmbits) {
+			r_config_set (r.config, "asm.bits", asmbits);
+		}
+		if (asmos) {
+			r_config_set (r.config, "asm.os", asmos);
 		}
 
 		if (!debug || debug == 2) {
@@ -1020,21 +1089,22 @@ int main(int argc, char **argv, char **envp) {
 						eprintf ("Cannot find project file\n");
 					}
 				} else {
-					// necessary for GDB, otherwise io only works with io.va=false
 					if (fh) {
-						// avoid connecting twice to gdb if first try fails
-						RCoreFile *f = r_core_file_open (&r, pfile, perms, mapaddr);
-						if (f) {
-							fh = f;
-						}
-						if (fh) {
-							iod = r.io ? r_io_desc_get (r.io, fh->fd) : NULL;
-							if (iod) {
-								perms = iod->flags;
-								r_io_map_new (r.io, iod->fd, perms, 0LL, 0LL, r_io_desc_size (iod), true);
-							}
+						iod = r.io ? r_io_desc_get (r.io, fh->fd) : NULL;
+						if (iod) {
+							perms = iod->flags;
+							r_io_map_new (r.io, iod->fd, perms, 0LL, 0LL, r_io_desc_size (iod), true);
 						}
 					}
+				}
+			}
+			if (mapaddr) {
+				eprintf ("WARNING: using oba to load the syminfo from different mapaddress.\n");
+				eprintf ("TODO: Must use the API instead of running commands to speedup loading times.\n");
+				if (r_config_get_i (r.config, "file.info")) {
+					// load symbols when using r2 -m 0x1000 /bin/ls
+					r_core_cmdf (&r, "oba 0x%"PFMT64x, mapaddr);
+					r_core_cmd0 (&r, ".ies*");
 				}
 			}
 		} else {
@@ -1050,7 +1120,6 @@ int main(int argc, char **argv, char **envp) {
 			baddr = r_debug_get_baddr (r.dbg, pfile);
 			if (baddr != UT64_MAX && baddr != 0) {
 				eprintf ("bin.baddr 0x%08" PFMT64x "\n", baddr);
-				va = 2;
 			}
 			if (run_anal > 0) {
 				if (baddr && baddr != UT64_MAX) {
@@ -1086,6 +1155,10 @@ int main(int argc, char **argv, char **envp) {
 		}
 		if (!r.file) { // no given file
 			return 1;
+		}
+		if (r.bin->cur && r.bin->cur->o && r.bin->cur->o->info && r.bin->cur->o->info->rclass && !strcmp ("fs", r.bin->cur->o->info->rclass)) {
+			const char *fstype = r.bin->cur->o->info->bclass;
+			r_core_cmdf (&r, "m /root %s @ 0", fstype);
 		}
 		iod = r.io ? r_io_desc_get (r.io, fh->fd) : NULL;
 #if USE_THREADS
@@ -1123,8 +1196,6 @@ int main(int argc, char **argv, char **envp) {
 		if (asmos) {
 			r_config_set (r.config, "asm.os", asmos);
 		}
-
-		(void)r_core_bin_update_arch_bits (&r);
 
 		debug = r.file && iod && (r.file->fd == iod->fd) && iod->plugin && \
 			iod->plugin->isdbg;
@@ -1184,10 +1255,11 @@ int main(int argc, char **argv, char **envp) {
 			char f[128];
 			snprintf (f, sizeof (f), "%s.r2", pfile);
 			if (r_file_exists (f)) {
-				if (!quiet) {
-					eprintf ("NOTE: Loading '%s' script.\n", f);
+				// TODO: should 'q' unset the interactive bit?
+				bool isInteractive = r_config_get_i (r.config, "scr.interactive");
+				if (isInteractive && r_cons_yesno ('n', "Do you want to run the '%s' script? (y/N) ", f)) {
+					r_core_cmd_file (&r, f);
 				}
-				r_core_cmd_file (&r, f);
 			}
 		}
 	}
@@ -1220,7 +1292,7 @@ int main(int argc, char **argv, char **envp) {
 #if UNCOLORIZE_NONTTY
 #if __UNIX__
 	if (!r_cons_isatty ()) {
-		r_config_set_i (r.config, "scr.color", 0);
+		r_config_set_i (r.config, "scr.color", COLOR_MODE_DISABLED);
 	}
 #endif
 #endif
@@ -1278,6 +1350,7 @@ int main(int argc, char **argv, char **envp) {
 				r_core_cmd0 (&r, "aeip");
 			}
 		}
+		loading_stop ();
 		for (;;) {
 #if USE_THREADS
 			do {
@@ -1360,7 +1433,6 @@ int main(int argc, char **argv, char **envp) {
 
 	/* capture return value */
 	ret = r.num->value;
-
 beach:
 	if (quietLeak) {
 		exit (ret);
@@ -1368,7 +1440,7 @@ beach:
 	}
 	// not really needed, cause r_core_fini will close the file
 	// and this fh may be come stale during the command
-	// exectution.
+	// execution.
 	//r_core_file_close (&r, fh);
 	r_core_fini (&r);
 	r_cons_set_raw (0);

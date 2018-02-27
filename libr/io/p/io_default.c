@@ -20,6 +20,9 @@ typedef struct r_io_mmo_t {
 
 static int __io_posix_open(const char *file, int flags, int mode) {
 	int fd;
+	if (r_str_startswith (file, "file://")) {
+		file += strlen ("file://");
+	}
 	if (r_file_is_directory (file)) {
 		return -1;
 	}
@@ -154,7 +157,9 @@ RIOMMapFileObj *r_io_def_mmap_create_new_file(RIO  *io, const char *filename, in
 }
 
 static int r_io_def_mmap_close(RIODesc *fd) {
-	if (!fd || !fd->data) return -1;
+	if (!fd || !fd->data) {
+		return -1;
+	}
 	r_io_def_mmap_free ((RIOMMapFileObj *) fd->data);
 	fd->data = NULL;
 	return 0;
@@ -162,6 +167,9 @@ static int r_io_def_mmap_close(RIODesc *fd) {
 
 static bool r_io_def_mmap_check_default (const char *filename) {
 	if (filename) {
+		if (r_str_startswith (filename, "file://")) {
+			filename += strlen ("file://");
+		}
 		const char * peekaboo = (!strncmp (filename, "nocache://", 10))
 			? NULL : strstr (filename, "://");
 		if (!peekaboo || (peekaboo-filename) > 10) {
@@ -182,8 +190,9 @@ static int r_io_def_mmap_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 		return count;
 	}
 	mmo = fd->data;
-	if (!mmo)
+	if (!mmo) {
 		return -1;
+	}
 	if (mmo->rawio) {
 		if (fd->obsz) {
 			char *a_buf;
@@ -329,6 +338,9 @@ static bool __plugin_open_default(RIO *io, const char *file, bool many) {
 // default open should permit opening
 static RIODesc *__open_default(RIO *io, const char *file, int flags, int mode) {
 	RIODesc *iod;
+	if (r_str_startswith (file, "file://")) {
+		file += strlen ("file://");
+	}
 	if (!r_io_def_mmap_check_default (file)) {
 		return NULL;
 	}
@@ -380,6 +392,10 @@ static bool __is_blockdevice (RIODesc *desc) {
 }
 #endif
 
+static char *__system(RIO *io, RIODesc *desc, const char *cmd) {
+	return NULL;
+}
+
 RIOPlugin r_io_plugin_default = {
 	.name = "default",
 	.desc = "open local files using def_mmap://",
@@ -391,6 +407,7 @@ RIOPlugin r_io_plugin_default = {
 	.lseek = __lseek,
 	.write = __write,
 	.resize = __resize,
+	.system = __system,
 #if __UNIX__
 	.is_blockdevice = __is_blockdevice,
 #endif

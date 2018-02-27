@@ -30,7 +30,7 @@ You will want to set your favourite options in `~/.radare2rc` since every line t
 
 ```
 # Show comments at right of disassembly if they fit in screen
-e asm.cmtright=true
+e asm.cmt.right=true
 
 # Shows pseudocode in disassembly. Eg mov eax, str.ok = > eax = str.ok
 e asm.pseudo = true
@@ -237,7 +237,7 @@ wf file: Writes the content of the file at the current address or specified offs
 wF file: Writes the content of the file at the current address or specified offset
 wt file [sz]: Write to file (from current seek, blocksize or sz bytes)
 	Eg: Dump ELF files with wt @@ hit0* (after searching for ELF headers: \x7fELF)
-woO 41424344 : get the index in the De Bruijn Pattern of the given word
+wopO 41424344 : get the index in the De Bruijn Pattern of the given word
 ```
 
 ## Flags
@@ -526,11 +526,9 @@ All suite commands include a `-r` flag to generate instructions for r2
 ## rax2 - Base conversion
 ```
 -e: Change endian
--k: random ASCII art to represent a number/hash. Similar to how SSH represents keys
--s: ASCII to hex
-	rax2 -S hola (from string to hex)
-	rax2 -s 686f6c61 (from hex to string)
--S: binary to hex (for files)
+-K: random ASCII art to represent a number/hash. Similar to how SSH represents keys
+-s: hexstr -> raw
+-S: raw -> hexstr
 ```
 
 ## rahash2 - Entropy, hashes and checksums
@@ -569,7 +567,7 @@ Show differences between original and patched on x86_32
 -D:	Disassemble showing hexpair and opcode
 	rasm2 -D b81e0000 => 0x00000000   5               b81e000000  mov eax, 0x1e
 -f: Read data from file instead of ARG.
--t: Write data to file
+-O filename: Write data to file
 ```
 
 ## rafind2 - Search
@@ -596,7 +594,7 @@ Generate a x86, 32 bits exec shellcode
 ## rabin2 - Executable analysis: symbols, imports, strings ...
 ```
 -I: Executable information
--C: Returns classes. Useful to list Java Classes
+-c: Returns classes. Useful to list Java Classes
 -l: Dynamic linked libraries
 -s: Symbols
 -z: Strings

@@ -3367,7 +3367,8 @@ R_API RBinJavaAttrInfo *r_bin_java_unknown_attr_new(ut8 *buffer, ut64 sz, ut64 b
 }
 
 R_API ut64 r_bin_java_code_attr_calc_size(RBinJavaAttrInfo *attr) {
-	RListIter *iter, *iter_tmp;
+	RListIter *iter;
+	// RListIter *iter_tmp;
 	ut64 size = 0;
 	if (attr) {
 		// attr = r_bin_java_default_attr_new (buffer, sz, buf_offset);
@@ -3383,8 +3384,9 @@ R_API ut64 r_bin_java_code_attr_calc_size(RBinJavaAttrInfo *attr) {
 		}
 		// attr->info.code_attr.exception_table_length =  R_BIN_JAVA_USHORT (buffer, offset);
 		size += 2;
-		RBinJavaExceptionEntry *exc_entry;
-		r_list_foreach_safe (attr->info.code_attr.exception_table, iter, iter_tmp, exc_entry) {
+		// RBinJavaExceptionEntry *exc_entry;
+		// r_list_foreach_safe (attr->info.code_attr.exception_table, iter, iter_tmp, exc_entry) {
+		r_list_foreach_iter (attr->info.code_attr.exception_table, iter) {
 			// exc_entry->start_pc = R_BIN_JAVA_USHORT (buffer,offset);
 			size += 2;
 			// exc_entry->end_pc = R_BIN_JAVA_USHORT (buffer,offset);
@@ -3396,9 +3398,10 @@ R_API ut64 r_bin_java_code_attr_calc_size(RBinJavaAttrInfo *attr) {
 		}
 		// attr->info.code_attr.attributes_count = R_BIN_JAVA_USHORT (buffer, offset);
 		size += 2;
-		RBinJavaAttrInfo *_attr;
+		// RBinJavaAttrInfo *_attr;
 		if (attr->info.code_attr.attributes_count > 0) {
-			r_list_foreach_safe (attr->info.code_attr.attributes, iter, iter_tmp, _attr) {
+			// r_list_foreach_safe (attr->info.code_attr.attributes, iter, iter_tmp, _attr) {
+			r_list_foreach_iter (attr->info.code_attr.attributes, iter) {
 				size += r_bin_java_attr_calc_size (attr);
 			}
 		}
@@ -3795,12 +3798,14 @@ R_API RBinJavaAttrInfo *r_bin_java_line_number_table_attr_new(ut8 *buffer, ut64 
 
 R_API ut64 r_bin_java_line_number_table_attr_calc_size(RBinJavaAttrInfo *attr) {
 	ut64 size = 6;
-	RBinJavaLineNumberAttribute *lnattr;
-	RListIter *iter, *iter_tmp;
+	// RBinJavaLineNumberAttribute *lnattr;
+	RListIter *iter;
+	// RListIter *iter_tmp;
 	if (!attr) {
 		return 0LL;
 	}
-	r_list_foreach_safe (attr->info.line_number_table_attr.line_number_table, iter, iter_tmp, lnattr) {
+	// r_list_foreach_safe (attr->info.line_number_table_attr.line_number_table, iter, iter_tmp, lnattr) {
+	r_list_foreach_iter (attr->info.line_number_table_attr.line_number_table, iter) {
 		// lnattr->start_pc = R_BIN_JAVA_USHORT (buffer, offset);
 		size += 2;
 		// lnattr->line_number = R_BIN_JAVA_USHORT (buffer, offset);
@@ -3821,7 +3826,7 @@ R_API RBinJavaAttrInfo *r_bin_java_source_debug_attr_new(ut8 *buffer, ut64 sz, u
 		attr->info.debug_extensions.debug_extension = NULL;
 		return attr;
 	} else if ((attr->length + offset) > sz) {
-		eprintf ("r_bin_java_source_debug_attr_new: Expected %d bytes got %"
+		eprintf ("r_bin_java_source_debug_attr_new: Expected %d byte(s) got %"
 			PFMT64d " bytes for debug_extension.\n", attr->length, (offset + sz));
 	}
 	attr->info.debug_extensions.debug_extension = (ut8 *) malloc (attr->length);
@@ -3852,14 +3857,15 @@ R_API ut64 r_bin_java_local_variable_table_attr_calc_size(RBinJavaAttrInfo *attr
 	ut64 size = 0;
 	// ut64 offset = 0;
 	RListIter *iter;
-	RBinJavaLocalVariableAttribute *lvattr;
+	// RBinJavaLocalVariableAttribute *lvattr;
 	if (!attr) {
 		return 0LL;
 	}
 	size += 6;
 	// attr->info.local_variable_table_attr.table_length = R_BIN_JAVA_USHORT (buffer, offset);
 	size += 2;
-	r_list_foreach (attr->info.local_variable_table_attr.local_variable_table, iter, lvattr) {
+	// r_list_foreach (attr->info.local_variable_table_attr.local_variable_table, iter, lvattr) {
+	r_list_foreach_iter (attr->info.local_variable_table_attr.local_variable_table, iter) {
 		// lvattr->start_pc = R_BIN_JAVA_USHORT (buffer, offset);
 		size += 2;
 		// lvattr->length = R_BIN_JAVA_USHORT (buffer, offset);
@@ -3927,7 +3933,7 @@ R_API RBinJavaAttrInfo *r_bin_java_local_variable_table_attr_new(ut8 *buffer, ut
 }
 
 R_API ut64 r_bin_java_local_variable_type_table_attr_calc_size(RBinJavaAttrInfo *attr) {
-	RBinJavaLocalVariableTypeAttribute *lvattr;
+	// RBinJavaLocalVariableTypeAttribute *lvattr;
 	RListIter *iter;
 	ut64 size = 0;
 	if (attr) {
@@ -3935,7 +3941,8 @@ R_API ut64 r_bin_java_local_variable_type_table_attr_calc_size(RBinJavaAttrInfo 
 		size += 6;
 		// attr->info.local_variable_type_table_attr.table_length = R_BIN_JAVA_USHORT (buffer, offset);
 		size += 2;
-		r_list_foreach (list, iter, lvattr) {
+		// r_list_foreach (list, iter, lvattr) {
+		r_list_foreach_iter (list, iter) {
 			// lvattr->start_pc = R_BIN_JAVA_USHORT (buffer, offset);
 			size += 2;
 			// lvattr->length = R_BIN_JAVA_USHORT (buffer, offset);
@@ -4335,11 +4342,11 @@ R_API RBinJavaStackMapFrame *r_bin_java_stack_map_frame_new(ut8 *buffer, ut64 sz
 		IFDBG eprintf("r_bin_java_stack_map_frame_new: Parsing R_BIN_JAVA_STACK_FRAME_FULL_FRAME.\n");
 		stack_frame->offset_delta = R_BIN_JAVA_USHORT (buffer, offset);
 		offset += 2;
-		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Code Size > 65535, read(%d bytes), offset = 0x%08x.\n", var_sz, stack_frame->offset_delta);
+		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Code Size > 65535, read(%d byte(s)), offset = 0x%08x.\n", var_sz, stack_frame->offset_delta);
 		// Read the number of variables based on the max # local variable
 		stack_frame->number_of_locals = R_BIN_JAVA_USHORT (buffer, offset);
 		offset += 2;
-		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Max ulocalvar > 65535, read(%d bytes), number_of_locals = 0x%08x.\n", var_sz, stack_frame->number_of_locals);
+		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Max ulocalvar > 65535, read(%d byte(s)), number_of_locals = 0x%08x.\n", var_sz, stack_frame->number_of_locals);
 		IFDBG r_bin_java_print_stack_map_frame_summary(stack_frame);
 		// read the number of locals off the stack
 		for (i = 0; i < stack_frame->number_of_locals; i++) {
@@ -4357,7 +4364,7 @@ R_API RBinJavaStackMapFrame *r_bin_java_stack_map_frame_new(ut8 *buffer, ut64 sz
 		// Read the number of stack items based on the max size of stack
 		stack_frame->number_of_stack_items = R_BIN_JAVA_USHORT (buffer, offset);
 		offset += 2;
-		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Max ustack items > 65535, read(%d bytes), number_of_locals = 0x%08x.\n", var_sz, stack_frame->number_of_stack_items);
+		// IFDBG eprintf ("r_bin_java_stack_map_frame_new: Max ustack items > 65535, read(%d byte(s)), number_of_locals = 0x%08x.\n", var_sz, stack_frame->number_of_stack_items);
 		// read the stack items
 		for (i = 0; i < stack_frame->number_of_stack_items; i++) {
 			se = r_bin_java_read_from_buffer_verification_info_new (buffer + offset, sz - offset, buf_offset + offset);
@@ -8293,7 +8300,7 @@ R_API char *r_bin_java_resolve_b64_encode(RBinJavaObj *BIN_OBJ, ut16 idx) {
 		out = malloc (34);
 		memset (out, 0, 34);
 		if (str) {
-			snprintf (str, 34, "0x%llx", r_bin_java_raw_to_long (item->info.cp_long.bytes.raw, 0));
+			snprintf (str, 34, "0x%"PFMT64x, r_bin_java_raw_to_long (item->info.cp_long.bytes.raw, 0));
 			r_base64_encode (out, (const ut8 *) str, strlen (str));
 			free (str);
 			str = out;
@@ -8713,7 +8720,8 @@ R_API int U(r_bin_java_float_cp_set)(RBinJavaObj * bin, ut16 idx, float val) {
 	r_bin_java_check_reset_cp_obj (cp_obj, R_BIN_JAVA_CP_FLOAT);
 	cp_obj->tag = R_BIN_JAVA_CP_FLOAT;
 	memcpy (bytes, (const char *) &val, 4);
-	val = R_BIN_JAVA_UINT (bytes, 0);
+	float *foo = (float*) bytes;
+	val = *foo; //(float)R_BIN_JAVA_UINT (bytes, 0);
 	memcpy (&cp_obj->info.cp_float.bytes.raw, (const char *) &val, 4);
 	return true;
 }
@@ -8764,16 +8772,16 @@ R_API int U(r_bin_java_utf8_cp_set)(RBinJavaObj * bin, ut16 idx, const ut8 * buf
 	if (!cp_obj) {
 		return false;
 	}
-	eprintf ("Writing %d bytes (%s)\n", len, buffer);
+	eprintf ("Writing %d byte(s) (%s)\n", len, buffer);
 	// r_bin_java_check_reset_cp_obj(cp_obj, R_BIN_JAVA_CP_INTEGER);
 	if (cp_obj->tag != R_BIN_JAVA_CP_UTF8) {
 		eprintf ("Not supporting the overwrite of CP Objects with one of a different size.\n");
 		return false;
 	}
 	if (cp_obj->info.cp_utf8.length != len) {
-		eprintf ("Not supporting the resize, rewriting utf8 string up to %d bytes.\n", cp_obj->info.cp_utf8.length);
+		eprintf ("Not supporting the resize, rewriting utf8 string up to %d byte(s).\n", cp_obj->info.cp_utf8.length);
 		if (cp_obj->info.cp_utf8.length > len) {
-			eprintf ("Remaining %d bytes will be filled with \\x00.\n", cp_obj->info.cp_utf8.length - len);
+			eprintf ("Remaining %d byte(s) will be filled with \\x00.\n", cp_obj->info.cp_utf8.length - len);
 		}
 	}
 	memcpy (cp_obj->info.cp_utf8.bytes, buffer, cp_obj->info.cp_utf8.length);

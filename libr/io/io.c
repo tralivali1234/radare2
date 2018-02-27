@@ -120,6 +120,7 @@ static st64 on_map_skyline(RIO *io, ut64 vaddr, ut8 *buf, int len, int match_flg
 			break;
 		} else {
 			addr += len1;
+			ret = false;
 		}
 		// Reaches the end
 		if (addr == vaddr + len) {
@@ -241,13 +242,14 @@ R_API void r_io_free(RIO *io) {
 	free (io);
 }
 
-R_API RIODesc *r_io_open_as(RIO *io, const char *urihandler, const char *file, int flags, int mode) {
-	char *uri = (urihandler && *urihandler)
-		? r_str_newf ("%s://%s", urihandler, file)
-		: strdup (file);
-	RIODesc *ret = r_io_open_nomap (io, uri, flags, mode);
-	free (uri);
-	return ret;
+R_API RIODesc *r_io_open_buffer(RIO *io, RBuffer *b, int flags, int mode) {
+	const int bufSize = r_buf_size (b);
+	char *uri = r_str_newf ("malloc://%d", bufSize);
+	RIODesc *desc = r_io_open_nomap (io, uri, flags, mode);
+	if (desc) {
+		r_io_desc_write (desc, r_buf_get_at(b, 0, NULL), bufSize);
+	}
+	return desc;
 }
 
 R_API RIODesc *r_io_open_nomap(RIO *io, const char *uri, int flags, int mode) {
@@ -449,8 +451,10 @@ R_API bool r_io_read_at(RIO* io, ut64 addr, ut8* buf, int len) {
 	}
 	if (io->va) {
 		ret = r_io_vread_at (io, addr, buf, len);
+		io->ret = ret? len: -1;
 	} else {
-		ret = (r_io_pread_at (io, addr, buf, len) > 0);
+		io->ret = r_io_pread_at (io, addr, buf, len);
+		ret = io->ret > 0;
 	}
 	if (io->cached & R_IO_READ) {
 		(void)r_io_cache_read (io, addr, buf, len);
@@ -508,10 +512,13 @@ R_API bool r_io_write_at(RIO* io, ut64 addr, const ut8* buf, int len) {
 	}
 	if (io->cached & R_IO_WRITE) {
 		ret = r_io_cache_write (io, addr, mybuf, len);
+		io->ret = ret? len: -1;
 	} else if (io->va) {
 		ret = r_io_vwrite_at (io, addr, mybuf, len);
+		io->ret = ret? len: -1;
 	} else {
-		ret = (r_io_pwrite_at (io, addr, mybuf, len) > 0);
+		io->ret = r_io_pwrite_at (io, addr, mybuf, len);
+		ret = io->ret > 0;
 	}
 	if (buf != mybuf) {
 		free (mybuf);
@@ -553,11 +560,11 @@ R_API bool r_io_is_listener(RIO* io) {
 	return false;
 }
 
-R_API int r_io_system(RIO* io, const char* cmd) {
+R_API char *r_io_system(RIO* io, const char* cmd) {
 	if (io && io->desc && io->desc->plugin && io->desc->plugin->system) {
 		return io->desc->plugin->system (io, io->desc, cmd);
 	}
-	return -1;
+	return NULL;
 }
 
 R_API bool r_io_resize(RIO* io, ut64 newsize) {
@@ -670,10 +677,12 @@ R_API int r_io_bind(RIO* io, RIOBind* bnd) {
 	bnd->fd_write_at = r_io_fd_write_at;
 	bnd->fd_is_dbg = r_io_fd_is_dbg;
 	bnd->fd_get_name = r_io_fd_get_name;
+	bnd->fd_remap = r_io_map_remap_fd;
 	bnd->al_sort = r_io_accesslog_sort;
 	bnd->al_free = r_io_accesslog_free;
 	bnd->al_buf_byflags = r_io_accesslog_getf_buf_byflags;
 	bnd->is_valid_offset = r_io_is_valid_offset;
+	bnd->addr_is_mapped = r_io_addr_is_mapped;
 	bnd->sections_vget = r_io_sections_vget;
 	bnd->section_add = r_io_section_add;
 	bnd->sect_vget = r_io_section_vget;
@@ -684,6 +693,7 @@ R_API int r_io_bind(RIO* io, RIOBind* bnd) {
 R_API int r_io_shift(RIO* io, ut64 start, ut64 end, st64 move) {
 	ut8* buf;
 	ut64 chunksize = 0x10000;
+	ut64 saved_off = io->off;
 	ut64 src, shiftsize = r_num_abs (move);
 	if (!shiftsize || (end - start) <= shiftsize) {
 		return false;
@@ -712,6 +722,7 @@ R_API int r_io_shift(RIO* io, ut64 start, ut64 end, st64 move) {
 		rest -= chunksize;
 	}
 	free (buf);
+	io->off = r_io_desc_seek (io->desc, saved_off, R_IO_SEEK_SET);
 	return true;
 }
 

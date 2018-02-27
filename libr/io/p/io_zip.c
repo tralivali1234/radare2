@@ -391,7 +391,7 @@ static RIODesc *r_io_zip_open(RIO *io, const char *file, int rw, int mode) {
 							const char *slash = r_str_rchr (name, bin_name, '/');
 							if (slash) {
 								bin_name = r_str_ndup (slash + 1, (bin_name - slash) -1);
-								char *chkstr = r_str_newf ("Payload/%s.app/%s", bin_name);
+								char *chkstr = r_str_newf ("Payload/%s.app/%s", bin_name, bin_name);
 								if (!strcmp (name, chkstr)) {
 									zip_filename = r_str_newf ("//%s", chkstr);
 									free (chkstr);
@@ -647,7 +647,7 @@ RIOPlugin r_io_plugin_zip = {
 };
 
 #ifndef CORELIB
-struct r_lib_struct_t radare_plugin = {
+RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_zip,
 	.version = R2_VERSION

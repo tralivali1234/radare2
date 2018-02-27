@@ -64,13 +64,19 @@ static const char *help_msg_CS[] = {
 };
 
 static const char *help_msg_Cs[] = {
-	"Usage:", "Cs[-*] [size] [@addr]", "",
+	"Usage:", "Cs[ga-*.] [size] [@addr]", "",
+	"NOTE:", " size", "1 unit in bytes == width in bytes of smallest possible char in encoding,",
+	"", "", "  so ascii/latin1/utf8 = 1, utf16le = 2",
 	"Cs", "", "list all strings in human friendly form",
 	"Cs*", "", "list all strings in r2 commands",
 	"Cs", " [size] @addr", "add string (guess latin1/utf16le)",
+	"Csg", " [size] [@addr]", "as above but addr not needed",
 	" Cz", " [size] [@addr]", "ditto",
 	"Csa", " [size] [@addr]", "add ascii/latin1 string",
+	"Cs8", " [size] [@addr]", "add utf8 string",
 	"Cs-", " [@addr]", "remove string",
+	"Cs.", "", "show string at current address",
+	"Cs..", "", "show string + info about it at current address",
 	NULL
 };
 
@@ -386,7 +392,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 			if (out) {
 				//r_meta_add (core->anal->meta, R_META_TYPE_COMMENT, addr, 0, out);
 				r_core_cmdf (core, "CC-@0x%08"PFMT64x, addr);
-				//r_meta_del (core->anal->meta, input[0], addr, addr+1, NULL);
+				//r_meta_del (core->anal->meta, input[0], addr, addr+1);
 				r_meta_set_string (core->anal,
 						R_META_TYPE_COMMENT, addr, out);
 				free (out);
@@ -397,7 +403,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 	case '+':
 	case ' ':
 		{
-		const char* newcomment = r_str_chop_ro (input + 2);
+		const char* newcomment = r_str_trim_ro (input + 2);
 		char *text, *comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr);
 		char *nc = strdup (newcomment);
 		r_str_unescape (nc);
@@ -422,7 +428,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 		r_meta_list (core->anal, R_META_TYPE_COMMENT, 1);
 		break;
 	case '-': // "CC-"
-		r_meta_del (core->anal, R_META_TYPE_COMMENT, core->offset, 1, NULL);
+		r_meta_del (core->anal, R_META_TYPE_COMMENT, core->offset, 1);
 		break;
 	case 'u':
 		//
@@ -431,7 +437,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 		const char *arg = input + 2;
 		while (*arg && *arg == ' ') arg++;
 		if (!strncmp (arg, "base64:", 7)) {
-			char *s = (char *)sdb_decode (arg+7, NULL);
+			char *s = (char *)sdb_decode (arg + 7, NULL);
 			if (s) {
 				newcomment = s;
 			} else {
@@ -472,7 +478,7 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 				addr = r_num_math (core->num, input+3);
 				r_meta_del (core->anal,
 						R_META_TYPE_COMMENT,
-						addr, 1, NULL);
+						addr, 1);
 			} else eprintf ("Usage: CCa-[address]\n");
 			free (s);
 			return true;
@@ -512,8 +518,8 @@ static int cmd_meta_comment(RCore *core, const char *input) {
 }
 
 static int cmd_meta_hsdmf(RCore *core, const char *input) {
-	int n, type = input[0];
-	char *t = 0, *p, name[256];
+	int n, type = input[0], subtype;
+	char *t = 0, *p, *p2, name[256];
 	int repeat = 1;
 	ut64 addr_end = 0LL, addr = core->offset;
 
@@ -542,14 +548,29 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 		switch (input[2]) {
 		case '*':
 			core->num->value = r_meta_del (core->anal,
-					input[0], 0, UT64_MAX, NULL);
+					input[0], 0, UT64_MAX);
 			break;
 		case ' ':
-			addr = r_num_math (core->num, input+3);
-			/* fallthrough */
+			p2 = strchr (input + 3, ' ');
+			if (p2) {
+				ut64 i;
+				ut64 size = r_num_math (core->num, input + 3);
+				ut64 rep = r_num_math (core->num, p2 + 1);
+				ut64 cur_addr = addr;
+				if (!size) {
+					break;
+				}
+				for (i = 0; i < rep && UT64_MAX - cur_addr > size; i++, cur_addr += size) {
+					core->num->value = r_meta_del (core->anal, input[0], cur_addr, size);
+				}
+				break;
+			} else {
+				addr = r_num_math (core->num, input + 3);
+				/* fallthrough */
+			}
 		default:
 			core->num->value = r_meta_del (core->anal,
-					input[0], addr, 1, NULL);
+					input[0], addr, 1);
 			break;
 		}
 		break;
@@ -567,16 +588,64 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 			if (out) {
 				//r_meta_add (core->anal->meta, R_META_TYPE_COMMENT, addr, 0, out);
 				r_core_cmdf (core, "CC-@0x%08"PFMT64x, addr);
-				//r_meta_del (core->anal->meta, input[0], addr, addr+1, NULL);
+				//r_meta_del (core->anal->meta, input[0], addr, addr+1);
 				r_meta_set_string (core->anal, R_META_TYPE_COMMENT, addr, out);
 				free (out);
 			}
 			free (comment);
 		}
 		break;
+	case '.':
+		if (input[2] == '.') {
+			RAnalMetaItem *mi = r_meta_find (core->anal, addr, type, R_META_WHERE_HERE);
+			if (mi) {
+				r_meta_print (core->anal, mi, 0, false);
+			}
+			break;
+		}
+		char key[100];
+		const char *val;
+		RAnalMetaItem mi;
+		Sdb *s = core->anal->sdb_meta;
+		bool esc_bslash = core->print->esc_bslash;
+		snprintf (key, sizeof (key), "meta.%c.0x%" PFMT64x, type, addr);
+		val = sdb_const_get (s, key, 0);
+		if (!val) {
+			break;
+		}
+		if (!r_meta_deserialize_val (&mi, type, addr, val)) {
+			break;
+		}
+		if (!mi.str) {
+			break;
+		}
+		if (type == 's') {
+			char *esc_str;
+			switch (mi.subtype) {
+			case R_STRING_ENC_UTF8:
+				esc_str = r_str_escape_utf8 (mi.str, false, esc_bslash);
+				break;
+			case 0:  /* temporary legacy workaround */
+				esc_bslash = false;
+			default:
+				esc_str = r_str_escape_latin1 (mi.str, false, esc_bslash);
+			}
+			if (esc_str) {
+				r_cons_printf ("\"%s\"\n", esc_str);
+				free (esc_str);
+			} else {
+				r_cons_println ("<oom>");
+			}
+		} else {
+			r_cons_println (mi.str);
+		}
+		free (mi.str);
+		break;
 	case ' ':
 	case '\0':
+	case 'g':
 	case 'a':
+	case '8':
 		if (type != 'z' && !input[1] && !core->tmpseek) {
 			r_meta_list (core->anal, type, 0);
 			break;
@@ -584,10 +653,11 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 		if (type == 'z') {
 			type = 's';
 		}
-		if (strlen (input) > 2) {
-			char *rep = strchr (input + 2, '[');
+		int len = (!input[1] || input[1] == ' ') ? 2 : 3;
+		if (strlen (input) > len) {
+			char *rep = strchr (input + len, '[');
 			if (!rep) {
-				rep = strchr (input + 2, ' ');
+				rep = strchr (input + len, ' ');
 			}
 			if (rep) {
 				repeat = r_num_math (core->num, rep + 1);
@@ -598,7 +668,8 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 			repeat = 1;
 		}
 		while (repcnt < repeat) {
-			t = strdup (r_str_chop_ro (input + 1));
+			int off = (!input[1] || input[1] == ' ') ? 1 : 2;
+			t = strdup (r_str_trim_ro (input + off));
 			p = NULL;
 			n = 0;
 			strncpy (name, t, sizeof (name) - 1);
@@ -613,13 +684,14 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 								eprintf ("Cannot resolve struct size\n");
 								n = 32; //
 							}
+p = t;
 						}
 						//make sure we do not overflow on r_print_format
 						if (n > core->blocksize) {
 							n = core->blocksize;
 						}
 						int r = r_print_format (core->print, addr, core->block,
-							n, p + 1, 0, NULL, NULL);
+							n, p, 0, NULL, NULL);
 						if (r < 0) {
 							n  = -1;
 						}
@@ -630,7 +702,7 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 				} else if (type == 's') { //Cs
 					char tmp[256] = R_EMPTY;
 					int i, j, name_len = 0;
-					if (input[1] == 'a') {
+					if (input[1] == 'a' || input[1] == '8') {
 						(void)r_core_read_at (core, addr, (ut8*)name, sizeof (name) - 1);
 						name[sizeof (name) - 1] = '\0';
 						name_len = strlen (name);
@@ -684,7 +756,19 @@ static int cmd_meta_hsdmf(RCore *core, const char *input) {
 				n++;
 			}
 			addr_end = addr + n;
-			r_meta_add (core->anal, type, addr, addr_end, name);
+			if (type == 's') {
+				switch (input[1]) {
+				case 'a':
+				case '8':
+					subtype = input[1];
+					break;
+				default:
+					subtype = R_STRING_ENC_GUESS;
+				}
+				r_meta_add_with_subtype (core->anal, type, subtype, addr, addr_end, name);
+			} else {
+				r_meta_add (core->anal, type, addr, addr_end, name);
+			}
 			free (t);
 			repcnt ++;
 			addr = addr_end;
@@ -872,9 +956,9 @@ static int cmd_meta(void *data, const char *input) {
 		cmd_meta_hsdmf (core, input);
 		break;
 	case '-':
-		if (input[1]!='*') {
-			i = r_num_math (core->num, input+((input[1]==' ')?2:1));
-			r_meta_del (core->anal, R_META_TYPE_ANY, core->offset, i, "");
+		if (input[1] != '*') {
+			i = input[1] ? r_num_math (core->num, input + (input[1] == ' ' ? 2 : 1)) : 1;
+			r_meta_del (core->anal, R_META_TYPE_ANY, core->offset, i);
 		} else r_meta_cleanup (core->anal, 0LL, UT64_MAX);
 		break;
 	case '?':

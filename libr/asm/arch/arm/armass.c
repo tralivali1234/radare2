@@ -39,7 +39,10 @@ enum {
 	TYPE_UDF = 14,
 	TYPE_SHFT = 15,
 	TYPE_COPROC = 16,
-	TYPE_ENDIAN= 17,
+	TYPE_ENDIAN = 17,
+	TYPE_MUL = 18,
+	TYPE_CLZ = 19,
+	TYPE_REV = 20,
 };
 
 static int strcmpnull(const char *a, const char *b) {
@@ -105,7 +108,19 @@ static ArmOp ops[] = {
 	{ "mov", 0xa001, TYPE_MOV },
 	{ "mvn", 0xe000, TYPE_MOV },
 	{ "svc", 0xf, TYPE_SWI }, // ???
-	{ "hlt", 0x70000001, TYPE_HLT }, // ???
+	{ "hlt", 0x70000001, TYPE_HLT }, // ???u
+
+	{ "mul", 0x900000e0, TYPE_MUL},
+	{ "smull", 0x9000c0e0, TYPE_MUL},
+	{ "umull", 0x900080e0, TYPE_MUL},
+	{ "smlal", 0x9000e0e0, TYPE_MUL},
+	{ "smlabb", 0x800000e1, TYPE_MUL},
+	{ "smlabt", 0xc00000e1, TYPE_MUL},
+	{ "smlatb", 0xa00000e1, TYPE_MUL},
+	{ "smlatt", 0xe00000e1, TYPE_MUL},
+	{ "smlawb", 0x800020e1, TYPE_MUL},
+	{ "smlawt", 0xc00020e1, TYPE_MUL},
+
 
 	{ "ands", 0x1000, TYPE_ARI },
 	{ "and", 0x0000, TYPE_ARI },
@@ -125,8 +140,14 @@ static ArmOp ops[] = {
 	{"lsl", 0x1000a0e1, TYPE_SHFT},
 	{"ror", 0x7000a0e1, TYPE_SHFT},
 
+	{"rev16", 0xb00fbf06, TYPE_REV},
+	{"revsh", 0xb00fff06, TYPE_REV},
+	{"rev",   0x300fbf06, TYPE_REV},
+	{"rbit",  0x300fff06, TYPE_REV},
+
 	{"mrc", 0x100010ee, TYPE_COPROC},
 	{"setend", 0x000001f1, TYPE_ENDIAN},
+	{ "clz", 0x000f6f01, TYPE_CLZ},
 
 	{ NULL }
 };
@@ -295,7 +316,6 @@ static ut32 getshift(const char *str) {
 			if (bracket) {
 				*bracket = '\0';
 			}
-			i = getnum (arg);
 			// ensure only the bottom 5 bits are used
 			i &= 0x1f;
 			if (!i) i = 32;
@@ -497,41 +517,36 @@ static int thumb_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 		ao->o |= getreg (ao->a[0]) << 11;
 		return 2;
 	} else
-	if (!strcmpnull (ao->op, "blx")) {
+	if (!strcmpnull (ao->op, "blx") || !strcmpnull (ao->op, "bl")) {
 		int reg = getreg (ao->a[0]);
-		ao->o = 0xf000e800;
-		//ao->o = 0x00f000e8;
 		if (reg == -1) {
-			ut64 n = getnum (ao->a[0]);
-			if ((st64)n < 4 || (n & 3)) {
-				eprintf ("Invalid destination for blx\n");
+			ut64 n = r_num_math (NULL, ao->a[0]);
+			ut64 pc = ao->off + 4;
+			if (ao->op[2] == 'x') {
+				n |= pc & 0x2; // care for alignment
+				ao->o = 0xf000e800;
+			} else {
+				ao->o = 0xf000f800;
+			}
+			n -= pc;
+			if ((n < (-1 * (1 << 22)) &&
+			    (n > ((1 << 22) - 2)))) {
+				eprintf("branch out of range or not even\n");
 				return 0;
 			}
-			n -= 4;
-			n -= ao->off;
-			n /= 4; // always aligned jump
-			ao->o |= (n & 0xffff) << 1;
-			ao->o |= (n >> 10 & 0xff) << 16;
+			int l = (n >> 1) & 0x7ff;
+			int h = (n >> 12) & 0x7ff;
+			ao->o |= h << 16 | l;
 			thumb_swap (&ao->o);
 		} else {
-			ao->o = 0x8047;
-			ao->o |= reg << 11;
+			if (ao->op[2] == 'x') {
+				ao->o = 0x8047;
+				ao->o |= reg << 11;
+			} else {
+				eprintf("bad parameter\n");
+				return 0;
+			}
 		}
-		// XXX: length = 4
-		return 4;
-	} else
-	if (!strcmpnull (ao->op, "bl")) {
-		int high, low;
-		high = low = (getnum (ao->a[0]) - 4);
-		high &= 0x7FFFFF;
-		high >>= 12;
-		high |= 0xF000;
-		low &= 0xFFF;
-		low >>= 1;
-		low |= 0xF800;
-		ao->o = low;
-		ao->o |= (high << 16);
-		thumb_swap (&ao->o);
 		// XXX: length = 4
 		return 4;
 	} else
@@ -1111,8 +1126,12 @@ static int arm_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 				if ((ret = getreg (ao->a[0])) == -1) {
 					ut32 dst = getnum (ao->a[0]);
 					dst -= (ao->off + 8);
+					if (dst & 0x2) {
+						ao->o = 0xfb;
+					} else {
+						ao->o = 0xfa;
+					}
 					dst /= 4;
-					ao->o = 0xfa;
 					ao->o |= ((dst >> 16) & 0xff) << 8;
 					ao->o |= ((dst >> 8) & 0xff) << 16;
 					ao->o |= ((dst) & 0xff) << 24;
@@ -1220,6 +1239,51 @@ static int arm_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 				ao->o |= (ret & 0xf000) >> 4;
 				ao->o |= (ret & 0xf00) << 8;
 				break;
+			case TYPE_MUL:
+				if (!strcmpnull (ao->op, "mul")) {
+					ret = getreg (ao->a[0]);
+					a = getreg (ao->a[1]);
+					b = getreg (ao->a[2]);
+					if (b == -1) {
+						b = a;
+						a = ret;
+					}
+					if (ret == -1 || a == -1) {
+						return 0;
+					}
+					ao->o |= ret << 8;
+					ao->o |= a << 24;
+					ao->o |= b << 16;
+				} else {
+					low = getreg (ao->a[0]);
+					high = getreg (ao->a[1]);
+					a = getreg (ao->a[2]);
+					b = getreg (ao->a[3]);
+					if (low == -1 || high == -1 || a == -1 || b == -1) {
+						return 0;
+					}
+					if (!strcmpnull (ao->op, "smlal")) {
+						ao->o |= low << 20;
+						ao->o |= high << 8;
+						ao->o |= a << 24;
+						ao->o |= b << 16;
+					} else if (!strncmp (ao->op, "smla", 4)) {
+						if (low > 14 || high > 14 || a > 14) {
+							return 0;
+						}
+						ao->o |= low << 8;
+						ao->o |= high << 24;
+						ao->o |= a << 16;
+						ao->o |= b << 20;
+						break;
+					} else {
+						ao->o |= low << 20;
+						ao->o |= high << 8;
+						ao->o |= a << 24;
+						ao->o |= b << 16;
+					}
+				}
+				break;
 			case TYPE_TST:
 				a = getreg (ao->a[0]);
 				b = getreg (ao->a[1]);
@@ -1273,6 +1337,20 @@ static int arm_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 					return 0;
 				}
 				ao->o |= reg << 24;
+				break;
+			case TYPE_REV:
+				reg = getreg (ao->a[0]);
+				if (reg == -1 || reg > 14) {
+					return 0;
+				}
+				ao->o |= reg << 20;
+
+				reg = getreg (ao->a[1]);
+				if (reg == -1 || reg > 14) {
+					return 0;
+				}
+				ao->o |= reg << 24;
+
 				break;
 			case TYPE_ENDIAN:
 				if (!strcmp (ao->a[0], "le")) {
@@ -1332,6 +1410,22 @@ static int arm_assemble(ArmOpcode *ao, ut64 off, const char *str) {
 					// optional opcode
 					ao->o |= coproc << 29;
 				}
+
+				break;
+			case TYPE_CLZ:
+				ao->o |= 1 << 28;
+
+				reg = getreg (ao->a[0]);
+				if (reg == -1 || reg > 14) {
+					return 0;
+				}
+				ao->o |= reg << 20;
+
+				reg = getreg (ao->a[1]);
+				if (reg == -1 || reg > 14) {
+					return 0;
+				}
+				ao->o |= reg << 24;
 
 				break;
 			}
