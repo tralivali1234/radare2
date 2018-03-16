@@ -648,12 +648,11 @@ static int get_info_mappings(linux_map_entry_t *me_head, size_t *maps_size) {
 	linux_map_entry_t *p;
 	int n_entries;
 	for (n_entries = 0, p = me_head; p; p = p->n) {
-		if (p->dumpeable) {
-			*maps_size += p->end_addr - p->start_addr;
-		}
 		/* We don't count maps which does not have r/w perms */
-		if ((p->perms & R_IO_READ) || (p->perms & R_IO_WRITE))
+		if (((p->perms & R_IO_READ) || (p->perms & R_IO_WRITE)) && p->dumpeable) {
+			*maps_size += p->end_addr - p->start_addr;
 			n_entries++;
+		}
 	}
 	return n_entries;
 }
@@ -724,7 +723,7 @@ static bool dump_elf_pheaders(RBuffer *dest, linux_map_entry_t *maps, elf_offset
 
 	/* write program headers */
 	for (me_p = maps; me_p; me_p = me_p->n) {
-		if (!(me_p->perms & R_IO_READ) && !(me_p->perms & R_IO_WRITE)) {
+		if ((!(me_p->perms & R_IO_READ) && !(me_p->perms & R_IO_WRITE)) || !me_p->dumpeable) {
 			continue;
 		}
 		phdr.p_type = PT_LOAD;
@@ -755,7 +754,6 @@ static bool dump_elf_map_content(RDebug *dbg, RBuffer *dest, linux_map_entry_t *
 	linux_map_entry_t *p;
 	ut8 *map_content;
 	size_t size;
-	size_t rbytes;
 	bool ret;
 
 	eprintf ("dump_elf_map_content starting\n\n");
@@ -769,17 +767,13 @@ static bool dump_elf_map_content(RDebug *dbg, RBuffer *dest, linux_map_entry_t *
 		if (!map_content) {
 			return false;
 		}
-		rbytes = dbg->iob.read_at (dbg->iob.io, p->start_addr, map_content, size);
-		if (rbytes != size) {
-			eprintf ("dump_elf_map_content: size not equal\n");
+		ret = dbg->iob.read_at (dbg->iob.io, p->start_addr, map_content, size);
+		if (!ret) {
+			eprintf ("Problems reading %"PFMTSZd" bytes at %"PFMT64x"\n", (ut64)size, (ut64)p->start_addr);
 		} else {
 			ret = r_buf_append_bytes (dest, (const ut8*)map_content, size);
 			if (!ret) {
 				eprintf ("r_buf_append_bytes - failed\n");
-				/* Huge map files can be a problem here:
-					Because sometimes r_buf_append_bytes fails reallocing new size due to a high memory usage.
-					Little trick for freeing some mem would be flush everything to disk and start from scratch. */
-				/* We need a trick */
 			}
 		}
 		free (map_content);

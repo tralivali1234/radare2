@@ -773,6 +773,9 @@ repeat:
 				break; // unspecified behaviour
 			}
 		}
+		if (op.hint.new_bits) {
+			r_anal_hint_set_bits (anal, op.jump, op.hint.new_bits);
+		}
 		if (idx > 0 && !overlapped) {
 			bbg = bbget (fcn, addr + idx);
 			if (bbg && bbg != bb) {
@@ -1395,11 +1398,7 @@ R_API int r_anal_fcn(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut8 *buf, ut64 
 		r_list_foreach (fcn->bbs, iter, bb) {
 			if (endaddr == bb->addr) {
 				endaddr += bb->size;
-			} else if (endaddr < bb->addr &&
-			bb->addr - endaddr <
-			anal->opt.bbs_alignment &&
-			!(bb->addr &
-			(anal->opt.bbs_alignment - 1))) {
+			} else if (endaddr < bb->addr && bb->addr - endaddr < anal->opt.bbs_alignment && !(bb->addr & (anal->opt.bbs_alignment - 1))) {
 				endaddr = bb->addr + bb->size;
 			} else {
 				break;
@@ -1518,6 +1517,8 @@ R_API int r_anal_fcn_del(RAnal *a, ut64 addr) {
 					a->cb.on_fcn_delete (a, a->user, fcni);
 				}
 				r_anal_fcn_tree_delete (&a->fcn_tree, fcni);
+				r_list_delete (a->fcns, iter);
+			} else if (fcni->addr == addr) {
 				r_list_delete (a->fcns, iter);
 			}
 		}
@@ -2025,11 +2026,11 @@ R_API int r_anal_fcn_count_edges(RAnalFunction *fcn, int *ebbs) {
 }
 
 R_API RList *r_anal_fcn_get_refs(RAnal *anal, RAnalFunction *fcn) {
-	RList *ret = r_list_clone (fcn->refs);
+	RList *ret = (fcn) ? r_list_clone (fcn->refs) : NULL;
 	return ret;
 }
 
 R_API RList *r_anal_fcn_get_xrefs(RAnal *anal, RAnalFunction *fcn) {
-	RList *ret = r_list_clone (fcn->xrefs);
+	RList *ret = (fcn) ? r_list_clone (fcn->xrefs) : NULL;
 	return ret;
 }

@@ -81,20 +81,13 @@ struct {
 } colors[] = {
 	{ "black",    RColor_BLACK,    Color_BLACK,    Color_BGBLACK },
 	{ "red",      RColor_RED,      Color_RED,      Color_BGRED },
-	{ "bred",     RColor_BRED,     Color_BRED,     Color_BGRED },
 	{ "white",    RColor_WHITE,    Color_WHITE,    Color_BGWHITE },
 	{ "green",    RColor_GREEN,    Color_GREEN,    Color_BGGREEN },
-	{ "bgreen",   RColor_BGREEN,   Color_BGREEN,   Color_BGGREEN },
 	{ "magenta",  RColor_MAGENTA,  Color_MAGENTA,  Color_BGMAGENTA },
-	{ "bmagenta", RColor_BMAGENTA, Color_BMAGENTA, Color_BGMAGENTA },
 	{ "yellow",   RColor_YELLOW,   Color_YELLOW,   Color_BGYELLOW },
-	{ "byellow",  RColor_BYELLOW,  Color_BYELLOW,  Color_BGBYELLOW },
 	{ "cyan",     RColor_CYAN,     Color_CYAN,     Color_BGCYAN },
-	{ "bcyan",    RColor_BCYAN,    Color_BCYAN,    Color_BGCYAN },
 	{ "blue",     RColor_BLUE,     Color_BLUE,     Color_BGBLUE },
-	{ "bblue",    RColor_BBLUE,    Color_BBLUE,    Color_BGBLUE },
 	{ "gray",     RColor_GRAY,     Color_GRAY,     Color_BGGRAY },
-	{ "bgray",    RColor_BGRAY,    Color_BGRAY,    Color_BGGRAY },
 	{ "none",     RColor_NULL,     Color_RESET,    Color_RESET },
 	{ NULL, RColor_NULL, NULL, NULL }
 };
@@ -118,7 +111,8 @@ R_API void r_cons_pal_init () {
 	cons->cpal.args               = (RColor) RColor_YELLOW;
 	cons->cpal.bin                = (RColor) RColor_CYAN;
 	cons->cpal.btext              = (RColor) RColor_YELLOW;
-	cons->cpal.call               = (RColor) RColor_BGREEN;
+	cons->cpal.call               = (RColor) RColor_GREEN;
+	cons->cpal.call.attr          = R_CONS_ATTR_BOLD;
 	cons->cpal.cjmp               = (RColor) RColor_GREEN;
 	cons->cpal.cmp                = (RColor) RColor_CYAN;
 	cons->cpal.comment            = (RColor) RColor_RED;
@@ -132,7 +126,8 @@ R_API void r_cons_pal_init () {
 	cons->cpal.fname              = (RColor) RColor_RED;
 	cons->cpal.help               = (RColor) RColor_GREEN;
 	cons->cpal.input              = (RColor) RColor_WHITE;
-	cons->cpal.invalid            = (RColor) RColor_BRED;
+	cons->cpal.invalid            = (RColor) RColor_RED;
+	cons->cpal.invalid.attr       = R_CONS_ATTR_BOLD;
 	cons->cpal.jmp                = (RColor) RColor_GREEN;
 	cons->cpal.label              = (RColor) RColor_CYAN;
 	cons->cpal.math               = (RColor) RColor_YELLOW;
@@ -141,14 +136,16 @@ R_API void r_cons_pal_init () {
 	cons->cpal.num                = (RColor) RColor_YELLOW;
 	cons->cpal.offset             = (RColor) RColor_GREEN;
 	cons->cpal.other              = (RColor) RColor_WHITE;
-	cons->cpal.pop                = (RColor) RColor_BMAGENTA;
+	cons->cpal.pop                = (RColor) RColor_MAGENTA;
+	cons->cpal.pop.attr           = R_CONS_ATTR_BOLD;
 	cons->cpal.prompt             = (RColor) RColor_YELLOW;
 	cons->cpal.push               = (RColor) RColor_MAGENTA;
 	cons->cpal.crypto             = (RColor) RColor_BGBLUE;
 	cons->cpal.reg                = (RColor) RColor_CYAN;
 	cons->cpal.ret                = (RColor) RColor_RED;
 	cons->cpal.swi                = (RColor) RColor_MAGENTA;
-	cons->cpal.trap               = (RColor) RColor_BRED;
+	cons->cpal.trap               = (RColor) RColor_RED;
+	cons->cpal.trap.attr          = R_CONS_ATTR_BOLD;
 
 	cons->cpal.ai_read            = (RColor) RColor_GREEN;
 	cons->cpal.ai_write           = (RColor) RColor_BLUE;
@@ -189,6 +186,7 @@ R_API void r_cons_pal_free () {
 			R_FREE (*color);
 		}
 	}
+	r_cons_rainbow_free ();
 }
 
 R_API void r_cons_pal_random () {
@@ -207,6 +205,7 @@ R_API char *r_cons_pal_parse (const char *str, RColor *outcol) {
 	RColor rcolor = (RColor) RColor_BLACK;
 	char *fgcolor;
 	char *bgcolor;
+	char *attr = NULL;
 	char out[128];
 	if (!str) {
 		return NULL;
@@ -218,7 +217,11 @@ R_API char *r_cons_pal_parse (const char *str, RColor *outcol) {
 	bgcolor = strchr (fgcolor + 1, ' ');
 	out[0] = 0;
 	if (bgcolor) {
-		*bgcolor++ = 0;
+		*bgcolor++ = '\0';
+		attr = strchr (bgcolor, ' ');
+		if (attr) {
+			*attr++ = '\0';
+		}
 	}
 
 	// Handle first color (fgcolor)
@@ -298,6 +301,30 @@ R_API char *r_cons_pal_parse (const char *str, RColor *outcol) {
 			}
 		}
 	}
+	if (attr) {
+		// Parse extra attributes.
+		const char *p = attr;
+		while (p) {
+			if (!strncmp(p, "bold", 4)) {
+				rcolor.attr |= R_CONS_ATTR_BOLD;
+			} else if (!strncmp(p, "dim", 3)) {
+				rcolor.attr |= 1u << 2;
+			} else if (!strncmp(p, "italic", 6)) {
+				rcolor.attr |= 1u << 3;
+			} else if (!strncmp(p, "underline", 9)) {
+				rcolor.attr |= 1u << 4;
+			} else if (!strncmp(p, "blink", 5)) {
+				rcolor.attr |= 1u << 5;
+			} else {
+				eprintf ("Failed to parse terminal attributes: %s\n", p);
+				break;
+			}
+			p = strchr (p, ' ');
+			if (p) {
+				p++;
+			}
+		}
+	}
 	if (outcol) {
 		*outcol = rcolor;
 	}
@@ -330,31 +357,31 @@ static void r_cons_pal_show_gs () {
 static void r_cons_pal_show_256 () {
 	RColor rc = RColor_BLACK;
 	r_cons_print ("\n\nXTerm colors:\n");
-	for (rc.r = 0x00; rc.r <= 0xff; rc.r += 0x28) {
+	int r = 0;
+	int g = 0;
+	int b = 0;
+	for (r = 0x00; r <= 0xff; r += 0x28) {
+		rc.r = r;
 		if (rc.r == 0x28) {
 			rc.r = 0x5f;
 		}
-		for (rc.b = 0x00; rc.b <= 0xff; rc.b += 0x28) {
+		for (b = 0x00; b <= 0xff; b += 0x28) {
+			rc.b = b;
 			if (rc.b == 0x28) {
 				rc.b = 0x5f;
 			}
-			for (rc.g = 0x00; rc.g <= 0xff; rc.g += 0x28) {
-				char fg[32], bg[32];
+			for (g = 0x00; g <= 0xff; g += 0x28) {
+				rc.g = g;
+				char bg[32];
 				if (rc.g == 0x28) {
 					rc.g = 0x5f;
 				}
-				if ((rc.r <= 0x5f) && (rc.g <= 0x5f)) {
-					strcpy (fg, Color_WHITE);
-				} else {
-					strcpy (fg, Color_BLACK);
-				}
+				const char *fg = ((rc.r <= 0x5f) && (rc.g <= 0x5f)) ? Color_WHITE: Color_BLACK;
 				r_cons_rgb_str (bg, &rc);
 				r_cons_printf ("%s%s rgb:%02x%02x%02x "
 					Color_RESET, fg, bg, rc.r, rc.g, rc.b);
-				if (rc.g == 0xff) {
-					r_cons_newline ();
-				}
 			}
+			r_cons_newline ();
 		}
 	}
 }

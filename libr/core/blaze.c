@@ -197,7 +197,8 @@ static void createFunction(RCore *core, fcn_t* fcn, const char *name) {
 		r_anal_fcn_add_bb (core->anal, f, cur->start, (cur->end - cur->start), cur->jump, cur->fail, 0, NULL);
 	}
 	if (!r_anal_fcn_insert (core->anal, f)) {
-		eprintf ("Failed to insert function\n");
+		// eprintf ("Failed to insert function\n");
+		r_anal_fcn_free (f);
 		//TODO free not added function
 		return;
 	}
@@ -222,6 +223,7 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 	bb_t *block = NULL;
 	int invalid_instruction_barrier = -20000;
 	bool debug = r_config_get_i (core->config, "cfg.debug");
+	bool nopskip = r_config_get_i (core->config, "anal.nopskip");
 
 	block_list = r_list_new ();
 	if (!block_list) {
@@ -257,6 +259,9 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 		}
 		switch (op->type) {
 		case R_ANAL_OP_TYPE_NOP:
+				if (nopskip && b_start == start + cur) {
+					b_start = start + cur + op->size;
+				}
 			break;
 		case R_ANAL_OP_TYPE_CALL:
 			if (r_anal_noreturn_at (core->anal, op->jump)) {

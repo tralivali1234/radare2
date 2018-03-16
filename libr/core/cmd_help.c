@@ -26,6 +26,7 @@ static const char *help_msg_root[] = {
 	"(macro arg0 arg1)",  "", "Manage scripting macros",
 	".", "[?] [-|(m)|f|!sh|cmd]", "Define macro or load r2, cparse or rlang file",
 	"=","[?] [cmd]", "Send/Listen for Remote Commands (rap://, http://, <fd>)",
+	"<","[...]", "Push escaped string into the RCons.readChar buffer",
 	"/","[?]", "Search for bytes, regexps, patterns, ..",
 	"!","[?] [cmd]", "Run given command as in system(3)",
 	"#","[?] !lang [..]", "Hashbang to run an rlang script",
@@ -59,6 +60,7 @@ static const char *help_msg_root[] = {
 	"?[??]","[expr]", "Help or evaluate math expression",
 	"?$?", "", "Show available '$' variables and aliases",
 	"?@?", "", "Misc help for '@' (seek), '~' (grep) (see ~?""?)",
+	"?>?", "", "Output redirection",
 	NULL
 };
 
@@ -94,6 +96,7 @@ static const char *help_msg_question[] = {
 	"?O", " [id]", "List mnemonics for current asm.arch / asm.bits",
 	"?p", " vaddr", "get physical address for given virtual address",
 	"?P", " paddr", "get virtual address for given physical one",
+	"?q", " eip-0x804800", "compute expression like ? or ?v but in quiet mode",
 	"?r", " [from] [to]", "generate random number between from-to",
 	"?s", " from to step", "sequence of numbers from to by steps",
 	"?S", " addr", "return section name of given address",
@@ -165,6 +168,15 @@ static const char *help_msg_question_V[] = {
 	NULL
 };
 
+static const char *help_msg_greater_sign[] = {
+	"Usage:", "[cmd]>[file]", "Redirects the console output of 'cmd' to 'file'",
+	"[cmd] > [file]", "", "Redirects STDOUT of 'cmd' to 'file'",
+	"[cmd] H> [file]", "", "Redirects html output of 'cmd' to 'file'",
+	"[cmd] 2> [file]", "", "Redirects STDERR of 'cmd' to 'file'",
+	"[cmd] 2> /dev/null", "", "Omits the STDERR output of 'cmd'",
+	NULL
+};
+
 static void cmd_help_init(RCore *core) {
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?, question);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, ?v, question_v);
@@ -223,18 +235,42 @@ static char *filterFlags(RCore *core, const char *msg) {
 	return buf;
 }
 
-R_API void r_core_clippy(const char *msg) {
-	int msglen = strlen (msg);
-	char *l = strdup (r_str_pad ('-', msglen));
-	char *s = strdup (r_str_pad (' ', msglen));
-	r_cons_printf (
+static const char *getClippy() {
+	const int choose = r_num_rand (3);
+	switch (choose) {
+	case 0: return
 " .--.     .-%s-.\n"
 " | _|     | %s |\n"
 " | O O   <  %s |\n"
 " |  |  |  | %s |\n"
 " || | /   `-%s-'\n"
 " |`-'|\n"
-" `---'\n", l, s, msg, s, l);
+" `---'\n";
+	case 1: return
+" .--.     .-%s-.\n"
+" | __\\    | %s |\n"
+" | > <   <  %s |\n"
+" |  \\|    | %s |\n"
+" |/_//    `-%s-'\n"
+" |  / \n"
+" `-'\n";
+	case 2: return
+" .--.     .-%s-.\n"
+" | _|_    | %s |\n"
+" | O O   <  %s |\n"
+" |  ||    | %s |\n"
+" | _:|    `-%s-'\n"
+" |   |\n"
+" `---'\n";
+	}
+	return "";
+}
+
+R_API void r_core_clippy(const char *msg) {
+	int msglen = strlen (msg);
+	char *l = strdup (r_str_pad ('-', msglen));
+	char *s = strdup (r_str_pad (' ', msglen));
+	r_cons_printf (getClippy(), l, s, msg, s, l);
 	free (l);
 	free (s);
 }
@@ -483,6 +519,23 @@ static int cmd_help(void *data, const char *input) {
 			r_list_free (list);
 		}
 		break;
+	case 'q': // "?q"
+		if (core->num->dbz) {
+			eprintf ("RNum ERROR: Division by Zero\n");
+		}
+		if (input[1] == '?') {
+			r_cons_printf ("|Usage: ?q [num]  # Update $? without printing anything\n"
+				"|?q 123; ?? x    # hexdump if 123 != 0");
+		} else {
+			const char *space = strchr (input, ' ');
+			if (space) {
+				n = r_num_math (core->num, space + 1);
+			} else {
+				n = r_num_math (core->num, "$?");
+			}
+			core->num->value = n; // redundant
+		}
+		break;
 	case 'v': // "?v"
 		{
 			const char *space = strchr (input, ' ');
@@ -578,7 +631,11 @@ static int cmd_help(void *data, const char *input) {
 		break;
 	case '@': // "?@"
 		if (input[1] == '@') {
-			r_core_cmd_help (core, help_msg_at_at);
+			if (input[2] == '@') {
+				r_core_cmd_help (core, help_msg_at_at_at);
+			} else {
+				r_core_cmd_help (core, help_msg_at_at);
+			}
 		} else {
 			r_core_cmd_help (core, help_msg_at);
 		}

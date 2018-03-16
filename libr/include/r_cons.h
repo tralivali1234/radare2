@@ -142,9 +142,12 @@ enum {
 
 enum { COLOR_MODE_DISABLED = 0, COLOR_MODE_16, COLOR_MODE_256, COLOR_MODE_16M };
 
-enum { ALPHA_RESET = 0x00, ALPHA_FG = 0x01, ALPHA_BG = 0x02, ALPHA_FGBG = 0x03, ALPHA_BOLD = 0x04 };
+enum { ALPHA_RESET = 0x00, ALPHA_FG = 0x01, ALPHA_BG = 0x02, ALPHA_FGBG = 0x03 };
+enum { R_CONS_ATTR_BOLD = 1 << 1 };
 
 typedef struct rcolor_t {
+	// bold, italic, underline, ...
+	ut8 attr;
 	ut8 a;
 	ut8 r;
 	ut8 g;
@@ -483,7 +486,6 @@ typedef struct r_cons_t {
 #define Color_BGMAGENTA  "\x1b[45m"
 #define Color_YELLOW     "\x1b[33m"
 #define Color_BGYELLOW   "\x1b[43m"
-#define Color_BGBYELLOW  "\x1b[1;43m"
 #define Color_CYAN       "\x1b[36m"
 #define Color_BGCYAN     "\x1b[46m"
 #define Color_BLUE       "\x1b[34m"
@@ -503,39 +505,29 @@ typedef struct r_cons_t {
 #define Color_BGRAY     "\x1b[1;38m"
 
 #ifdef _MSC_VER
-#define RCOLOR(a, r, g, b, bgr, bgg, bgb) {a, r, g, b, bgr, bgg, bgb}
+#define RCOLOR(a, r, g, b, bgr, bgg, bgb) {0, a, r, g, b, bgr, bgg, bgb}
 #else
-#define RCOLOR(a, r, g, b, bgr, bgg, bgb) (RColor) {a, r, g, b, bgr, bgg, bgb}
+#define RCOLOR(a, r, g, b, bgr, bgg, bgb) (RColor) {0, a, r, g, b, bgr, bgg, bgb}
 #endif
-#define RColor_NULL      RCOLOR(0x00,         0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BLACK     RCOLOR(ALPHA_FG,     0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BGBLACK   RCOLOR(ALPHA_BG,     0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_RED       RCOLOR(ALPHA_FG,     0xff, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BGRED     RCOLOR(ALPHA_BG,     0xff, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_WHITE     RCOLOR(ALPHA_FG,     0xff, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGWHITE   RCOLOR(ALPHA_BG,     0xff, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_GREEN     RCOLOR(ALPHA_FG,     0x00, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BGGREEN   RCOLOR(ALPHA_BG,     0x00, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_MAGENTA   RCOLOR(ALPHA_FG,     0xff, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGMAGENTA RCOLOR(ALPHA_BG,     0xff, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_YELLOW    RCOLOR(ALPHA_FG,     0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BGYELLOW  RCOLOR(ALPHA_BG,     0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_CYAN      RCOLOR(ALPHA_FG,     0x00, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGCYAN    RCOLOR(ALPHA_BG,     0x00, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BLUE      RCOLOR(ALPHA_FG,     0x00, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGBLUE    RCOLOR(ALPHA_BG,     0x00, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_GRAY      RCOLOR(ALPHA_FG,     0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00)
-#define RColor_BGGRAY    RCOLOR(ALPHA_BG,     0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00)
-#define RColor_BBLACK    RCOLOR(ALPHA_BOLD,   0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BRED      RCOLOR(ALPHA_BOLD,   0xff, 0x00, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BGBYELLOW RCOLOR(ALPHA_BG,     0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BWHITE    RCOLOR(ALPHA_BOLD,   0xff, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGREEN    RCOLOR(ALPHA_BOLD,   0x00, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BMAGENTA  RCOLOR(ALPHA_BOLD,   0xff, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BYELLOW   RCOLOR(ALPHA_BOLD,   0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
-#define RColor_BCYAN     RCOLOR(ALPHA_BOLD,   0x00, 0xff, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BBLUE     RCOLOR(ALPHA_BOLD,   0x00, 0x00, 0xff, 0x00, 0x00, 0x00)
-#define RColor_BGRAY     RCOLOR(ALPHA_BOLD,   0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00)
+#define RColor_NULL      RCOLOR(0x00,     0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+#define RColor_BLACK     RCOLOR(ALPHA_FG, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+#define RColor_BGBLACK   RCOLOR(ALPHA_BG, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+#define RColor_RED       RCOLOR(ALPHA_FG, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00)
+#define RColor_BGRED     RCOLOR(ALPHA_BG, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00)
+#define RColor_WHITE     RCOLOR(ALPHA_FG, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00)
+#define RColor_BGWHITE   RCOLOR(ALPHA_BG, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00)
+#define RColor_GREEN     RCOLOR(ALPHA_FG, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00)
+#define RColor_BGGREEN   RCOLOR(ALPHA_BG, 0x00, 0xff, 0x00, 0x00, 0x00, 0x00)
+#define RColor_MAGENTA   RCOLOR(ALPHA_FG, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00)
+#define RColor_BGMAGENTA RCOLOR(ALPHA_BG, 0xff, 0x00, 0xff, 0x00, 0x00, 0x00)
+#define RColor_YELLOW    RCOLOR(ALPHA_FG, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
+#define RColor_BGYELLOW  RCOLOR(ALPHA_BG, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00)
+#define RColor_CYAN      RCOLOR(ALPHA_FG, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00)
+#define RColor_BGCYAN    RCOLOR(ALPHA_BG, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00)
+#define RColor_BLUE      RCOLOR(ALPHA_FG, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00)
+#define RColor_BGBLUE    RCOLOR(ALPHA_BG, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00)
+#define RColor_GRAY      RCOLOR(ALPHA_FG, 0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00)
+#define RColor_BGGRAY    RCOLOR(ALPHA_BG, 0x7f, 0x7f, 0x7f, 0x00, 0x00, 0x00)
 
 #define Colors_PLAIN { \
 	Color_BLACK, Color_RED, Color_WHITE, \
@@ -698,6 +690,8 @@ R_API void r_cons_cmd_help(const char * help[], bool use_color);
 //R_API int  r_cons_fgets(char *buf, int len, int argc, const char **argv);
 R_API int r_cons_controlz(int ch);
 R_API int r_cons_readchar(void);
+R_API bool r_cons_readpush(const char *str, int len);
+R_API void r_cons_readflush();
 R_API int r_cons_readchar_timeout(ut32 usec);
 R_API int r_cons_any_key(const char *msg);
 R_API int r_cons_eof(void);
@@ -787,9 +781,14 @@ typedef struct r_line_comp_t {
 
 typedef char* (*RLineEditorCb)(void *core, const char *str);
 
+typedef int (*RLineHistoryUpCb)(RLine* line);
+typedef int (*RLineHistoryDownCb)(RLine* line);
+
 struct r_line_t {
 	RLineCompletion completion;
 	RLineHistory history;
+	RLineHistoryUpCb history_up_cb;
+	RLineHistoryDownCb history_down_cb;
 	RLineBuffer buffer;
 	RLineEditorCb editor_cb;
 	int echo;
@@ -802,6 +801,8 @@ struct r_line_t {
 	int (*hist_down)(void *user);
 	char *contents;
 	bool zerosep;
+	bool offset_prompt;
+	int offset_index;
 }; /* RLine */
 
 #ifdef R_API
@@ -825,6 +826,10 @@ R_API int r_line_hist_label(const char *label, void (*cb)(const char*));
 R_API void r_line_label_show(void);
 R_API int r_line_hist_list(void);
 R_API const char *r_line_hist_get(int n);
+
+R_API int r_line_set_hist_callback(RLine *line, RLineHistoryUpCb cb_up, RLineHistoryDownCb cb_down);
+R_API int cmd_history_up(RLine *line);
+R_API int cmd_history_down(RLine *line);
 
 #define R_CONS_INVERT(x,y) (y? (x?Color_INVERT: Color_INVERT_RESET): (x?"[":"]"))
 
@@ -900,13 +905,6 @@ typedef struct r_ascii_graph_t {
 	int n_layers;
 	RList *dists; /* RList<struct dist_t> */
 	RList *edges; /* RList<AEdge> */
-
-	/* colors */
-	const char *color_box;
-	const char *color_box2;
-	const char *color_box3;
-	const char *color_true;
-	const char *color_false;
 } RAGraph;
 
 #ifdef R_API

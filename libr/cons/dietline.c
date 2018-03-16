@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2017 - pancake */
+/* radare - LGPL - Copyright 2007-2018 - pancake */
 /* dietline is a lightweight and portable library similar to GNU readline */
 
 #include <r_cons.h>
@@ -109,15 +109,22 @@ R_API int r_line_dietline_init() {
 /* read utf8 char into 's', return the length in bytes */
 static int r_line_readchar_utf8(ut8 *s, int slen) {
 	// TODO: add support for w32
-	ssize_t len, t, i;
+	ssize_t len, i;
 	if (slen < 1) {
 		return 0;
 	}
+	int ch = r_cons_readchar ();
+	if (ch == -1) {
+		return -1;
+	}
+	*s = ch;
+#if 0
 	if ((t = read (0, s, 1)) != 1) {
 		return t;
 	}
-	s[0] = r_cons_controlz (s[0]);
-	if (s[0] < 0x80) {
+#endif
+	*s = r_cons_controlz (*s);
+	if (*s < 0x80) {
 		len = 1;
 	} else if ((s[0] & 0xe0) == 0xc0) {
 		len = 2;
@@ -132,8 +139,9 @@ static int r_line_readchar_utf8(ut8 *s, int slen) {
 		return -1;
 	}
 	for (i = 1; i < len; i++) {
-		if ((t = read (0, s + i, 1)) != 1) {
-			return t;
+		int ch = r_cons_readchar ();
+		if (ch != -1) {
+			s[i] = ch;
 		}
 		if ((s[i] & 0xc0) != 0x80) {
 			return -1;
@@ -155,7 +163,8 @@ static int r_line_readchar_win(int *vch) { // this function handle the input in 
 	if (I.zerosep) {
 		*vch = 0;
 		buf[0] = 0;
-		read (0, buf, 1);
+		if (read (0, buf, 1) != 1)
+			return -1;
 		return buf[0];
 	}
 
@@ -199,6 +208,9 @@ do_it_again:
 	return buf[0];
 }
 #endif
+
+#if 0
+// TODO use define here to hac
 static int r_line_readchar() {
 	ut8 buf[2];
 	*buf = '\0';
@@ -237,7 +249,8 @@ do_it_again:
 			}
 			if (buf[0] == 70) {
 				return 5;
-			} else if (buf[0] == 72) {
+			}
+			if (buf[0] == 72) {
 				return 1;
 			}
 			return 0;
@@ -261,6 +274,53 @@ do_it_again:
 	}
 #endif
 	return buf[0];
+}
+#endif
+
+R_API int r_line_set_hist_callback(RLine *line, RLineHistoryUpCb up_cb, RLineHistoryDownCb down_cb) {
+	line->history_up_cb = up_cb;
+	line->history_down_cb = down_cb;
+	line->offset_index = 0;
+	return 1;
+}
+
+R_API int cmd_history_up(RLine *line) {
+	if (line->hist_up) {
+		return line->hist_up (line->user);
+	}
+	if (!line->history.data) {
+		inithist ();
+	}
+	if (line->history.index > 0) {
+		strncpy (line->buffer.data, line->history.data[--line->history.index], R_LINE_BUFSIZE - 1);
+		line->buffer.index = line->buffer.length = strlen (line->buffer.data);
+		return true;
+	}
+	return false;
+}
+
+R_API int cmd_history_down(RLine *line) {
+	if (line->hist_down) {
+		return line->hist_down (line->user);
+	}
+	line->buffer.index = 0;
+	if (!line->history.data) {
+		inithist ();
+	}
+	if (line->history.index == line->history.top) {
+		return false;
+	}
+	line->history.index++;
+	if (line->history.index == line->history.top) {
+		line->buffer.data[0] = '\0';
+		line->buffer.index = line->buffer.length = 0;
+		return false;
+	}
+	if (line->history.data[line->history.index]) {
+		strncpy (line->buffer.data, line->history.data[line->history.index], R_LINE_BUFSIZE - 1);
+		line->buffer.index = line->buffer.length = strlen (line->buffer.data);
+	}
+	return true;
 }
 
 R_API int r_line_hist_add(const char *line) {
@@ -292,42 +352,17 @@ R_API int r_line_hist_add(const char *line) {
 }
 
 static int r_line_hist_up() {
-	if (I.hist_up) {
-		return I.hist_up (I.user);
+	if (!I.history_up_cb) {
+		r_line_set_hist_callback (&I, &cmd_history_up, &cmd_history_down);
 	}
-	if (!I.history.data) {
-		inithist ();
-	}
-	if (I.history.index > 0) {
-		strncpy (I.buffer.data, I.history.data[--I.history.index], R_LINE_BUFSIZE - 1);
-		I.buffer.index = I.buffer.length = strlen (I.buffer.data);
-		return true;
-	}
-	return false;
+	return I.history_up_cb (&I);
 }
 
 static int r_line_hist_down() {
-	if (I.hist_down) {
-		return I.hist_down (I.user);
+	if (!I.history_down_cb) {
+		r_line_set_hist_callback (&I, &cmd_history_up, &cmd_history_down);
 	}
-	I.buffer.index = 0;
-	if (!I.history.data) {
-		inithist ();
-	}
-	if (I.history.index == I.history.top) {
-		return false;
-	}
-	I.history.index++;
-	if (I.history.index == I.history.top) {
-		I.buffer.data[0] = '\0';
-		I.buffer.index = I.buffer.length = 0;
-		return false;
-	}
-	if (I.history.data[I.history.index]) {
-		strncpy (I.buffer.data, I.history.data[I.history.index], R_LINE_BUFSIZE - 1);
-		I.buffer.index = I.buffer.length = strlen (I.buffer.data);
-	}
-	return true;
+	return I.history_down_cb (&I);
 }
 
 R_API const char *r_line_hist_get(int n) {
@@ -548,6 +583,7 @@ R_API void r_line_autocomplete() {
 R_API const char *r_line_readline() {
 	return r_line_readline_cb (NULL, NULL);
 }
+
 #if __WINDOWS__ && !__CYGWIN__
 R_API const char *r_line_readline_cb_win(RLineReadCallback cb, void *user) {
 	int columns = r_cons_get_size (NULL) - 2;
@@ -961,9 +997,8 @@ _end:
 
 R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 #if __WINDOWS__ && !__CYGWIN__
-#if 1		// new implementation for read input at windows by skuater. If something fail set this to 0
+	// new implementation for read input at windows by skuater. If something fail set this to 0
 	return r_line_readline_cb_win (cb, user);
-#endif
 #endif
 	int columns = r_cons_get_size (NULL) - 2;
 	const char *gcomp_line = "";
@@ -1019,7 +1054,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		}
 		buf[utflen] = 0;
 #else
-		ch = r_line_readchar ();
+		ch = r_cons_readchar ();
 		if (ch == -1) {
 			r_cons_break_pop ();
 			return NULL;
@@ -1242,7 +1277,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 			}
 			break;
 		case 27:// esc-5b-41-00-00
-			buf[0] = r_line_readchar ();
+			buf[0] = r_cons_readchar ();
 			switch (buf[0]) {
 			case 127: // alt+bkspace
 				unix_word_rubout ();
@@ -1283,7 +1318,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 				}
 				break;
 			default:
-				buf[1] = r_line_readchar ();
+				buf[1] = r_cons_readchar ();
 				if (buf[1] == -1) {
 					r_cons_break_pop ();
 					return NULL;
@@ -1296,7 +1331,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 								I.buffer.data + I.buffer.index + 1,
 								strlen (I.buffer.data + I.buffer.index + 1) + 1);
 						}
-						buf[1] = r_line_readchar ();
+						buf[1] = r_cons_readchar ();
 						if (buf[1] == -1) {
 							r_cons_break_pop ();
 							return NULL;

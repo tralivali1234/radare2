@@ -23,9 +23,9 @@ CS_PATCHES=0
 else
 CS_TAR=
 CS_URL=$(GIT_PREFIX)github.com/aquynh/capstone.git
-CS_UPD=20180106
+CS_UPD=20180302
 CS_BRA=next
-CS_TIP=bdbc57de63725a98732ddc34b48de96f8ada66f2
+CS_TIP=4a1b580d069c82d60070d0869a87000db7cdabe2
 # REVERT THIS COMMIT BECAUSE ITS WRONG
 CS_REV=
 CS_PATCHES=1
@@ -37,7 +37,7 @@ HOST_CC?=gcc
 SHLR?=$(shell pwd)
 AR?=ar
 RANLIB?=ranlib
-MODS=sdb zip udis86 java tcc
+MODS=sdb zip java tcc
 MODS+=gdb qnx ar
 # lz4
 ifneq ($(CC),cccl)
@@ -171,9 +171,6 @@ sdb-sync sync-sdb:
 
 $(TCCLIB) libr_tcc/libr_tcc.${EXT_AR}:
 	cd libr_tcc ; $(MAKE)
-
-udis-sync udis86-sync sync-udis sync-udis86:
-	cd udis86 ; $(MAKE) sync
 
 tcc-clean tccclean:
 	cd libr_tcc ; $(MAKE) clean

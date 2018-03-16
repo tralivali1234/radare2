@@ -93,7 +93,8 @@ static const char *help_msg_om[] = {
 	"om", " fd vaddr [size] [paddr] [rwx] [name]", "create new io map",
 	"omm"," [fd]", "create default map for given fd. (omm `oq`)",
 	"om.", "", "show map, that is mapped to current offset",
-	"omn", " mapid [name]", "set/delete name for map with mapid",
+	"omn", " mapaddr [name]", "set/delete name for map which spans mapaddr",
+	"omni", " mapid [name]", "set/delete name for map with mapid",
 	"omn.", "([-|name])", "show/set/delete name for current map",
 	"omf", " [mapid] rwx", "change flags/perms for current/given map",
 	"omfg", "[+-]rwx", "change flags/perms for all maps (global)",
@@ -122,28 +123,28 @@ static const char *help_msg_oo[] = {
 };
 
 static const char *help_msg_oo_plus[] = {
-	"oo+", "", "reopen in read-write",
+	"Usage:", "oo+", " # reopen in read-write",
 	NULL
 };
 
 static const char *help_msg_oob[] = {
-	"oob", "", "reopen loading rbin info",
+	"Usage:", "oob", " # reopen loading rbin info",
 	NULL
 };
 
 static const char *help_msg_ood[] = {
-	"ood"," [args]","reopen in debugger mode (with args)",
+	"Usage:", "ood [args]", " # reopen in debugger mode (with args)",
 	"oodr"," [rarun2]","same as dor ..;ood",
 	NULL
 };
 
 static const char *help_msg_oon[] = {
-	"oon", "", "reopen without loading rbin info",
+	"Usage:", "oon", " # reopen without loading rbin info",
 	NULL
 };
 
 static const char *help_msg_oonn[] = {
-	"oonn", "", "reopen without loading rbin info, but with header flags",
+	"Usage:", "oonn", " # reopen without loading rbin info, but with header flags",
 	NULL
 };
 
@@ -537,6 +538,7 @@ static void cmd_omf (RCore *core, const char *input) {
 static void cmd_open_map(RCore *core, const char *input) {
 	ut64 fd = 0LL;
 	ut32 id = 0;
+	ut64 addr = 0;
 	char *s = NULL, *p = NULL, *q = NULL;
 	ut64 new;
 	RIOMap *map = NULL;
@@ -678,10 +680,13 @@ static void cmd_open_map(RCore *core, const char *input) {
 				}
 			}
 		} else {
-			if (!(s = strdup (&input[2]))) {
+			bool use_id = (input[2] == 'i') ? true : false;
+			s = strdup ( use_id ? &input[3] : &input[2]);
+			if (!s) {
 				break;
 			}
 			p = s;
+
 			while (*s == ' ') {
 				s++;
 			}
@@ -690,16 +695,26 @@ static void cmd_open_map(RCore *core, const char *input) {
 				break;
 			}
 			if (!(q = strchr (s, ' '))) {
-				id = (ut32)r_num_math (core->num, s);
-				map = r_io_map_get (core->io, id);
+				if (use_id) {
+					id = (ut32)r_num_math (core->num, s);
+					map = r_io_map_resolve (core->io, id);
+				} else {
+					addr = r_num_math (core->num, s);
+					map = r_io_map_get (core->io, addr);
+				}
 				r_io_map_del_name (map);
 				s = p;
 				break;
 			}
 			*q = '\0';
 			q++;
-			id = (ut32)r_num_math (core->num, s);
-			map = r_io_map_get (core->io, id);
+			if (use_id) {
+				id = (ut32)r_num_math (core->num, s);
+				map = r_io_map_resolve (core->io, id);
+			} else {
+				addr = r_num_math (core->num, s);
+				map = r_io_map_get (core->io, addr);
+			}
 			if (*q) {
 				r_io_map_set_name (map, q);
 			} else {
@@ -1323,7 +1338,7 @@ static int cmd_open(void *data, const char *input) {
 			break;
 		case 'd': // "ood" : reopen in debugger
 			if (input[2] == 'r') { // "oodr"
-				r_core_cmdf ("dor %s", input + 3);
+				r_core_cmdf (core, "dor %s", input + 3);
 				r_core_file_reopen_debug (core, "");
 			} else if ('?' == input[2]) {
 				r_core_cmd_help (core, help_msg_ood);

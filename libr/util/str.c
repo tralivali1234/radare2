@@ -1125,6 +1125,14 @@ static void r_str_byte_escape(const char *p, char **dst, int dot_nl, bool defaul
 		*q++ = '\\';
 		*q++ = 'b';
 		break;
+	case '\v':
+		*q++ = '\\';
+		*q++ = 'v';
+		break;
+	case '\a':
+		*q++ = '\\';
+		*q++ = 'a';
+		break;
 	default:
 		/* Outside the ASCII printable range */
 		if (!IS_PRINTABLE (*p)) {
@@ -1286,12 +1294,12 @@ R_API char *r_str_escape_utf8(const char *buf, bool show_asciidot, bool esc_bsla
 	return r_str_escape_utf (buf, -1, R_STRING_ENC_UTF8, show_asciidot, esc_bslash);
 }
 
-R_API char *r_str_escape_utf16le(const char *buf, int buf_size, bool show_asciidot) {
-	return r_str_escape_utf (buf, buf_size, R_STRING_ENC_UTF16LE, show_asciidot, true);
+R_API char *r_str_escape_utf16le(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash) {
+	return r_str_escape_utf (buf, buf_size, R_STRING_ENC_UTF16LE, show_asciidot, esc_bslash);
 }
 
-R_API char *r_str_escape_utf32le(const char *buf, int buf_size, bool show_asciidot) {
-	return r_str_escape_utf (buf, buf_size, R_STRING_ENC_UTF32LE, show_asciidot, true);
+R_API char *r_str_escape_utf32le(const char *buf, int buf_size, bool show_asciidot, bool esc_bslash) {
+	return r_str_escape_utf (buf, buf_size, R_STRING_ENC_UTF32LE, show_asciidot, esc_bslash);
 }
 
 /* ansi helpers */
@@ -1504,6 +1512,9 @@ R_API char *r_str_ansi_crop(const char *str, ut32 x, ut32 y, ut32 x2, ut32 y2) {
 	}
 	r_len = str_len + nr_of_lines * strlen (Color_RESET) + 1;
 	r = ret = malloc (r_len);
+	if (!r) {
+		return NULL;
+	}
 	r_end = r + r_len;
 	while (*str) {
 		/* crop height */
@@ -1525,7 +1536,7 @@ R_API char *r_str_ansi_crop(const char *str, ut32 x, ut32 y, ut32 x2, ut32 y2) {
 			ch++;
 			cw = 0;
 		} else {
-			if (ch >= y && ch < y2 && cw >= x && cw < x2) {
+			if (ch >= y && ch < y2) {
 				if (*str == 0x1b && *(str + 1) == '[') {
 					const char *ptr = str;
 					if ((r_end - r) > 2) {
@@ -1539,11 +1550,10 @@ R_API char *r_str_ansi_crop(const char *str, ut32 x, ut32 y, ut32 x2, ut32 y2) {
 					}
 					str = ptr;
 					continue;
-				} else {
+				} else if (cw >= x && cw < x2) {
 					*r++ = *str;
 				}
 			}
-
 			/* skip until newline */
 			if (cw >= x2) {
 				while (*str && *str != '\n') {
@@ -2607,17 +2617,27 @@ R_API bool r_str_endswith(const char *str, const char *needle) {
 	return !strcmp (str + (slen - nlen), needle);
 }
 
-R_API RList *r_str_split_list(char *str) {
-	int i, count, *a = r_str_split_lines (str, &count);
-	if (a) {
-		RList *list = r_list_newf (free);
-		for (i = 0; i < count; i++) {
-			r_list_append (list, str + a[i]);
+// Splits the string <str> by string <c> and returns the result in a list.
+R_API RList *r_str_split_list(char *str, const char *c)  {
+	RList *lst = r_list_new ();
+	char *aux;
+	bool first_loop = true;
+
+	for (;;) {
+		if (first_loop) {
+			aux = strtok (str, c);
+			first_loop = false;
+		} else {
+			aux = strtok (NULL, c);
 		}
-		free (a);
-		return list;
+
+		if (!aux) {
+			break;
+		}
+		r_list_append (lst, aux);
 	}
-	return NULL;
+
+	return lst;
 }
 
 R_API int *r_str_split_lines(char *str, int *count) {
@@ -2711,7 +2731,7 @@ static int strncmp_skip_color_codes(const char *s1, const char *s2, int n) {
 	int count = 0;
 	for (i = 0, j = 0; s1[i]  && s2[j] && count < n; i++, j++, count++) {
 		while (s1[i] == 0x1b) {
-			while (s1[i] && s1[i] != 'm') { 
+			while (s1[i] && s1[i] != 'm') {
 				i++;
 			}
 			if (s1[i]) {
@@ -2916,3 +2936,42 @@ R_API int r_snprintf(char *string, int len, const char *fmt, ...) {
 	va_end (ap);
 	return ret;
 }
+
+// Strips all the lines in str that contain key
+R_API void r_str_stripLine(char *str, const char *key)
+{
+	size_t i, j, klen, slen, off;
+	const char *ptr; 
+
+	if (!str || !key) {
+		return;
+	}
+	klen = strlen (key);
+	slen = strlen (str);
+
+	for (i = 0; i < slen; ) {
+		ptr = (char*) r_mem_mem ((ut8*) str + i, slen - i, (ut8*) "\n", 1);
+		if (!ptr) {
+			ptr = (char*) r_mem_mem ((ut8*) str + i, slen - i, (ut8*) key, klen);
+			if (ptr) {
+				str[i] = '\0';
+				break;
+			}
+			break;
+		}
+			
+		off = (size_t) (ptr - (str + i)) + 1;
+
+		ptr = (char*) r_mem_mem ((ut8*) str + i, off, (ut8*) key, klen);
+		if (ptr) {
+			for (j = i; j < slen - off + 1; j++) {
+				str[j] = str[j + off];
+			}
+			slen -= off;
+		} else {
+			i += off;
+		}
+	}
+	return;
+}
+

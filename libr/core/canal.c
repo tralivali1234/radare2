@@ -563,7 +563,6 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 		int delta = r_anal_fcn_size (fcn);
 		// XXX hack slow check io error
 		if (core->io->va) {
-
 			if (!r_io_is_valid_offset (core->io, at+delta, !core->anal->opt.noncode)) {
 				goto error;
 			}
@@ -2791,13 +2790,13 @@ R_API int r_core_anal_search_xrefs(RCore *core, ut64 from, ut64 to, int rad) {
 		(void)r_io_read_at (core->io, at, buf, bsz);
 		memset (block, -1, bsz);
 		if (!memcmp (buf, block, bsz)) {
-			//eprintf ("Error: skipping uninitialized block \n");
+		//	eprintf ("Error: skipping uninitialized block \n");
 			at += bsz;
 			continue;
 		}
 		memset (block, 0, bsz);
 		if (!memcmp (buf, block, bsz)) {
-			//eprintf ("Error: skipping uninitialized block \n");
+		//	eprintf ("Error: skipping uninitialized block \n");
 			at += bsz;
 			continue;
 		}

@@ -19,10 +19,10 @@ static const char *help_msg_w[] = {
 	"wb"," 010203","fill current block with cyclic hexpairs",
 	"wB","[-]0xVALUE","set or unset bits with given value",
 	"wc","","list all write changes",
-	"wc","[?][ir*?]","write cache undo/commit/reset/list (io.cache)",
+	"wc","[?][jir+-*?]","write cache undo/commit/reset/list (io.cache)",
 	"wd"," [off] [n]","duplicate N bytes from offset at current seek (memcpy) (see y?)",
 	"we","[?] [nNsxX] [arg]","extend write operations (insert instead of replace)",
-	"wf"," -|file","write contents of file at current offset",
+	"wf","[fs] -|file","write contents of file at current offset",
 	"wh"," r2","whereis/which shell command",
 	"wm"," f0ff","set binary mask hexpair to be used as cyclic write mask",
 	"wo","[?] hex","write in block with operation. 'wo?' fmi",
@@ -61,8 +61,9 @@ static const char *help_msg_wA[] = {
 };
 
 static const char *help_msg_wc[] = {
-	"Usage:", "wc[ir+-*?]","  # NOTE: Uses io.cache=true",
+	"Usage:", "wc[jir+-*?]","  # NOTE: Uses io.cache=true",
 	"wc","","list all write changes",
+	"wcj","","list all write changes in JSON",
 	"wc-"," [from] [to]","remove write op at curseek or given addr",
 	"wc+"," [addr]","commit change from cache to io",
 	"wc*","","\"\" in radare commands",
@@ -137,8 +138,16 @@ static const char *help_msg_wt[] = {
 	NULL
 };
 
+static const char *help_msg_wf[] = {
+	"Usage:", "wf[fs] [-|args ..]", " Write from (file, swap, offset)",
+	"wf", " 10 20", "write 20 bytes from offset 10 into current seek",
+	"wff", " file [len]", "write contents of file into current offset",
+	"wfs", " 10 20", "swap 20 bytes betweet current offset and 10",
+	NULL
+};
+
 static const char *help_msg_wv[] = {
-	"Usage:", "wv[size] [value]", "write value of given size",
+	"Usage:", "wv[size] [value]", " Write value of given size",
 	"wv", " 0x834002", "write dword with this value",
 	"wv1", " 234", "write one byte with this value",
 	"Supported sizes are:", "1, 2, 4, 8", "",
@@ -286,6 +295,7 @@ static void cmd_write_inc(RCore *core, int size, st64 num) {
 static void cmd_write_op (RCore *core, const char *input) {
 	ut8 *buf;
 	int len;
+	int value;
 	if (!input[0])
 		return;
 	switch (input[1]) {
@@ -341,7 +351,7 @@ static void cmd_write_op (RCore *core, const char *input) {
 				}
 			}
 			algo = args;
-			if (algo && *algo) {
+			if (algo && *algo && key) {
 				encrypt_or_decrypt_block (core, algo, key, direction, iv);
 			} else {
 				eprintf ("Usage: wo%c [algo] [key] [IV]\n", ((!direction)?'E':'D'));
@@ -409,11 +419,13 @@ static void cmd_write_op (RCore *core, const char *input) {
 			}
 			break;
 		case 'O': // "wopO"
-			len = (int)(input[3]==' ')
-				? r_num_math (core->num, input + 3)
-				: core->blocksize;
-			core->num->value = r_debruijn_offset (len, r_config_get_i (core->config, "cfg.bigendian"));
-			r_cons_printf ("%"PFMT64d"\n", core->num->value);
+			if (strlen (input) > 4 && strncmp (input + 4, "0x", 2)) {
+				eprintf ("Need hex value with `0x' prefix e.g. 0x41414142\n");
+			} else if (input[3] == ' ') {
+				value = r_num_get (core->num, input + 4);
+				core->num->value = r_debruijn_offset (value, r_config_get_i (core->config, "cfg.bigendian"));
+				r_cons_printf ("%"PFMT64d"\n", core->num->value);
+			}
 			break;
 		case '\0':
 		case '?':
@@ -498,15 +510,17 @@ static void cmd_write_value (RCore *core, const char *input) {
 	r_core_block_read (core);
 }
 
-static bool cmd_wf(RCore *core, const char *input) {
+static bool cmd_wff(RCore *core, const char *input) {
 	ut8 *buf;
 	int size;
+	// XXX: file names cannot contain spaces
 	const char *arg = input + ((input[1] == ' ') ? 2 : 1);
 	int wseek = r_config_get_i (core->config, "cfg.wseek");
 	char *p, *a = r_str_trim (strdup (arg));
-	// XXX: file names cannot contain spaces
 	p = strchr (a, ' ');
-	if (p) *p++ = 0;
+	if (p) {
+		*p++ = 0;
+	}
 
 	if (*arg =='?' || !*arg) {
 		eprintf ("Usage: wf [file] ([size] ([offset]))\n");
@@ -542,6 +556,87 @@ static bool cmd_wf(RCore *core, const char *input) {
 	} else {
 		eprintf ("Cannot open file '%s'\n", arg);
 	}
+	return true;
+}
+
+static bool ioMemcpy (RCore *core, ut64 dst, ut64 src, int len) {
+	bool ret = false;
+	if (len > 0) {
+		ut8 * buf = calloc (1, len);
+		if (buf) {
+			if (r_io_read_at (core->io, src, buf, len)) {
+				if (r_io_write_at (core->io, dst, buf, len)) {
+					r_core_block_read (core);
+					ret = true;
+				} else {
+					eprintf ("r_io_write_at failed at 0x%08"PFMT64x"\n", dst);
+				}
+			} else {
+				eprintf ("r_io_read_at failed at 0x%08"PFMT64x"\n", src);
+			}
+			free (buf);
+		}
+	}
+	return ret;
+}
+
+static bool cmd_wfs(RCore *core, const char *input) {
+	char * args = r_str_trim (strdup (input + 1));
+	char *arg = strchr (args, ' ');
+	int len = core->blocksize;
+	if (arg) {
+		*arg = 0;
+		len = r_num_math (core->num, arg + 1);
+	}
+	ut64 dst = core->offset;
+	ut64 src = r_num_math (core->num, args);
+	if (len > 0) {
+		// cache dest, memcpy, write cache
+		ut8 *buf = calloc (1, len);
+		if (buf) {
+			if (r_io_read_at (core->io, dst, buf, len)) {
+				ioMemcpy (core, core->offset, src, len);
+				if (r_io_write_at (core->io, src, buf, len)) {
+					r_core_block_read (core);
+				} else {
+					eprintf ("Failed to write at 0x%08"PFMT64x"\n", src);
+				}
+			} else {
+				eprintf ("cmd_wfs: failed to read at 0x%08"PFMT64x"\n", dst);
+			}
+			free (buf);
+		}
+	}
+	free (args);
+	return true;
+}
+
+static bool cmd_wf(RCore *core, const char *input) {
+	if (!core || !*input) {
+		return false;
+	}
+	if (input[1] == '?') {
+		eprintf ("Usage: wf [file] ([size] ([offset]))\n");
+		r_core_cmd_help (core, help_msg_wf);
+		return false;
+	}
+	if (input[1] == 's') { // "wfs"
+		return cmd_wfs (core, input + 1);
+	}
+	if (input[1] == 'f') { // "wff"
+		return cmd_wff (core, input + 1);
+	}
+	char *args = r_str_trim (strdup (input + 1));
+	char *arg = strchr (args, ' ');
+	int len = core->blocksize;
+	if (arg) {
+		*arg++ = 0;
+		len = r_num_math (core->num, arg);
+	}
+	ut64 addr = r_num_math (core->num, args);
+	ioMemcpy (core, core->offset, addr, len);
+	free (args);
+	r_core_block_read (core);
 	return true;
 }
 
@@ -1217,7 +1312,7 @@ static int cmd_write(void *data, const char *input) {
 			}
 		}
 		break;
-	case 'f':
+	case 'f': // "wf"
 		cmd_wf (core, input);
 		break;
 	case 'w':

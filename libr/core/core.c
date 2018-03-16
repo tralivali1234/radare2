@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2017 - pancake */
+/* radare2 - LGPL - Copyright 2009-2018 - pancake */
 
 #include <r_core.h>
 #include <r_socket.h>
@@ -1088,6 +1088,7 @@ static int autocomplete(RLine *line) {
 		|| !strncmp (line->buffer.data, "wtf ", 4)
 		|| !strncmp (line->buffer.data, "wxf ", 4)
 		|| !strncmp (line->buffer.data, "dml ", 4)
+		|| !strncmp (line->buffer.data, "vim ", 4)
 		|| !strncmp (line->buffer.data, "less ", 5)
 		|| !strncmp (line->buffer.data, "ls -l ", 6)) {
 			autocompleteFilename (line, NULL, 1);
@@ -1230,9 +1231,11 @@ static int autocomplete(RLine *line) {
 		|| !strncmp (line->buffer.data, "agfl ", 5)
 		|| !strncmp (line->buffer.data, "aecu ", 5)
 		|| !strncmp (line->buffer.data, "aesu ", 5)
-		|| !strncmp (line->buffer.data, "aeim ", 5)) {
+		|| !strncmp (line->buffer.data, "aeim ", 5)
+		|| line->offset_prompt) {
 			int n, i = 0;
-			int sdelta = (line->buffer.data[1] == ' ')
+			int sdelta = line->offset_prompt 
+				? 0 : (line->buffer.data[1] == ' ')
 				? 2 : (line->buffer.data[2] == ' ')
 				? 3 : (line->buffer.data[3] == ' ')
 				? 4 : 5;
@@ -1722,6 +1725,10 @@ static bool r_core_anal_log(struct r_anal_t *anal, const char *msg) {
 	return true;
 }
 
+static bool r_core_anal_read_at(struct r_anal_t *anal, ut64 addr, ut8 *buf, int len) {
+	return r_io_read_at (anal->iob.io, addr, buf, len);
+}
+
 R_API bool r_core_init(RCore *core) {
 	core->blocksize = R_CORE_BLOCKSIZE;
 	core->block = (ut8*)calloc (R_CORE_BLOCKSIZE + 1, 1);
@@ -1779,6 +1786,8 @@ R_API bool r_core_init(RCore *core) {
 	core->egg = r_egg_new ();
 	r_egg_setup (core->egg, R_SYS_ARCH, R_SYS_BITS, 0, R_SYS_OS);
 
+	core->undos = r_list_newf ((RListFree)r_core_undo_free);
+
 	/* initialize libraries */
 	core->cons = r_cons_new ();
 	if (core->cons->refcnt == 1) {
@@ -1815,11 +1824,12 @@ R_API bool r_core_init(RCore *core) {
 	r_asm_set_user_ptr (core->assembler, core);
 	core->anal = r_anal_new ();
 	core->anal->log = r_core_anal_log;
+	core->anal->read_at = r_core_anal_read_at;
 	core->anal->meta_spaces.cb_printf = r_cons_printf;
 	core->anal->cb.on_fcn_new = on_fcn_new;
 	core->anal->cb.on_fcn_delete = on_fcn_delete;
 	core->anal->cb.on_fcn_rename = on_fcn_rename;
-	core->assembler->syscall = core->anal->syscall; // BIND syscall anal/asm
+	core->assembler->syscall = r_syscall_ref (core->anal->syscall); // BIND syscall anal/asm
 	r_anal_set_user_ptr (core->anal, core);
 	core->anal->cb_printf = (void *) r_cons_printf;
 	core->parser = r_parse_new ();
@@ -1913,6 +1923,8 @@ R_API RCore *r_core_fini(RCore *c) {
 	//update_sdb (c);
 	// avoid double free
 	r_core_free_autocomplete (c);
+	R_FREE (c->cmdlog);
+	r_th_lock_free (c->lock);
 	R_FREE (c->lastsearch);
 	c->cons->pager = NULL;
 	r_core_task_join (c, NULL);
@@ -1926,6 +1938,7 @@ R_API RCore *r_core_fini(RCore *c) {
 		c->cons->num = c->old_num;
 		c->old_num = NULL;
 	}
+	r_list_free (c->undos);
 	r_num_free (c->num);
 	// TODO: sync or not? sdb_sync (c->sdb);
 	// TODO: sync all dbs?
@@ -2072,8 +2085,9 @@ static void set_prompt (RCore *r) {
 	// TODO: also in visual prompt and disasm/hexdump ?
 	if (r_config_get_i (r->config, "asm.segoff")) {
 		ut32 a, b;
+		unsigned int seggrn = r_config_get_i (r->config, "asm.seggrn");
 
-		a = ((r->offset >> 16) << 12);
+		a = ((r->offset >> 16) << (16 - seggrn));
 		b = (r->offset & 0xffff);
 		snprintf (tmp, 128, "%04x:%04x", a, b);
 	} else {
@@ -2139,7 +2153,7 @@ R_API int r_core_prompt_exec(RCore *r) {
 	return ret;
 }
 
-R_API int r_core_block_size(RCore *core, int bsize) {
+R_API int r_core_seek_size(RCore *core, ut64 addr, int bsize) {
 	ut8 *bump;
 	int ret = false;
 	if (bsize < 0) {
@@ -2159,6 +2173,7 @@ R_API int r_core_block_size(RCore *core, int bsize) {
 		eprintf ("Block size %d is too big\n", bsize);
 		return false;
 	}
+	core->offset = addr;
 	if (bsize < 1) {
 		bsize = 1;
 	} else if (core->blocksize_max && bsize>core->blocksize_max) {
@@ -2178,6 +2193,10 @@ R_API int r_core_block_size(RCore *core, int bsize) {
 		r_core_block_read (core);
 	}
 	return ret;
+}
+
+R_API int r_core_block_size(RCore *core, int bsize) {
+	return r_core_seek_size (core, core->offset, bsize);
 }
 
 R_API int r_core_seek_align(RCore *core, ut64 align, int times) {
