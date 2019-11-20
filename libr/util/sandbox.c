@@ -7,12 +7,16 @@
 #include <direct.h>  // to compile chdir under msvc windows
 #endif
 
+#if HAVE_CAPSICUM
+#include <sys/capsicum.h>
+#endif
+
 static bool enabled = false;
 static bool disabled = false;
 
 static bool inHomeWww(const char *path) {
 	bool ret = false;
-	char *homeWww = r_str_home (".config/radare2/www/");
+	char *homeWww = r_str_home (R2_HOME_WWWROOT R_SYS_DIR);
 	if (homeWww) {
 		if (!strncmp (path, homeWww, strlen (homeWww))) {
 			ret = true;
@@ -61,8 +65,10 @@ R_API bool r_sandbox_check_path (const char *path) {
         if (path[0]=='.' && path[1]=='/') {
 		return false;
 	}
-	// Properly check for directrory traversal using "..". First, does it start with a .. part?
-        if (path[0]=='.' && path[1]=='.' && (path[2]=='\0' || path[2]=='/')) return 0;
+	// Properly check for directory traversal using "..". First, does it start with a .. part?
+	if (path[0] == '.' && path[1] == '.' && (path[2] == '\0' || path[2] == '/')) {
+		return 0;
+	}
 
 	// Or does it have .. in some other position?
 	for (p = strstr (path, "/.."); p; p = strstr(p, "/..")) {
@@ -91,10 +97,17 @@ R_API bool r_sandbox_disable (bool e) {
 			return enabled;
 		}
 #endif
+#if HAVE_CAPSICUM
+		if (enabled) {
+			eprintf ("sandbox mode couldn't be disabled in capability mode\n");
+			return enabled;
+		}
+#endif
 		disabled = enabled;
 		enabled = false;
 	} else {
 		enabled = disabled;
+		disabled = false;
 	}
 	return enabled;
 }
@@ -102,15 +115,52 @@ R_API bool r_sandbox_disable (bool e) {
 R_API bool r_sandbox_enable (bool e) {
 	if (enabled) {
 		if (!e) {
-			// eprintf ("Cant disable sandbox\n");
+			// eprintf ("Can't disable sandbox\n");
 		}
 		return true;
 	}
 	enabled = e;
 #if LIBC_HAVE_PLEDGE
-	if (enabled && pledge ("stdio rpath tty prot_exec", NULL) == -1) {
+	if (enabled && pledge ("stdio rpath tty prot_exec inet", NULL) == -1) {
 		eprintf ("sandbox: pledge call failed\n");
 		return false;
+	}
+#endif
+#if HAVE_CAPSICUM
+	if (enabled) {
+#if __FreeBSD_version >= 1000000
+		cap_rights_t wrt, rdr;
+
+		if (!cap_rights_init (&wrt, CAP_READ, CAP_WRITE)) {
+			eprintf ("sandbox: write descriptor failed\n");
+			return false;
+		}
+
+		if (!cap_rights_init (&rdr, CAP_READ, CAP_EVENT, CAP_FCNTL)) {
+			eprintf ("sandbox: read descriptor failed\n");
+			return false;
+		}
+
+		if (cap_rights_limit (STDIN_FILENO, &rdr) == -1) {
+			eprintf ("sandbox: stdin protection failed\n");
+			return false;
+		}
+
+		if (cap_rights_limit (STDOUT_FILENO, &wrt) == -1) {
+			eprintf ("sandbox: stdout protection failed\n");
+			return false;
+		}
+
+		if (cap_rights_limit (STDERR_FILENO, &wrt) == -1) {
+			eprintf ("sandbox: stderr protection failed\n");
+			return false;
+		}
+#endif
+
+		if (cap_enter () != 0) {
+			eprintf ("sandbox: call_enter failed\n");
+			return false;
+		}
 	}
 #endif
 	return enabled;
@@ -206,43 +256,70 @@ static char *expand_home(const char *p) {
 	return strdup (p);
 }
 
-R_API int r_sandbox_lseek (int fd, ut64 addr, int whence) {
+R_API int r_sandbox_lseek(int fd, ut64 addr, int whence) {
 	if (enabled) {
 		return -1;
 	}
 	return lseek (fd, (off_t)addr, whence);
 }
 
-R_API int r_sandbox_read (int fd, ut8* buf, int len) {
-	return enabled? -1 : read (fd, buf, len);
+R_API int r_sandbox_truncate(int fd, ut64 length) {
+	if (enabled) {
+		return -1;
+	}
+#ifdef _MSC_VER
+	return _chsize_s (fd, length);
+#else
+	return ftruncate (fd, (off_t)length);
+#endif
 }
 
-R_API int r_sandbox_write (int fd, const ut8* buf, int len) {
-	return enabled? -1 : write (fd, buf, len);
+R_API int r_sandbox_read(int fd, ut8 *buf, int len) {
+	return enabled? -1: read (fd, buf, len);
 }
 
-R_API int r_sandbox_close (int fd) {
-	return enabled? -1 : close (fd);
+R_API int r_sandbox_write(int fd, const ut8* buf, int len) {
+	return enabled? -1: write (fd, buf, len);
+}
+
+R_API int r_sandbox_close(int fd) {
+	return enabled? -1: close (fd);
 }
 
 /* perm <-> mode */
-R_API int r_sandbox_open (const char *path, int mode, int perm) {
+R_API int r_sandbox_open(const char *path, int perm, int mode) {
 	if (!path) {
 		return -1;
 	}
 	char *epath = expand_home (path);
+	int ret = -1;
 #if __WINDOWS__
 	mode |= O_BINARY;
+	if (!strcmp (path, "/dev/null")) {
+		path = "NUL";
+	}
 #endif
 	if (enabled) {
 		if ((mode & O_CREAT)
-		|| (mode & O_RDWR)
-		|| (!r_sandbox_check_path (epath))) {
+			|| (mode & O_RDWR)
+			|| (!r_sandbox_check_path (epath))) {
 			free (epath);
 			return -1;
 		}
 	}
-	int ret = open (epath, mode, perm);
+#if __WINDOWS__
+	{
+		wchar_t *wepath = r_utf8_to_utf16 (epath);
+		if (!wepath) {
+			free (epath);
+			return -1;
+		}
+		ret = _wopen (wepath, perm, mode);
+		free (wepath);
+	}
+#else // __WINDOWS__
+	ret = open (epath, perm, mode);
+#endif // __WINDOWS__
 	free (epath);
 	return ret;
 }
@@ -267,7 +344,24 @@ R_API FILE *r_sandbox_fopen (const char *path, const char *mode) {
 		epath = expand_home (path);
 	}
 	if ((strchr (mode, 'w') || r_file_is_regular (epath))) {
+#if __WINDOWS__
+		wchar_t *wepath = r_utf8_to_utf16 (epath);
+		if (!wepath) {
+			free (epath);
+			return ret;
+		}
+		wchar_t *wmode = r_utf8_to_utf16 (mode);
+		if (!wmode) {
+			free (wepath);
+			free (epath);
+			return ret;
+		}
+		ret = _wfopen (wepath, wmode);
+		free (wmode);
+		free (wepath);
+#else // __WINDOWS__
 		ret = fopen (epath, mode);
+#endif // __WINDOWS__
 	}
 	free (epath);
 	return ret;
@@ -276,8 +370,12 @@ R_API FILE *r_sandbox_fopen (const char *path, const char *mode) {
 R_API int r_sandbox_chdir (const char *path) {
 	if (enabled) {
 		// TODO: check path
-		if (strstr (path, "../")) return -1;
-		if (*path == '/') return -1;
+		if (strstr (path, "../")) {
+			return -1;
+		}
+		if (*path == '/') {
+			return -1;
+		}
 		return -1;
 	}
 	return chdir (path);
@@ -285,13 +383,15 @@ R_API int r_sandbox_chdir (const char *path) {
 
 R_API int r_sandbox_kill(int pid, int sig) {
 	// XXX: fine-tune. maybe we want to enable kill for child?
-	if (enabled) return -1;
+	if (enabled) {
+		return -1;
+	}
 #if __UNIX__
 	return kill (pid, sig);
 #endif
 	return -1;
 }
-#if __WINDOWS__ && !defined(__CYGWIN__)
+#if __WINDOWS__
 R_API HANDLE r_sandbox_opendir (const char *path, WIN32_FIND_DATAW *entry) {
 	wchar_t dir[MAX_PATH];
 	wchar_t *wcpath = 0;
@@ -306,18 +406,15 @@ R_API HANDLE r_sandbox_opendir (const char *path, WIN32_FIND_DATAW *entry) {
 	if (!(wcpath = r_utf8_to_utf16 (path))) {
 		return NULL;
 	}
-#if __MINGW32__
-	swprintf (dir, L"%ls\\*.*", wcpath);
-#else
 	swprintf (dir, MAX_PATH, L"%ls\\*.*", wcpath);
-#endif
 	free (wcpath);
 	return FindFirstFileW (dir, entry);
 }
 #else
 R_API DIR* r_sandbox_opendir (const char *path) {
-	if (!path)
+	if (!path) {
 		return NULL;
+	}
 	if (r_sandbox_enable (0)) {
 		if (path && !r_sandbox_check_path (path)) {
 			return NULL;

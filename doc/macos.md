@@ -21,39 +21,38 @@ To install bindings you will need to install r2, valac, valabind and swig. The w
 Code Signing
 ------------
 
-After Mac OS X 10.6, binaries that need permissions to debug require to be signed and include a .plist describing them. In order to do this you can follow the following steps:
+After Mac OS X 10.6, binaries that need permissions to debug require to be signed and include a .plist describing them. The aforementioned `install.sh` script will install a new code signing certificate into the system keychain and sign r2 with it. Alternatively, you can manually create a code signing certificate by following the following steps:
 
 (Based on https://llvm.org/svn/llvm-project/lldb/trunk/docs/code-signing.txt)
 
-#. Launch /Applications/Utilities/Keychain Access.app
-#. In Keychain Access select the "login" keychain in the "Keychains" list in the upper left hand corner of the window.
-#. Select the following menu item:
-#. Keychain Access->Certificate Assistant->Create a Certificate...
-#. Set the following settings
-#. Name = org.radare.radare2
-#. Identity Type = Self Signed Root
-#. Certificate Type = Code Signing
-#. Click Create
-#. Click Continue
-#. Click Done
-#. Click on the "My Certificates"
-#. Double click on your new org.radare.radare2 certificate
-#. Turn down the "Trust" disclosure triangle, scroll to the "Code Signing" trust pulldown menu and select "Always Trust" and authenticate as needed using your username and password.
-#. Drag the new "org.radare.radare2" code signing certificate (not the public or private keys of the same name) from the "login" keychain to the "System" keychain in the Keychains pane on the left hand side of the main Keychain Access window. This will move this certificate to the "System" keychain. You'll have to authorize a few more times, set it to be "Always trusted" when asked.
-#. In the Keychain Access GUI, click and drag "org.radare.radare2" in the "System" keychain onto the desktop. The drag will create a "~/Desktop/org.radare.radare2.cer" file used in the next step.
-#. Switch to Terminal, and run the following:
-#. $ sudo security add-trust -d -r trustRoot -p basic -p codeSign -k /Library/Keychains/System.keychain ~/Desktop/org.radare.radare2.cer
-#. $ rm -f ~/Desktop/org.radare.radare2.cer
-#. Drag the "org.radare.radare2" certificate from the "System" keychain back into the "login" keychain
-#. Quit Keychain Access
-#. Reboot
-#. Run sys/install.sh (or follow the next steps if you want to install and sign radare2 manually)
+1. Launch /Applications/Utilities/Keychain Access.app
+1. In Keychain Access select the "login" keychain in the "Keychains" list in the upper left hand corner of the window.
+1. Select the following menu item:
+1. Keychain Access->Certificate Assistant->Create a Certificate...
+1. Set the following settings
+1. Name = org.radare.radare2
+1. Identity Type = Self Signed Root
+1. Certificate Type = Code Signing
+1. Click Create
+1. Click Continue
+1. Click Done
+1. Click on the "My Certificates"
+1. Double click on your new org.radare.radare2 certificate
+1. Turn down the "Trust" disclosure triangle, scroll to the "Code Signing" trust pulldown menu and select "Always Trust" and authenticate as needed using your username and password.
+1. Drag the new "org.radare.radare2" code signing certificate (not the public or private keys of the same name) from the "login" keychain to the "System" keychain in the Keychains pane on the left hand side of the main Keychain Access window. This will move this certificate to the "System" keychain. You'll have to authorize a few more times, set it to be "Always trusted" when asked.
+1. In the Keychain Access GUI, click and drag "org.radare.radare2" in the "System" keychain onto the desktop. The drag will create a "~/Desktop/org.radare.radare2.cer" file used in the next step.
+1. Switch to Terminal, and run the following:
+1. $ sudo security add-trust -d -r trustRoot -p basic -p codeSign -k /Library/Keychains/System.keychain ~/Desktop/org.radare.radare2.cer
+1. $ rm -f ~/Desktop/org.radare.radare2.cer
+1. Quit Keychain Access
+1. Reboot
+1. Run sys/install.sh (or follow the next steps if you want to install and sign radare2 manually)
 
 As said before, the signing process can also be done manually following the next process. First, you will need to sign the radare2 binary:
 
 	$ make -C binr/radare2 macossign
 
-But this is not enough. As long as r2 code is splitted into several libraries, you should sign every single dependency (libr*).
+But this is not enough. As long as r2 code is split into several libraries, you should sign every single dependency (libr*).
 
 	$ make -C binr/radare2 macos-sign-libs
 
@@ -84,3 +83,11 @@ Packaging
 To create a macOS .pkg just run the following command:
 
 	$ sys/osx-pkg.sh
+
+Uninstall
+---------
+
+To uninstall the .pkg downloaded from the r2 website or the one you have generated with `sys/osx-pkg.sh`, run the following as root:
+
+	$ pkgutil --only-files --files org.radare.radare2 | sed 's/^/\//' | tr '\n' '\0' | xargs -o -n 1 -0 rm -i
+

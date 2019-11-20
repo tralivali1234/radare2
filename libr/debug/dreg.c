@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake */
+/* radare - LGPL - Copyright 2009-2018 - pancake */
 
 #include <r_core.h> // just to get the RPrint instance
 #include <r_debug.h>
@@ -10,7 +10,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 	if (!dbg || !dbg->reg || !dbg->h) {
 		return false;
 	}
-	// Theres no point in syncing a dead target
+	// There's no point in syncing a dead target
 	if (r_debug_is_dead (dbg)) {
 		return false;
 	}
@@ -24,7 +24,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 	// Sync all the types sequentially if asked
 	i = (type == R_REG_TYPE_ALL)? R_REG_TYPE_GPR: type;
 	// Check to get the correct arena when using @ into reg profile (arena!=type)
-	// if request type is positive and the request regset dont have regs
+	// if request type is positive and the request regset don't have regs
 	if (i >= R_REG_TYPE_GPR && dbg->reg->regset[i].regs && !dbg->reg->regset[i].regs->length) {
 		// seek into the other arena for redirections.
 		for (n = R_REG_TYPE_GPR; n < R_REG_TYPE_LAST; n++) {
@@ -76,7 +76,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 		}
 		// DO NOT BREAK R_REG_TYPE_ALL PLEASE
 		//   break;
-		// Continue the syncronization or just stop if it was asked only for a single type of regs
+		// Continue the synchronization or just stop if it was asked only for a single type of regs
 		i++;
 	} while ((type == R_REG_TYPE_ALL) && (i < R_REG_TYPE_LAST));
 	return true;
@@ -91,7 +91,7 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 	RRegItem *item;
 	RList *head;
 	ut64 diff;
-	char strvalue[128];
+	char strvalue[256];
 	if (!dbg || !dbg->reg) {
 		return false;
 	}
@@ -146,6 +146,28 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 					continue;
 				}
 			}
+			// Is this register being asked?
+			if (dbg->q_regs) {
+				if (!r_list_empty (dbg->q_regs)) {
+					RListIter *iterreg;
+					RList *q_reg = dbg->q_regs;
+					char *q_name;
+					bool found = false;
+					r_list_foreach (q_reg, iterreg, q_name) {
+						if (!strcmp (item->name, q_name)) {
+							found = true;
+							break;
+						}
+					}
+					if (!found) {
+					        continue;
+					}
+					r_list_delete (q_reg, iterreg);
+				} else {
+					// List is empty, all requested regs were taken, no need to go further
+					goto beach;
+				}
+			}
 			int regSize = item->size;
 			if (regSize < 80) {
 				value = r_reg_get_value (dbg->reg, item);
@@ -153,10 +175,14 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 				diff = r_reg_get_value (dbg->reg, item);
 				r_reg_arena_swap (dbg->reg, false);
 				delta = value-diff;
-				if (rad == 'j') {
-					snprintf (strvalue, sizeof (strvalue),"%"PFMT64d, value);
+				if (tolower ((ut8)rad) == 'j') {
+					snprintf (strvalue, sizeof (strvalue),"%"PFMT64u, value);
 				} else {
-					snprintf (strvalue, sizeof (strvalue),"0x%08"PFMT64x, value);
+					if (pr && pr->wide_offsets && dbg->bits & R_SYS_BITS_64) {
+						snprintf (strvalue, sizeof (strvalue),"0x%016"PFMT64x, value);
+					} else {
+						snprintf (strvalue, sizeof (strvalue),"0x%08"PFMT64x, value);
+					}
 				}
 			} else {
 				value = r_reg_get_value_big (dbg->reg, item, &valueBig);
@@ -170,6 +196,10 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 				case 128:
 					snprintf (strvalue, sizeof (strvalue), "0x%016"PFMT64x"%016"PFMT64x"", valueBig.v128.High, valueBig.v128.Low);
 					break;
+				case 256:
+					snprintf (strvalue, sizeof (strvalue), "0x%016"PFMT64x"%016"PFMT64x"%016"PFMT64x"%016"PFMT64x"",
+						valueBig.v256.High.High, valueBig.v256.High.Low, valueBig.v256.Low.High, valueBig.v256.Low.Low);
+					break;
 				default:
 					snprintf (strvalue, sizeof (strvalue), "ERROR");
 				}
@@ -178,6 +208,7 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 			itmidx++;
 
 			switch (rad) {
+			case 'J':
 			case 'j':
 				dbg->cb_printf ("%s\"%s\":%s",
 					n?",":"", item->name, strvalue);
@@ -190,13 +221,16 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 				break;
 			case 1:
 			case '*':
-				dbg->cb_printf ("f %s 1 %s\n", item->name, strvalue);
+				dbg->cb_printf ("f %s %d %s\n", item->name, item->size / 8, strvalue);
+				break;
+			case '.':
+				dbg->cb_printf ("dr %s=%s\n", item->name, strvalue);
 				break;
 			case 'd':
 			case 2:
 				{
 					int len, highlight = use_color && pr && pr->cur_enabled && itmidx == pr->cur;
-					char *str, whites[32], content[128];
+					char *str, whites[32], content[300];
 					const char *a = "", *b = "";
 					if (highlight) {
 						a = Color_INVERT;
@@ -219,7 +253,9 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 						snprintf (content, sizeof (content),
 							fmt2, "", item->name, "", strvalue, "");
 						len = colwidth - strlen (content);
-						if (len < 0) len = 0;
+						if (len < 0) {
+							len = 0;
+						}
 						memset (whites, ' ', sizeof (whites));
 						whites[len] = 0;
 						dbg->cb_printf (fmt2, a, item->name, b, strvalue,
@@ -253,8 +289,11 @@ R_API int r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char 
 			n++;
 		}
 	}
+beach:
 	if (rad == 'j') {
 		dbg->cb_printf ("}\n");
+	} else if (rad == 'J') {
+		// do nothing
 	} else if (n > 0 && rad == 2 && ((n%cols))) {
 		dbg->cb_printf ("\n");
 	}
@@ -288,9 +327,13 @@ R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *val
 	ut64 ret = 0LL;
 	int role = r_reg_get_name_idx (name);
 	const char *pname = name;
-	if (err) *err = 0;
+	if (err) {
+		*err = 0;
+	}
 	if (!dbg || !dbg->reg) {
-		if (err) *err = 1;
+		if (err) {
+			*err = 1;
+		}
 		return UT64_MAX;
 	}
 	if (role != -1) {

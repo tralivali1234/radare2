@@ -27,8 +27,7 @@ static int w32__close(RIODesc *fd) {
 	if (fd->data) {
 		// TODO: handle return value
 		CloseHandle (RIOW32_HANDLE (fd));
-		free (fd->data);
-		fd->data = NULL;
+		R_FREE (fd->data);
 		return 0;
 	}
 	return -1;
@@ -52,7 +51,7 @@ static RIODesc *w32__open(RIO *io, const char *pathname, int rw, int mode) {
 	if (!strncmp (pathname, "w32://", 6)) {
 		RIOW32 *w32 = R_NEW0 (RIOW32);
 		const char *filename = pathname+6;
-		LPTSTR filename_ = r_sys_conv_utf8_to_utf16 (filename);
+		LPTSTR filename_ = r_sys_conv_utf8_to_win (filename);
 		w32->hnd = CreateFile (filename_,
 			GENERIC_READ | rw?GENERIC_WRITE:0,
 			FILE_SHARE_READ | rw? FILE_SHARE_WRITE:0,
@@ -78,6 +77,7 @@ RIOPlugin r_io_plugin_w32 = {
 	.name = "w32",
 	.desc = "w32 API io",
 	.license = "LGPL3",
+	.uris = "w32://",
 	.open = w32__open,
 	.close = w32__close,
 	.read = w32__read,
@@ -87,8 +87,8 @@ RIOPlugin r_io_plugin_w32 = {
 	.write = w32__write,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_w32,
 	.version = R2_VERSION
@@ -97,7 +97,7 @@ RLibStruct radare_plugin = {
 
 #else
 struct r_io_plugin_t r_io_plugin_w32 = {
-	.name = (void*)0 
+	.name = (void*)0
 };
 
 #endif

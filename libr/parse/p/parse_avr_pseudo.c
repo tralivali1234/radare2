@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2017 - wargio */
+/* radare - LGPL - Copyright 2017-2019 - wargio */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +10,7 @@
 #include <r_anal.h>
 #include <r_parse.h>
 
-static int replace(int argc, const char *argv[], char *newstr) {
+static bool replace(int argc, const char *argv[], char *newstr) {
 	int i,j,k;
 	struct {
 		char *op;
@@ -110,7 +110,9 @@ static int replace(int argc, const char *argv[], char *newstr) {
 							strcpy (newstr + k, w);
 							k += strlen(w) - 1;
 						}
-					} else newstr[k] = ops[i].str[j];
+					} else {
+						newstr[k] = ops[i].str[j];
+					}
 				}
 				newstr[k] = '\0';
 			}
@@ -207,7 +209,7 @@ static int parse(RParse *p, const char *data, char *str) {
 					nw++;
 				}
 			}
-			replace (nw, wa, str);
+			(void)replace (nw, wa, str);
 		}
 	}
 	free (buf);
@@ -220,8 +222,8 @@ RParsePlugin r_parse_plugin_avr_pseudo = {
 	.parse = parse
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_PARSE,
 	.data = &r_parse_plugin_avr_pseudo,
 	.version = R2_VERSION

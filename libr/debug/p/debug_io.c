@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2016-2017 pancake */
+/* radare - LGPL - Copyright 2016-2018 pancake */
 
 #include <r_io.h>
 #include <r_asm.h>
@@ -69,9 +69,7 @@ static int __io_wait(RDebug *dbg, int pid) {
 	return true;
 }
 
-static int curPid = -1;
 static int __io_attach(RDebug *dbg, int pid) {
-	curPid = pid;
 	return true;
 }
 
@@ -132,7 +130,7 @@ static int __io_continue(RDebug *dbg, int pid, int tid, int sig) {
 
 // "dk" send kill signal
 static bool __io_kill(RDebug *dbg, int pid, int tid, int sig) {
-	const char *cmd = sdb_fmt (-1, "dk %d", sig);
+	const char *cmd = sdb_fmt ("dk %d", sig);
 	dbg->iob.system (dbg->iob.io, cmd);
 	r_cons_flush ();
 	return true;
@@ -162,8 +160,8 @@ RDebugPlugin r_debug_plugin_io = {
 #endif
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_DBG,
 	.data = &r_debug_plugin_io,
 	.version = R2_VERSION

@@ -37,7 +37,7 @@ static inline ut16 i2ut16(struct instruction *in) {
 	return *((uint16_t*)in);
 }
 
-static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len) {
+static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len, RAnalOpMask mask) {
 	struct instruction *in = (struct instruction *)bytes;
 	ut16 lol, ins;
 	struct directive d = {{0}};
@@ -129,8 +129,9 @@ static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 				// BSR
 				op->type = R_ANAL_OP_TYPE_CALL;
 				op->jump = label_off (&d);
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->fail = addr+2;
 				op->eob = true;
 				break;
@@ -150,16 +151,18 @@ static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 			case 0: // BRA
 				op->type = R_ANAL_OP_TYPE_JMP;
 				op->jump = label_off (&d)+4;
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->eob = true;
 				break;
 			case 1:
 				// BLT
 				op->type = R_ANAL_OP_TYPE_CJMP;
 				op->jump = label_off (&d);
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->fail = addr + 2;
 				op->eob = true;
 				break;
@@ -167,8 +170,9 @@ static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 				// BPL
 				op->type = R_ANAL_OP_TYPE_CJMP;
 				op->jump = label_off (&d);
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->fail = addr + 2;
 				op->eob = true;
 				break;
@@ -176,8 +180,9 @@ static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 				// BMI
 				op->type = R_ANAL_OP_TYPE_CJMP;
 				op->jump = label_off (&d);
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->fail = addr + 2;
 				op->eob = true;
 				break;
@@ -191,8 +196,9 @@ static int xap_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *bytes, int len
 			case 3: // BCS
 				op->type = R_ANAL_OP_TYPE_CJMP;
 				op->jump = label_off (&d);
-				if (op->jump&1)
-					op->jump+=3;
+				if (op->jump & 1) {
+					op->jump += 3;
+				}
 				op->fail = addr+2;
 				break;
 			}
@@ -212,8 +218,8 @@ RAnalPlugin r_anal_plugin_xap = {
 	.op = &xap_op,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ANAL,
 	.data = &r_anal_plugin_xap,
 	.version = R2_VERSION

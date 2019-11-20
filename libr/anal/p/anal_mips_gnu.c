@@ -15,17 +15,20 @@ static const char* mips_reg_decode(unsigned reg_num) {
 		"s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
 		"t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra"
 	};
-	if (reg_num < 32) return REGISTERS[reg_num];
+	if (reg_num < 32) {
+		return REGISTERS[reg_num];
+	}
 	return NULL;
 }
 
-static int mips_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *b, int len) {
+static int mips_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *b, int len, RAnalOpMask mask) {
 	ut32 opcode;
 	// WIP char buf[10]; int reg; int family;
 	int optype, oplen = (anal->bits==16)?2:4;
 
-	if (!op)
+	if (!op) {
 		return oplen;
+	}
 
 	memset (op, 0, sizeof (RAnalOp));
 	op->type = R_ANAL_OP_TYPE_UNK;
@@ -242,8 +245,9 @@ static int mips_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *b, int len) {
 		int rs = ((b[0]&3)<<3)+(b[1]>>5);
 		int rt = b[1]&31;
 		int imm = (b[2]<<8)+b[3];
-		if (((optype >> 2) ^ 0x3) && (imm & 0x8000))
+		if (((optype >> 2) ^ 0x3) && (imm & 0x8000)) {
 			imm = 0 - (0x10000 - imm);
+		}
 		switch (optype) {
 		case 1: // if (rt) { /* bgez */ } else { /* bltz */ }
 		case 4: // beq
@@ -270,8 +274,8 @@ static int mips_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *b, int len) {
 		// The cases vary, so for now leave the smarts in a human generated macro to decide
 		// but the macro needs the opcode values as input
 		//
-		// TODO: this is a stop-gap. Really we need some smarts in here to tie this into the 
-		// flags directly, as suggested here: https://github.com/radare/radare2/issues/949#issuecomment-43654922
+		// TODO: this is a stop-gap. Really we need some smarts in here to tie this into the
+		// flags directly, as suggested here: https://github.com/radareorg/radare2/issues/949#issuecomment-43654922
 		case 15: // lui
 			op->dst = r_anal_value_new ();
 			op->dst->reg = r_reg_get (anal->reg, mips_reg_decode(rt), R_REG_TYPE_GPR);
@@ -536,8 +540,8 @@ RAnalPlugin r_anal_plugin_mips_gnu = {
 	.set_reg_profile = mips_set_reg_profile,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
         .type = R_LIB_TYPE_ANAL,
         .data = &r_anal_plugin_mips_gnu
 };

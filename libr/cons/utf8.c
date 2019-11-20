@@ -1,16 +1,16 @@
-/* radare - LGPL - Copyright 2015 - pancake */
+/* radare - LGPL - Copyright 2015-2019 - pancake */
 
 // Copypasta from http://www.linuxquestions.org/questions/programming-9/get-cursor-position-in-c-947833/
 #include <r_cons.h>
+
 #if __UNIX__
 #include <stdio.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
 #include <errno.h>
 
-#define   RD_EOF   -1
-#define   RD_EIO   -2
+#define RD_EOF   (-1)
+#define RD_EIO   (-2)
 
 /* select utf8 terminal detection method */
 #define UTF8_DETECT_ENV 1
@@ -41,27 +41,6 @@ static inline int rd(const int fd) {
 		}
 	}
 }
-
-static inline int wr(const int fd, const char *const data, const size_t bytes) {
-	write (fd, data, bytes);
-	return 0;
-	const char       *head = data;
-	const char *const tail = data + bytes;
-	ssize_t           n;
-	while (head < tail) {
-		n = write(fd, head, (size_t)(tail - head));
-		if (n > (ssize_t)0) {
-			head += n;
-			continue;
-		}
-		if (n != (ssize_t)-1)
-			return EIO;
-		if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)
-			return errno;
-	}
-
-	return 0;
-}
 #endif
 
 /* Return a new file descriptor to the current TTY.
@@ -88,8 +67,9 @@ int current_tty(void) {
 	do {
 		fd = open (dev, O_RDWR | O_NOCTTY);
 	} while (fd == -1 && errno == EINTR);
-	if (fd == -1)
+	if (fd == -1) {
 		return -1;
+	}
 	return fd;
 #endif
 }
@@ -143,11 +123,11 @@ static int cursor_position(const int tty, int *const rowptr, int *const colptr) 
 		}
 
 		/* Request cursor coordinates from the terminal. */
-		ret = wr(tty, "\033[6n", 4);
+		ret = write (tty, "\033[6n", 4);
 		if (ret)
 			break;
 
-		/* Assume coordinate reponse parsing fails. */
+		/* Assume coordinate response parsing fails. */
 		ret = EIO;
 
 		// Read until ESC is found. previous chars, should be
@@ -211,23 +191,27 @@ static int cursor_position(const int tty, int *const rowptr, int *const colptr) 
 }
 #endif
 
-R_API int r_cons_is_utf8() {
-	int ret = 0;
+R_API bool r_cons_is_utf8() {
+	bool ret = false;
 #if UTF8_DETECT_ENV
-	char *sval = r_sys_getenv ("LC_CTYPE");
-	if (sval) {
-		r_str_case (sval, 0);
-		if (!strcmp (sval, "utf-8"))
-			ret = 1;
-		free (sval);
+	const char *keys[] = { "LC_ALL", "LC_CTYPE", "LANG", NULL };
+	const char **key = keys;
+	for (; *key; key++) {
+		char *val = r_sys_getenv (*key);
+		if (val) {
+			r_str_case (val, false);
+			ret = strstr (val, "utf-8") || strstr (val, "utf8");
+			free (val);
+			break;
+		}
 	}
 #endif
 #if UTF8_DETECT_LOCALE
 #include <locale.h>
 	const char *ctype = setlocale(LC_CTYPE, NULL);
 	if ( (ctype != NULL) && (ctype = strchr(ctype, '.')) && ctype++ &&
-		(strcasecmp(ctype, "UTF-8") == 0 || strcasecmp(ctype, "UTF8") == 0)) {
-		return 1;
+		(r_str_casecmp(ctype, "UTF-8") == 0 || r_str_casecmp(ctype, "UTF8") == 0)) {
+		return true;
 	}
 #endif
 #if UTF8_DETECT_CURSOR
@@ -235,15 +219,15 @@ R_API int r_cons_is_utf8() {
 	int row2 = 0, col2 = 0;
 	int fd = current_tty();
 	if (fd == -1)
-		return 0;
+		return false;
 	if (cursor_position(fd, &row, &col)) {
 		close (fd);
-		return 0;
+		return false;
 	}
 	write (1, "\xc3\x89\xc3\xa9", 4);
 	if (cursor_position (fd, &row2, &col2)) {
 		close (fd);
-		return 0;
+		return false;
 	}
 	close (fd);
 	write (1, "\r    \r", 6);
@@ -252,8 +236,11 @@ R_API int r_cons_is_utf8() {
 	return ret;
 }
 #else
-R_API int r_cons_is_utf8() {
-	return 0;
+R_API bool r_cons_is_utf8() {
+#if __WINDOWS__
+	return GetConsoleOutputCP () == CP_UTF8;
+#else
+	return true;
+#endif
 }
-
 #endif

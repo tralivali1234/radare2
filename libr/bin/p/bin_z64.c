@@ -1,4 +1,4 @@
-/* radare2 - LGPL 3 - Copyright 2018 - lowlyw */
+/* radare2 - LGPL 3 - Copyright 2018-2019 - lowlyw */
 
 /*
  * info comes from here.
@@ -69,33 +69,23 @@ static ut64 baddr(RBinFile *bf) {
 	return (ut64) r_read_be32(&n64_header.BootAddress);
 }
 
-static bool check_bytes (const ut8 *buf, ut64 length) {
-	ut32 magic = 0x80371240;
-	if (length < N64_ROM_START) {
+static bool check_buffer(RBuffer *b) {
+	ut8 magic[4];
+	if (r_buf_size (b) < N64_ROM_START) {
 		return false;
 	}
-	return magic == r_read_be32 (buf);
+	(void)r_buf_read_at (b, 0, magic, sizeof (magic));
+	return !memcmp (magic, "\x80\x37\x12\x40", 4);
 }
 
-static void *load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb) {
-	if (check_bytes (r_buf_buffer (bf->buf), sz)) {
-		return memcpy (&n64_header, buf, sizeof (N64Header));
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
+	if (check_buffer (b)) {
+		ut8 buf[sizeof (N64Header)] = {0};
+		r_buf_read_at (b, 0, buf, sizeof (buf));
+		*bin_obj = memcpy (&n64_header, buf, sizeof (N64Header));
+		return true;
 	}
-	return NULL;
-}
-
-static bool load(RBinFile *bf) {
-	const ut8 *bytes = bf ? r_buf_buffer (bf->buf) : NULL;
-	ut64 sz = bf ? r_buf_size (bf->buf) : 0;
-	if (!bf || !bf->o) {
-		return false;
-	}
-	bf->o->bin_obj = load_bytes (bf, bytes, sz, bf->o->loadaddr, bf->sdb);
-	return check_bytes (bytes, sz);
-}
-
-static int destroy(RBinFile *bf) {
-	return true;
+	return false;
 }
 
 static RList *entries(RBinFile *bf) {
@@ -122,12 +112,12 @@ static RList *sections(RBinFile *bf) {
 		r_list_free (ret);
 		return NULL;
 	}
-	strncpy (text->name, "text", R_BIN_SIZEOF_STRINGS);
-	text->size = bf->buf->length - N64_ROM_START;
+	text->name = strdup ("text");
+	text->size = r_buf_size (bf->buf) - N64_ROM_START;
 	text->vsize = text->size;
 	text->paddr = N64_ROM_START;
 	text->vaddr = baddr (bf);
-	text->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	text->perm = R_PERM_RX;
 	text->add = true;
 	r_list_append (ret, text);
 	return ret;
@@ -149,7 +139,7 @@ static RBinInfo *info(RBinFile *bf) {
 	ret->arch = strdup ("mips");
 	ret->machine = strdup ("Nintendo 64");
 	ret->type = strdup ("ROM");
-	ret->bits = 32;
+	ret->bits = 64;
 	ret->has_va = true;
 	ret->big_endian = true;
 	return ret;
@@ -161,10 +151,8 @@ RBinPlugin r_bin_plugin_z64 = {
 	.name = "z64",
 	.desc = "Nintendo 64 binaries big endian r_bin plugin",
 	.license = "LGPL3",
-	.load = &load,
-	.load_bytes = &load_bytes,
-	.destroy = &destroy,
-	.check_bytes = &check_bytes,
+	.load_buffer = &load_buffer,
+	.check_buffer = &check_buffer,
 	.baddr = baddr,
 	.boffset = &boffset,
 	.entries = &entries,
@@ -172,8 +160,8 @@ RBinPlugin r_bin_plugin_z64 = {
 	.info = &info
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_z64,
 	.version = R2_VERSION

@@ -5,39 +5,73 @@ include ../libr/config.mk
 include ../mk/platform.mk
 _INCLUDE_MK_GCC_=
 include ../mk/${COMPILER}.mk
+include ../mk/darwin.mk
 
 # Build against last capstone release or next
+ifeq ($(shell test -d ../.git && echo 1),1)
 CS_RELEASE=0
+else
+CS_RELEASE=1
+endif
+
+CS_NEXT=${CSNEXT}
 
 CAPSTONE_CFLAGS?=-g
 # CAPSTONE_MAKEFLAGS?=CAPSTONE_ARCHS="arm aarch64"
 
 GIT?=git
-WGET?=wget
+ifeq ($(shell type wget && echo 1),1)
+WGET?=wget -c --no-check-certificate -O
+else
+WGET?=curl -o
+endif
+
+# NOTE: when you update TS_TIP or TS_BRA, also update them in shlr/meson.build
+TS_URL=https://github.com/tree-sitter/tree-sitter.git
+TS_BRA=master
+TS_TIP=80008b0bccbddffc8e68f66a5f173ef71fd125e3
+
+# NOTE: when you update SHELLPARSER_TIP or SHELLPARSER_BRA, also update them in shlr/meson.build
+SHELLPARSER_URL=https://github.com/ret2libc/radare2-shell-parser.git
+SHELLPARSER_BRA=master
+SHELLPARSER_TIP=dfb12492f4052b5a6c64fc626e9bf65ccb7b5522
 
 ifeq ($(CS_RELEASE),1)
-CS_VER=3.0.4
+CS_VER=4.0.1
 CS_TAR=https://codeload.github.com/aquynh/capstone/tar.gz/$(CS_VER)
 #CS_TAR=http://capstone-engine.org/download/$(CS_VER)/capstone-$(CS_VER).tgz
 CS_PATCHES=0
 else
 CS_TAR=
-CS_URL=$(GIT_PREFIX)github.com/aquynh/capstone.git
-CS_UPD=20180302
+CS_URL_BASE=github.com/aquynh/capstone
+CS_URL=$(GIT_PREFIX)$(CS_URL_BASE).git
+CS_ARCHIVE=https://$(CS_URL_BASE)/archive
+CS_UPD=20190515
+# NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/meson.build
+ifeq ($(CS_NEXT),1)
+CS_TIP=caacf11822683d8a317efee727c428db254670a9
 CS_BRA=next
-CS_TIP=4a1b580d069c82d60070d0869a87000db7cdabe2
+else
+CS_TIP=a22aef2a18e6f6d8d30af4a1595af17337408e45
+CS_BRA=v4
+endif
+ifeq ($(CS_COMMIT_ARCHIVE),1)
+CS_ARCHIVE_URL=$(CS_ARCHIVE)/$(CS_TIP).zip
+else
+CS_ARCHIVE_URL=
+endif
 # REVERT THIS COMMIT BECAUSE ITS WRONG
 CS_REV=
 CS_PATCHES=1
 endif
 
-.PHONY: capstone-sync capstone-build all clean mrproper libgdbr libwindbg bochs
+.PHONY: capstone-sync capstone-build all clean mrproper libgdbr libwindbg bochs tree-sitter-sync radare2-shell-parser-sync
 
 HOST_CC?=gcc
 SHLR?=$(shell pwd)
 AR?=ar
 RANLIB?=ranlib
-MODS=sdb zip java tcc
+MODS=sdb zip java tcc mpc
 MODS+=gdb qnx ar
 # lz4
 ifneq ($(CC),cccl)
@@ -45,9 +79,13 @@ ifeq (1,$(WITH_GPL))
 MODS+=grub
 endif
 endif
-SDB_URL=git://github.com/radare/sdb
+ifeq (1,$(USE_PTRACE_WRAP))
+MODS+=ptrace-wrap
+endif
+SDB_URL=git://github.com/radareorg/sdb
 #SDB_URL=/Users/pancake/prg/sdb
 SPP_URL=git://github.com/radare/spp
+PTRACE_WRAP_URL=git://github.com/thestr4ng3r/ptrace-wrap
 PWD=$(shell pwd)
 SDB_CONFIG=${PWD}/sdb-config.mk
 
@@ -59,7 +97,7 @@ all:
 	exit 1
 endif
 
-preall: targets libwindbg capstone-build bochs
+preall: targets libwindbg capstone-build tree-sitter-build radare2-shell-parser-build bochs
 	@for MOD in ${MODS} ; do \
 		echo $(MAKE) -C $$MOD ; \
 		$(MAKE) -C $$MOD HAVE_VALA= ROOT="${PWD}/../" CC="${CC}" ; \
@@ -92,7 +130,6 @@ ifeq ($(filter sdb/sdb${BUILD_EXT_EXE},$(SDB_TARGETS)),)
 SDB_TARGETS+=sdb/sdb${BUILD_EXT_EXE}
 endif
 endif
-
 
 targets:
 	for TARGET in ${SDB_TARGETS} ; do ${MAKE} $$TARGET ; done
@@ -133,8 +170,8 @@ endif
 	cp -f sdb/src/.sdb${BUILD_EXT_EXE} $@
 
 .PHONY: sdb-sync sync-sdb sdbclean
-F=README.md config.mk src Makefile Jamroot meson.build msvc
-SYNCFILES=$(addprefix sdb.vc/,${F})
+SDB_F=README.md config.mk src Makefile meson.build
+SDB_SYNCFILES=$(addprefix sdb.vc/,${SDB_F})
 I=../libr/include
 
 libgdbr:
@@ -155,7 +192,7 @@ sdb-sync sync-sdb:
 	rm -rf sdb sdb.vc
 	git clone --depth 1 ${SDB_URL} sdb.vc
 	mkdir -p sdb
-	cp -rf ${SYNCFILES} sdb
+	cp -rf ${SDB_SYNCFILES} sdb
 	rm -rf sdb.vc $I/sdb
 	mkdir -p $I/sdb
 	rm -f src/sdb_version.h
@@ -168,6 +205,26 @@ sdb-sync sync-sdb:
 	echo all clean mrproper: | tee sdb/test/Makefile > sdb/memcache/Makefile
 	git add $I/sdb*
 	git add sdb
+
+.PHONY: ptrace-wrap ptrace-wrap-sync sync-ptrace-wrap ptrace-wrap-clean clean-ptrace-wrap
+PTRACE_WRAP_F=include src README.md COPYING
+PTRACE_WRAP_SYNCFILES=$(addprefix ptrace-wrap.vc/,${PTRACE_WRAP_F})
+
+ptrace-wrap-sync sync-ptrace-wrap:
+	rm -rf ptrace-wrap ptrace-wrap.vc
+	git clone --depth 1 ${PTRACE_WRAP_URL} ptrace-wrap.vc
+	mkdir -p ptrace-wrap
+	cp -rf ${PTRACE_WRAP_SYNCFILES} ptrace-wrap
+	sed -e "s, library(, static_library(," -e "s,project(,# project(," -e "s,subdir(,# subdir(," ptrace-wrap.vc/meson.build > ptrace-wrap/meson.build
+	printf "include ../../libr/config.mk\ninclude ../../mk/platform.mk\ninclude ../../mk/${COMPILER}.mk\n\n" | cat - ptrace-wrap.vc/Makefile > ptrace-wrap/Makefile
+	rm -rf ptrace-wrap.vc
+	printf "CFLAGS+=-I\$$(STOP)/ptrace-wrap/include\nLINK+=\$$(STOP)/ptrace-wrap/libptrace_wrap.\$$(EXT_AR)\nPTRACEWRAP_OBJS=\$$(STOP)/ptrace-wrap/src/ptrace_wrap.o\n" > ptrace-wrap/deps.mk
+
+ptrace-wrap:
+	$(MAKE) -C ptrace-wrap all
+
+ptrace-wrap-clean clean-ptrace-wrap:
+	$(MAKE) -C ptrace-wrap clean
 
 $(TCCLIB) libr_tcc/libr_tcc.${EXT_AR}:
 	cd libr_tcc ; $(MAKE)
@@ -225,14 +282,15 @@ capstone: capstone-$(CS_VER).tar.gz
 	rm -rf capstone
 	mv capstone-$(CS_VER) capstone
 ifeq ($(CS_PATCHES),1)
-	#cd capstone ; for PATCH in ../capstone-patches/* ; do patch -tp1 < $$PATCH ; done
-	cd capstone ; for PATCH in ../capstone-patches/* ; do patch -p1 < $$PATCH ; done
+	if [ -d capstone/.git ]; then \
+		cd capstone ; for PATCH in ../capstone-patches/* ; do patch -p1 < $$PATCH ; done ; \
+	fi
 endif
 	mkdir -p capstone/include/capstone
 	cp -rf capstone/include/*.h capstone/include/capstone
 
 capstone-$(CS_VER).tar.gz:
-	$(WGET) --no-check-certificate -O capstone-$(CS_VER).tar.gz -c $(CS_TAR)
+	$(WGET) capstone-$(CS_VER).tar.gz $(CS_TAR)
 else
 
 capstone: capstone-sync
@@ -241,15 +299,10 @@ capstone-sync:
 ifeq ($(WITHOUT_PULL),1)
 	@echo "Nothing to sync because of --without-pull"
 else
-	"$(SHELL)" capstone.sh "${CS_URL}" "${CS_BRA}" "${CS_TIP}" "${CS_REV}"
-ifeq ($(CS_PATCHES),1)
-	-cd capstone ; $(GIT) reset --hard
-	#cd capstone ; for PATCH in ../capstone-patches/* ; do patch -tp1 < $$PATCH ; done
-	cd capstone ; for PATCH in ../capstone-patches/* ; do patch -p1 < $$PATCH ; done
-endif
+	"$(SHELL)" capstone.sh "${CS_URL}" "${CS_BRA}" "${CS_TIP}" "${CS_REV}" "${CS_ARCHIVE_URL}"
 endif
 
-.PHONY: capstone
+.PHONY: capstone capstone-sync
 endif
 
 ifeq (${EXT_AR},)
@@ -261,7 +314,7 @@ endif
 capstone-build: capstone
 	cd capstone && CFLAGS="-Dmips=mips ${CAPSTONE_CFLAGS} $(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		$(MAKE) $(CAPSTONE_MAKEFLAGS) CC="$(CC)" AR_EXT=a IS_CYGWIN=0 CAPSTONE_STATIC=yes CAPSTONE_SHARED=no \
-		RANLIB="$(RANLIB)" AR="$(AR)" IS_MINGW=0 libcapstone.a
+		RANLIB="$(RANLIB)" LIBARCHS="" AR="$(AR)" IS_MINGW=0 libcapstone.a
 ifneq (${EXT_AR},a)
 	-cp -f capstone/libcapstone.a capstone/libcapstone.${EXT_AR}
 endif
@@ -275,6 +328,31 @@ ifeq ($(WITHOUT_PULL),1)
 else
 	cd ../../radare2-webui/www/m && git pull ; npm i ; $(MAKE) release
 endif
+
+tree-sitter-build: tree-sitter/libtree-sitter.$(EXT_AR)
+
+tree-sitter/libtree-sitter.$(EXT_AR): tree-sitter/lib/src/lib.o
+	$(AR) rvs $@ $<
+	$(RANLIB) $@
+
+tree-sitter/lib/src/lib.o: tree-sitter-sync
+	$(CC) -c tree-sitter/lib/src/lib.c -o $@ -Itree-sitter/lib/include -Itree-sitter/lib/src $(CFLAGS)
+
+tree-sitter-sync:
+	"$(SHELL)" clone_3rd_repo.sh tree-sitter "${TS_URL}" "${TS_BRA}" "${TS_TIP}"
+
+radare2-shell-parser-build: radare2-shell-parser/libshell-parser.$(EXT_AR)
+
+radare2-shell-parser/libshell-parser.$(EXT_AR): radare2-shell-parser/src/parser.o
+	$(AR) rvs $@ $<
+	$(RANLIB) $@
+
+radare2-shell-parser/src/parser.o: radare2-shell-parser-sync
+	$(CC) -c radare2-shell-parser/src/parser.c -o $@ -Iradare2-shell-parser/src/tree_sitter -Itree-sitter/lib/include $(CFLAGS)
+
+radare2-shell-parser-sync: tree-sitter-sync
+	"$(SHELL)" clone_3rd_repo.sh radare2-shell-parser "${SHELLPARSER_URL}" "${SHELLPARSER_BRA}" "${SHELLPARSER_TIP}"
+
 
 www-sync-m sync-www-m: ../../radare2-webui/dist/m
 	cp -rf ../../radare2-webui/dist/m www/m.tmp
@@ -306,7 +384,7 @@ spp-sync sync-spp:
 	git add spp
 
 spp: spp-sync
-	CFLAGS="-DHAVE_FORK=${HAVE_FORK} -fPIC" $(MAKE) -C spp
+	CFLAGS="-DUSE_R2=1 -I../../libr/include -DHAVE_FORK=${HAVE_FORK} -fPIC" $(MAKE) -C spp r2lib
 
 SHLRS+=ar/libr_ar.a
 SHLRS+=bochs/lib/libbochs.a
@@ -316,6 +394,8 @@ SHLRS+=grub/libgrubfs.a
 SHLRS+=java/libr_java.a
 SHLRS+=lz4/liblz4.a
 SHLRS+=qnx/lib/libqnxr.a
+SHLRS+=tree-sitter/libtree-sitter.a
+SHLRS+=radare2-shell-parser/libshell-parser.a
 #SHLRS+=sdb/src/libsdb.a
 #SHLRS+=tcc/libr_tcc.a
 SHLRS+=windbg/libr_windbg.a
@@ -325,8 +405,15 @@ libr_shlr.${EXT_AR}:
 	rm -rf .libr
 	mkdir .libr
 	for LIB in ${SHLRS} ; do \
-		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB} .a).o $${LIB} ; fi ; \
+		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
 	done
 	${AR} crs $@ .libr/*.o
 
 .PHONY: spp
+
+.PHONY: mpc mpc-clean clean-mpc
+mpc:
+	$(MAKE) -C mpc all
+
+mpc-clean clean-mpc:
+	$(MAKE) -C mpc clean

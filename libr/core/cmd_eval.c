@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2017 - pancake */
+/* radare2 - LGPL - Copyright 2009-2019 - pancake */
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -12,6 +12,8 @@ static const char *help_msg_e[] = {
 	"e", " a=b", "set var 'a' the 'b' value",
 	"e var=?", "", "print all valid values of var",
 	"e var=??", "", "print all valid values of var with description",
+	"e.", "a=b", "same as 'e a=b' but without using a space",
+	"e,", "k=v,k=v,k=v", "comma separated k[=v]",
 	"e-", "", "reset config vars",
 	"e*", "", "dump config vars in r commands",
 	"e!", "a", "invert the boolean value of 'a' var",
@@ -30,27 +32,39 @@ static const char *help_msg_e[] = {
 
 static const char *help_msg_ec[] = {
 	"Usage ec[s?] [key][[=| ]fg] [bg]", "", "",
-	"ec", "", "list all color keys",
+	"ec", " [key]", "list all/key color keys",
 	"ec*", "", "same as above, but using r2 commands",
 	"ecd", "", "set default palette",
 	"ecr", "", "set random palette (see also scr.randpal)",
 	"ecs", "", "show a colorful palette",
 	"ecj", "", "show palette in JSON",
 	"ecc", " [prefix]", "show palette in CSS",
-	"eco", " dark|white", "load white color scheme template",
+	"eco", " [theme]", "load theme if provided (list available themes if not)",
 	"ecp", "", "load previous color theme",
 	"ecn", "", "load next color theme",
-	"ecH", "[?]", "highlight word or instruction",
+	"ecH", " [?]", "highlight word or instruction",
 	"ec", " prompt red", "change color of prompt",
 	"ec", " prompt red blue", "change color and background of prompt",
-	"", " ", "",
+	"Vars:", "", "",
 	"colors:", "", "rgb:000, red, green, blue, #ff0000, ...",
 	"e scr.color", "=0", "use more colors (0: no color 1: ansi 16, 2: 256, 3: 16M)",
-	"$DATADIR/radare2/cons", "", "~/.config/radare2/cons ./",
+	"$DATADIR/radare2/cons", "", R_JOIN_2_PATHS ("~", R2_HOME_THEMES) " ./",
 	NULL
 };
 
-static char *curtheme = NULL;
+static const char *help_msg_eco[] = {
+	"Usage: eco[jc] [theme]", "", "load theme (cf. Path and dir.prefix)",
+	"eco", "", "list available themes",
+	"eco.", "", "display current theme name",
+	"ecoo", "", "reload current theme",
+	"ecoq", "", "list available themes without showing the current one",
+	"ecoj", "", "list available themes in JSON",
+	"Path:", "", "",
+	"$DATADIR/radare2/cons", "", R_JOIN_2_PATHS ("~", R2_HOME_THEMES) " ./",
+	NULL
+};
+
+static char *curtheme = "default";
 static bool getNext = false;
 
 static void cmd_eval_init(RCore *core) {
@@ -102,32 +116,80 @@ static bool nextpal_item(RCore *core, int mode, const char *file, int ctr) {
 	return true;
 }
 
-R_API RList *r_core_list_themes(RCore *core) {
-	RList *files = NULL;
-	RListIter *iter;
-	const char *fn;
-	char *home = r_str_home (".config/radare2/cons/");
+static bool cmd_load_theme(RCore *core, const char *_arg) {
+	bool failed = false;
+	char *path;
+	if (!_arg || !*_arg) {
+		return false;
+	}
+	if (!r_str_cmp (_arg, "default", strlen (_arg))) {
+		curtheme = strdup (_arg);
+		r_cons_pal_init (core->cons->context);
+		return true;
+	}
+	char *arg = strdup (_arg);
 
-	RList *list = r_list_new ();
-	getNext = false;
-	if (home) {
-		files = r_sys_dir (home);
-		r_list_foreach (files, iter, fn) {
-			if (*fn && *fn != '.') {
-				r_list_append (list, strdup (fn));
+	char *tmp = r_str_newf (R_JOIN_2_PATHS (R2_HOME_THEMES, "%s"), arg);
+	char *home = tmp ? r_str_home (tmp) : NULL;
+	free (tmp);
+
+	tmp = r_str_newf (R_JOIN_2_PATHS (R2_THEMES, "%s"), arg);
+	path = tmp ? r_str_r2_prefix (tmp) : NULL;
+	free (tmp);
+
+	if (!load_theme (core, home)) {
+		if (load_theme (core, path)) {
+			curtheme = r_str_dup (curtheme, arg);
+		} else {
+			if (load_theme (core, arg)) {
+				curtheme = r_str_dup (curtheme, arg);
+			} else {
+				char *absfile = r_file_abspath (arg);
+				eprintf ("eco: cannot open colorscheme profile (%s)\n", absfile);
+				free (absfile);
+				failed = true;
 			}
 		}
-		r_list_free (files);
-		R_FREE (home);
 	}
-	files = r_sys_dir (R2_DATDIR"/radare2/"R2_VERSION"/cons/");
+	free (home);
+	free (path);
+	free (arg);
+	return !failed;
+}
+
+static void list_themes_in_path(RList *list, const char *path) {
+	RListIter *iter;
+	const char *fn;
+	RList *files = r_sys_dir (path);
 	r_list_foreach (files, iter, fn) {
 		if (*fn && *fn != '.') {
 			r_list_append (list, strdup (fn));
 		}
 	}
 	r_list_free (files);
-	files = NULL;
+}
+
+R_API char *r_core_get_theme () {
+	return curtheme;
+}
+
+R_API RList *r_core_list_themes(RCore *core) {
+	RList *list = r_list_newf (free);
+	getNext = false;
+	char *tmp = strdup ("default");
+	r_list_append (list, tmp);
+	char *path = r_str_home (R2_HOME_THEMES R_SYS_DIR);
+	if (path) {
+		list_themes_in_path (list, path);
+		R_FREE (path);
+	}
+
+	path = r_str_r2_prefix (R2_THEMES R_SYS_DIR);
+	if (path) {
+		list_themes_in_path (list, path);
+		R_FREE (path);
+	}
+
 	return list;
 }
 
@@ -136,8 +198,9 @@ static void nextpal(RCore *core, int mode) {
 	RList *files = NULL;
 	RListIter *iter;
 	const char *fn;
+	char *path = NULL;
 	int ctr = 0;
-	char *home = r_str_home (".config/radare2/cons/");
+	char *home = r_str_home (R2_HOME_THEMES R_SYS_DIR);
 
 	getNext = false;
 	if (mode == 'j') {
@@ -176,30 +239,36 @@ static void nextpal(RCore *core, int mode) {
 		r_list_free (files);
 		R_FREE (home);
 	}
-	files = r_sys_dir (R2_DATDIR"/radare2/"R2_VERSION"/cons/");
-	r_list_foreach (files, iter, fn) {
-		if (*fn && *fn != '.') {
-			if (mode == 'p') {
-				const char *nfn = iter->n? iter->n->data: NULL;
-				if (!curtheme) {
-					free (home);
-					r_list_free (files);
-					return;
-				}
-				eprintf ("%s %s %s\n", nfn, curtheme, fn);
-				if (nfn && !strcmp (nfn, curtheme)) {
-					free (curtheme);
-					curtheme = strdup (fn);
-					goto done;
-				}
-			} else {
-				if (!nextpal_item (core, mode, fn, ctr++)) {
-					goto done;
+
+	path = r_str_r2_prefix (R2_THEMES R_SYS_DIR);
+	if (path) {
+		files = r_sys_dir (path);
+		r_list_foreach (files, iter, fn) {
+			if (*fn && *fn != '.') {
+				if (mode == 'p') {
+					const char *nfn = iter->n? iter->n->data: NULL;
+					if (!curtheme) {
+						free (home);
+						r_list_free (files);
+						return;
+					}
+					eprintf ("%s %s %s\n", nfn, curtheme, fn);
+					if (nfn && !strcmp (nfn, curtheme)) {
+						free (curtheme);
+						curtheme = strdup (fn);
+						goto done;
+					}
+				} else {
+					if (!nextpal_item (core, mode, fn, ctr++)) {
+						goto done;
+					}
 				}
 			}
 		}
 	}
+
 done:
+	free (path);
 	if (getNext) {
 		R_FREE (curtheme);
 		nextpal (core, mode);
@@ -219,8 +288,24 @@ done:
 	}
 }
 
+R_API void r_core_echo(RCore *core, const char *input) {
+	if (!strncmp (input, "64 ", 3)) {
+		char *buf = strdup (input);
+		r_base64_decode ((ut8*)buf, input + 3, -1);
+		if (*buf) {
+			r_cons_echo (buf);
+		}
+		free (buf);
+	} else {
+		char *p = strchr (input, ' ');
+		if (p) {
+			r_cons_strcat (p + 1);
+			r_cons_newline ();
+		}
+	}
+}
+
 static int cmd_eval(void *data, const char *input) {
-	char *p;
 	RCore *core = (RCore *)data;
 	switch (input[0]) {
 	case '\0': // "e"
@@ -230,8 +315,8 @@ static int cmd_eval(void *data, const char *input) {
 	default:
 		switch (input[1]) {
 		case '\0': r_core_cmd_help (core, help_msg_e); break;
-		case '?': r_config_list (core->config, input+2, 2); break;
-		default: r_config_list (core->config, input+1, 2); break;
+		case '?': r_config_list (core->config, input + 2, 2); break;
+		default: r_config_list (core->config, input + 1, 2); break;
 		}
 		break;
 	case 't': // "et"
@@ -291,7 +376,7 @@ static int cmd_eval(void *data, const char *input) {
 	case 'c': // "ec"
 		switch (input[1]) {
 		case 'd': // "ecd"
-			r_cons_pal_init ();
+			r_cons_pal_init (core->cons->context);
 			break;
 		case '?':
 			r_core_cmd_help (core, help_msg_ec);
@@ -300,46 +385,39 @@ static int cmd_eval(void *data, const char *input) {
 			if (input[2] == 'j') {
 				nextpal (core, 'j');
 			} else if (input[2] == ' ') {
-				bool failed = false;
-				char *home, path[512];
-				snprintf (path, sizeof (path), ".config/radare2/cons/%s", input + 3);
-				home = r_str_home (path);
-				snprintf (path, sizeof (path), R2_DATDIR"/radare2/"
-					R2_VERSION"/cons/%s", input + 3);
-				if (!load_theme (core, home)) {
-					if (load_theme (core, path)) {
-						//curtheme = r_str_dup (curtheme, path);
-						curtheme = r_str_dup (curtheme, input + 3);
+				cmd_load_theme (core, input + 3);
+			} else if (input[2] == 'o') {
+				cmd_load_theme (core, r_core_get_theme ());
+			} else if (input[2] == 'c' || input[2] == '.') {
+				r_cons_printf ("%s\n", r_core_get_theme ());
+			} else if (input[2] == '?') {
+				r_core_cmd_help (core, help_msg_eco);
+			} else if (input[2] == 'q') {
+				RList *themes_list = r_core_list_themes (core);
+				RListIter *th_iter;
+				const char *th;
+				r_list_foreach (themes_list, th_iter, th) {
+					r_cons_printf ("%s\n", th);
+				}
+			} else {
+				RList *themes_list = r_core_list_themes (core);
+				RListIter *th_iter;
+				const char *th;
+				r_list_foreach (themes_list, th_iter, th) {
+					if (curtheme && !strcmp (curtheme, th)) {
+						r_cons_printf ("> %s\n", th);
 					} else {
-						if (load_theme (core, input + 3)) {
-							curtheme = r_str_dup (curtheme, input + 3);
-						} else {
-							char *absfile = r_file_abspath (input + 3);
-							eprintf ("eco: cannot open colorscheme profile (%s)\n", absfile);
-							free (absfile);
-							failed = true;
-						}
+						r_cons_printf ("  %s\n", th);
 					}
 				}
-				free (home);
-				if (failed) {
-					eprintf ("Something went wrong\n");
-				}
-			} else if (input[2] == '?') {
-				eprintf ("Usage: eco [themename]  ;load theme from "R2_DATDIR"/radare2/"R2_VERSION"/cons/\n");
-
-			} else {
-				nextpal (core, 'l');
 			}
 			break;
 		case 's': r_cons_pal_show (); break; // "ecs"
 		case '*': r_cons_pal_list (1, NULL); break; // "ec*"
 		case 'h': // echo
-			if (( p = strchr (input, ' ') )) {
-				r_cons_strcat (p+1);
-				r_cons_newline ();
+			if (input[2] == 'o') {
+				r_core_echo (core, input + 3);
 			} else {
-				// "ech"
 				r_cons_pal_list ('h', NULL);
 			}
 			break;
@@ -415,7 +493,7 @@ static int cmd_eval(void *data, const char *input) {
 				return true;
 			}
 			char *str = r_meta_get_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset);
-			char *dup = r_str_newf ("%s \"%s%s\"", str?str:"", word?word:"", color_code?color_code:r_cons_singleton ()->pal.highlight);
+			char *dup = r_str_newf ("%s \"%s%s\"", str?str:"", word?word:"", color_code?color_code:r_cons_singleton ()->context->pal.wordhl);
 			r_meta_set_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset, dup);
 			r_str_argv_free (argv);
 			R_FREE (word);
@@ -437,7 +515,7 @@ static int cmd_eval(void *data, const char *input) {
 			} else {
 				char color[32];
 				RColor rcolor = r_cons_pal_get (p);
-				r_cons_rgb_str (color, &rcolor);
+				r_cons_rgb_str (color, sizeof (color), &rcolor);
 				eprintf ("(%s)(%sCOLOR"Color_RESET")\n", p, color);
 			}
 			free (p);
@@ -457,7 +535,7 @@ static int cmd_eval(void *data, const char *input) {
 			free (file);
 		} else {
 			char *file = r_str_home (".radare2rc");
-			if (r_config_get_i (core->config, "scr.interactive")) {
+			if (r_cons_is_interactive ()) {
 				r_file_touch (file);
 				char * res = r_cons_editor (file, NULL);
 				if (res) {
@@ -474,22 +552,23 @@ static int cmd_eval(void *data, const char *input) {
 	case 'e': // "ee"
 		if (input[1] == ' ') {
 			char *p;
-			const char *val, *input2 = strchr (input+2, ' ');
-			if (input2) input2++; else input2 = input+2;
-			val = r_config_get (core->config, input2);
+			const char *input2 = strchr (input + 2, ' ');
+			input2 = (input2) ? input2 + 1 : input + 2;
+			const char *val = r_config_get (core->config, input2);
 			p = r_core_editor (core, NULL, val);
 			if (p) {
 				r_str_replace_char (p, '\n', ';');
 				r_config_set (core->config, input2, p);
 			}
 		} else {
-			eprintf ("Usage: ee varname\n");
+			eprintf ("Usage: ee varname # use $EDITOR to edit this config value\n");
 		}
 		break;
 	case '!': // "e!"
-		input = r_str_trim_ro (input+1);
-		if (!r_config_toggle (core->config, input))
+		input = r_str_trim_ro (input + 1);
+		if (!r_config_toggle (core->config, input)) {
 			eprintf ("r_config: '%s' is not a boolean variable.\n", input);
+		}
 		break;
 	case 's': // "es"
 		r_config_list (core->config, (input[1])? input + 1: NULL, 's');
@@ -503,15 +582,26 @@ static int cmd_eval(void *data, const char *input) {
 		break;
 	case 'r': // "er"
 		if (input[1]) {
-			const char *key = input+((input[1]==' ')?2:1);
+			const char *key = input + ((input[1] == ' ')? 2: 1);
 			if (!r_config_readonly (core->config, key)) {
 				eprintf ("cannot find key '%s'\n", key);
 			}
 		} else {
-			eprintf ("Usage: er [key]\n");
+			eprintf ("Usage: er [key]  # make an eval key PERMANENTLY read only\n");
 		}
 		break;
-	case ' ': r_config_eval (core->config, input+1); break;
+	case ',': // "e."
+		r_config_eval (core->config, input + 1, true);
+		break;
+	case '.': // "e "
+	case ' ': // "e "
+		if (r_str_endswith (input, ".")) {
+			r_config_list (core->config, input + 1, 0);
+		} else {
+			// XXX we cant do "e cmd.gprompt=dr=", because the '=' is a token, and quotes dont affect him
+			r_config_eval (core->config, input + 1, false);
+		}
+		break;
 	}
 	return 0;
 }

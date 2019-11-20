@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2016 - pancake */
+/* radare - LGPL - Copyright 2007-2019 - pancake */
 
 #include "r_types.h"
 #include "r_util.h"
@@ -7,7 +7,7 @@
 
 /* int c; ret = hex_to_byte(&c, 'c'); */
 R_API int r_hex_to_byte(ut8 *val, ut8 c) {
-	if (IS_DIGIT(c)) {
+	if (IS_DIGIT (c)) {
 		*val = (ut8)(*val) * 16 + (c - '0');
 	} else if (c >= 'A' && c <= 'F') {
 		*val = (ut8)(*val) * 16 + (c - 'A' + 10);
@@ -23,10 +23,8 @@ R_API char *r_hex_from_py_str(char *out, const char *code) {
 	if (!strncmp (code, "'''", 3)) {
 		const char *s = code + 2;
 		return r_hex_from_c_str (out, &s);
-	} else {
-		return r_hex_from_c_str (out, &code);
 	}
-	return out;
+	return r_hex_from_c_str (out, &code);
 }
 
 static const char *skip_comment_py(const char *code) {
@@ -121,8 +119,8 @@ R_API char *r_hex_from_c_str(char *out, const char **code) {
 			case 'r': *out++='0';*out++='d';break;
 			case 'n': *out++='0';*out++='a';break;
 			case 'x': {
-				char c1 = iter[1];
-				char c2 = iter[2];
+				ut8 c1 = iter[1];
+				ut8 c2 = iter[2];
 				iter += 2;
 				if (c1 == '\0' || c2 == '\0') {
 					return NULL;
@@ -244,6 +242,64 @@ R_API char *r_hex_from_c(const char *code) {
 	return ret;
 }
 
+
+R_API char *r_hex_from_js(const char *code) {
+	char * s1 = strchr (code, '\'');
+	char * s2 = strchr (code, '"');
+
+	/* there are no strings in the input */
+	if (!(s1 || s2)) {
+		return NULL;
+	}
+
+	char * start, * end;
+	if (s1 < s2) {
+		start = s1;
+		end = strchr (start + 1, '\'');
+	} else {
+		start = s2;
+		end = strchr (start + 1, '"');
+	}
+
+	/* the string isn't properly terminated */
+	if (!end) {
+		return NULL;
+	}
+
+	char * str = r_str_ndup (start + 1, end - start - 1);
+
+	/* assuming base64 input, output will always be shorter */
+	ut8 *b64d = malloc (end - start);
+	if (!b64d) {
+		free (str);
+		return NULL;
+	}
+
+	r_base64_decode (b64d, str, end - start - 1);
+	if (!b64d) {
+		free (str);
+		free (b64d);
+		return NULL;
+	}
+
+	// TODO: use r_str_bin2hex
+	int i, len = strlen ((const char *)b64d);
+	char * out = malloc (len * 2 + 1);
+	if (!out) {
+		free (str);
+		free (b64d);
+		return NULL;
+	}
+	for (i = 0; i < len; i++) {
+		sprintf (&out[i * 2], "%02x", b64d[i]);
+	}
+	out[len * 2] = '\0';
+
+	free (str);
+	free (b64d);
+	return out;
+}
+
 /* convert
  * "\x41\x23\x42\x1b"
  * "\x41\x23\x42\x1b"
@@ -254,7 +310,7 @@ R_API char *r_hex_no_code(const char *code) {
 	if (!code) {
 		return NULL;
 	}
-	char * const ret = malloc (strlen (code) * 3);
+	char * const ret = calloc (1, strlen (code) * 3);
 	if (!ret) {
 		return NULL;
 	}
@@ -278,13 +334,17 @@ R_API char *r_hex_no_code(const char *code) {
 R_API char *r_hex_from_code(const char *code) {
 	if (!strchr (code, '=')) {
 		return r_hex_no_code (code);
-	} else if (strstr (code, "char") || strstr (code, "int")) {
-		//C language
-		return r_hex_from_c (code);
-	} else {
-		// Python
-		return r_hex_from_py (code);
 	}
+	/* C language */
+	if (strstr (code, "char") || strstr (code, "int")) {
+		return r_hex_from_c (code);
+	}
+	/* JavaScript */
+	if (strstr (code, "var")) {
+		return r_hex_from_js (code);
+	}
+        /* Python */
+	return r_hex_from_py (code);
 }
 
 /* int byte = hexpair2bin("A0"); */
@@ -298,7 +358,7 @@ R_API int r_hex_pair2bin(const char *arg) {
 			break;
 		}
 		d = c;
-		if (*ptr!='.' && r_hex_to_byte (&c, *ptr)) {
+		if (*ptr != '.' && r_hex_to_byte (&c, *ptr)) {
 			eprintf ("Invalid hexa string at char '%c' (%s).\n",
 				*ptr, arg);
 			return -1;
@@ -313,12 +373,13 @@ R_API int r_hex_pair2bin(const char *arg) {
 
 R_API int r_hex_bin2str(const ut8 *in, int len, char *out) {
 	int i, idx;
-	char tmp[5];
-	if (len < 0)
+	char tmp[8];
+	if (len < 0) {
 		return 0;
+	}
 	for (idx = i = 0; i < len; i++, idx += 2)  {
 		snprintf (tmp, sizeof (tmp), "%02x", in[i]);
-		memcpy (out+idx, tmp, 2);
+		memcpy (out + idx, tmp, 2);
 	}
 	out[idx] = 0;
 	return len;
@@ -328,9 +389,13 @@ R_API char *r_hex_bin2strdup(const ut8 *in, int len) {
 	int i, idx;
 	char tmp[5], *out;
 
-	if ((len + 1) * 2 < len) return NULL;
+	if ((len + 1) * 2 < len) {
+		return NULL;
+	}
 	out = malloc ((len + 1) * 2);
-	if (!out) return NULL;
+	if (!out) {
+		return NULL;
+	}
 	for (i = idx = 0; i < len; i++, idx += 2)  {
 		snprintf (tmp, sizeof (tmp), "%02x", in[i]);
 		memcpy (out+idx, tmp, 2);
@@ -376,7 +441,9 @@ R_API int r_hex_str2bin(const char *in, ut8 *out) {
 	}
 
 	if (nibbles % 2) {
-		if (out) r_hex_to_byte (&out[nibbles/2], '0');
+		if (out) {
+			r_hex_to_byte (&out[nibbles / 2], '0');
+		}
 		return -(nibbles+1) / 2;
 	}
 
@@ -388,33 +455,49 @@ R_API int r_hex_str2binmask(const char *in, ut8 *out, ut8 *mask) {
 	int len, ilen = strlen (in)+1;
 	int has_nibble = 0;
 	memcpy (out, in, ilen);
-	for (ptr=out; *ptr; ptr++) if (*ptr=='.') *ptr = '0';
+	for (ptr = out; *ptr; ptr++) {
+		if (*ptr == '.') {
+			*ptr = '0';
+		}
+	}
 	len = r_hex_str2bin ((char*)out, out);
 	if (len<0) { has_nibble = 1; len = -(len+1); }
 	if (len != -1) {
 		memcpy (mask, in, ilen);
-		if (has_nibble)
-			memcpy (mask+ilen, "f0", 3);
-		for (ptr=mask; *ptr; ptr++) *ptr = (*ptr=='.')?'0':'f';
+		if (has_nibble) {
+			memcpy (mask + ilen, "f0", 3);
+		}
+		for (ptr = mask; *ptr; ptr++) {
+			if (IS_HEXCHAR (*ptr)) {
+				*ptr = 'f';
+			} else if (*ptr == '.') {
+				*ptr = '0';
+			}
+		}
 		len = r_hex_str2bin ((char*)mask, mask);
-		if (len<0) len++;
+		if (len < 0) {
+			len++;
+		}
 	}
 	return len;
 }
 
-R_API st64 r_hex_bin_truncate (ut64 in, int n) {
+R_API st64 r_hex_bin_truncate(ut64 in, int n) {
 	switch (n) {
 	case 1:
-		if ((in&UT8_GT0))
-			return UT64_8U|in;
+		if ((in & UT8_GT0)) {
+			return UT64_8U | in;
+		}
 		return in&UT8_MAX;
 	case 2:
-		if ((in&UT16_GT0))
-			return UT64_16U|in;
+		if ((in & UT16_GT0)) {
+			return UT64_16U | in;
+		}
 		return in&UT16_MAX;
 	case 4:
-		if ((in&UT32_GT0))
-			return UT64_32U|in;
+		if ((in & UT32_GT0)) {
+			return UT64_32U | in;
+		}
 		return in&UT32_MAX;
 	case 8:
 		return in&UT64_MAX;
@@ -422,17 +505,21 @@ R_API st64 r_hex_bin_truncate (ut64 in, int n) {
 	return in;
 }
 
-// Check if str contains only hexademical characters and return length of bytes
+// Check if str contains only hexadecimal characters and return length of bytes
 R_API int r_hex_str_is_valid(const char* str) {
 	int i;
+	int len = 0;
 	if (!strncmp (str, "0x", 2)) {
 		str += 2;
 	}
-	for (i = 0; str[i] != '\0' && str[i] != ' '; i++) {
-		if (ISHEXCHAR (str[i])) {
+	for (i = 0; str[i] != '\0'; i++) {
+		if (IS_HEXCHAR (str[i])) {
+			len++;
+		}
+		if (IS_HEXCHAR (str[i]) || IS_WHITESPACE (str[i])) {
 			continue;
 		}
-		return -1; //if we're here, then str isnt valid
+		return -1; //if we're here, then str isn't valid
 	}
-	return i;
+	return len;
 }

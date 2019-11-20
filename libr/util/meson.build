@@ -1,24 +1,25 @@
-# 'big-gmp.c',
-# 'big-ssl.c',
-# 'mixed.c',
-# 'iconv.c',
 
-files = [
+r_util_sources = [
+  'ascii_table.c',
+  'assert.c',
+  'alloc.c',
+  'donut.c',
+  'table.c',
+  'getopt.c',
   'base85.c',
   'base91.c',
   'bdiff.c',
-  'big.c',
+  #'big.c',
   'binheap.c',
   'bitmap.c',
-  'btree.c',
   'buf.c',
   'cache.c',
   'calc.c',
   'chmod.c',
   'constr.c',
   'debruijn.c',
-  'des.c',
   'diff.c',
+  'event.c',
   'file.c',
   'flist.c',
   'graph.c',
@@ -30,40 +31,43 @@ files = [
   'log.c',
   'mem.c',
   'name.c',
-  'p_date.c',
-  'p_format.c',
-  'p_seven.c',
-  'pool.c',
+  'date.c',
+  'format.c',
+  'pie.c',
+  'seven.c',
   'print.c',
   'prof.c',
   'punycode.c',
   'qrcode.c',
   'queue.c',
-  'r_asn1.c',
-  'r_pkcs7.c',
-  'r_x509.c',
+  'asn1.c',
+  'astr.c',
+  'pkcs7.c',
+  'x509.c',
+  'ctype.c',
   'randomart.c',
   'range.c',
   'rbtree.c',
   'sandbox.c',
   'signal.c',
   'skiplist.c',
-  'slist.c',
   'spaces.c',
   'stack.c',
   'str.c',
+  'str_constpool.c',
   'str_trim.c',
   'strbuf.c',
   'strpool.c',
   'sys.c',
   'syscmd.c',
   'thread.c',
+  'thread_sem.c',
   'thread_lock.c',
-  'thread_msg.c',
+  'thread_cond.c',
   'thread_pipe.c',
   'tinyrange.c',
   'tree.c',
-  'r_json.c',
+  'pj.c',
   'ubase64.c',
   'uleb128.c',
   'unum.c',
@@ -73,30 +77,34 @@ files = [
   'vector.c',
   'w32-sys.c',
   'zip.c',
+  'protobuf.c',
   'regex/regcomp.c',
   'regex/regexec.c',
   'regex/regerror.c'
 ]
 
-r_util = library('r_util', files,
-  include_directories: [
-    platform_inc,
-    include_directories([
-      '../../shlr/zip/include'
-    ])
-  ],
-  dependencies: [ldl, pth, utl],
-  link_with: [libr_shlr],
+r_util_deps = [ldl, mth, pth, utl, sdb_dep, zlib_dep]
+if host_machine.system().startswith('freebsd')
+  # backtrace_symbols_fd requires -lexecinfo
+  r_util_deps += [cc.find_library('execinfo')]
+endif
+
+r_util = library('r_util', r_util_sources,
+  include_directories: platform_inc,
+  c_args: library_cflags,
+  dependencies: r_util_deps,
   install: true,
-  implicit_include_directories: false
+  implicit_include_directories: false,
+  soversion: r2_libversion
 )
 
+r_util_dep = declare_dependency(link_with: r_util,
+                                include_directories: platform_inc)
 
-
-pkg = import('pkgconfig')
-pkg.generate(libraries: [r_util],
-             subdirs: 'libr',
-             version: r2version,
-             name: 'r_util',
-             filebase: 'r_util',
-             description: 'radare foundation libraries')
+pkgconfig_mod.generate(r_util,
+  subdirs: 'libr',
+  version: r2_version,
+  name: 'r_util',
+  filebase: 'r_util',
+  description: 'radare foundation libraries'
+)

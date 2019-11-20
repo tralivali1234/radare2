@@ -124,10 +124,15 @@ void bochs_send_cmd(libbochs_t* b, const char *cmd, bool bWait) {
 		WriteFile (b->hWritePipeOut, cmdbuff, strlen (cmdbuff), &dwWritten, NULL);
 	}
 #else
-	write (b->hWritePipeOut, cmdbuff, strlen (cmdbuff));
+	size_t cmdlen = strlen (cmdbuff);
+	if (write (b->hWritePipeOut, cmdbuff, cmdlen) != cmdlen) {
+		eprintf ("boch_send_cmd failed\n");
+		goto beach;
+	}
 #endif
 	if (bWait)
 		bochs_wait (b);
+beach:
 	free (cmdbuff);
 }
 
@@ -216,7 +221,7 @@ bool bochs_open(libbochs_t* b, const char * pathBochs, const char * pathConfig) 
 		b->info.dwFlags |=  STARTF_USESTDHANDLES;
 		snprintf (commandline, sizeof (commandline), "\"%s\" -f \"%s\" -q ", pathBochs, pathConfig);
 		lprintf ("*** Creating process: %s\n", commandline);
-		commandline_ = r_sys_conv_utf8_to_utf16 (commandline);
+		commandline_ = r_sys_conv_utf8_to_win (commandline);
 		if (CreateProcess (NULL, commandline_, NULL, NULL, TRUE, CREATE_NEW_CONSOLE,
 				NULL, NULL, &b->info, &b->processInfo)) {
 			lprintf ("Process created\n");
@@ -283,19 +288,22 @@ bool bochs_open(libbochs_t* b, const char * pathBochs, const char * pathConfig) 
 		close (aStdinPipe[PIPE_READ]);
 		close (aStdoutPipe[PIPE_WRITE]);
 
-		(void)read (aStdoutPipe[PIPE_READ], lpTmpBuffer, 1);
-
-		b->hReadPipeIn  = aStdoutPipe[PIPE_READ];
-		b->hWritePipeOut = aStdinPipe[PIPE_WRITE];
-		b->isRunning = true;
-		bochs_reset_buffer (b);
-		eprintf ("Waiting for bochs...\n");
-		if (bochs_wait (b)) {
-			eprintf ("Ready.\n");
-			b->pid = nChild;
-			result = true;
-		} else {
+		if (read (aStdoutPipe[PIPE_READ], lpTmpBuffer, 1) != 1) {
+			eprintf ("boch_open failed");
 			bochs_close (b);
+		} else {
+			b->hReadPipeIn  = aStdoutPipe[PIPE_READ];
+			b->hWritePipeOut = aStdinPipe[PIPE_WRITE];
+			b->isRunning = true;
+			bochs_reset_buffer (b);
+			eprintf ("Waiting for bochs...\n");
+			if (bochs_wait (b)) {
+				eprintf ("Ready.\n");
+				b->pid = nChild;
+				result = true;
+			} else {
+				bochs_close (b);
+			}
 		}
 	} else {
 		perror ("pipe");

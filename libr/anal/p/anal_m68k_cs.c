@@ -26,6 +26,39 @@
 #define MEMINDEX(x) insn->detail->m68k.operands[x].mem.index
 #define MEMDISP(x) insn->detail->m68k.operands[x].mem.disp
 
+static inline ut64 make_64bits_address(ut64 address) {
+	return UT32_MAX & address;
+}
+
+static inline void handle_branch_instruction(RAnalOp *op, ut64 addr, cs_m68k *m68k, ut32 type, int index) {
+#if CS_API_MAJOR >= 4
+		if (m68k->operands[index].type == M68K_OP_BR_DISP) {
+			op->type = type;
+			// TODO: disp_size is ignored
+			op->jump = make_64bits_address (addr + m68k->operands[index].br_disp.disp + 2);
+			op->fail = make_64bits_address (addr + op->size);
+		}
+#else
+		op->type = type;
+		// TODO: disp_size is ignored
+		op->jump = make_64bits_address (addr + m68k->operands[index].br_disp.disp + 2);
+		op->fail = make_64bits_address (addr + op->size);
+#endif
+}
+
+static inline void handle_jump_instruction(RAnalOp *op, ut64 addr, cs_m68k *m68k, ut32 type) {
+	op->type = type;
+
+	// Handle PC relative mode jump
+	if (m68k->operands[0].address_mode == M68K_AM_PCI_DISP) {
+		op->jump = make_64bits_address (addr + m68k->operands[0].mem.disp + 2);
+	} else {
+		op->jump = make_64bits_address (m68k->operands[0].imm);
+	}
+
+	op->fail = make_64bits_address (addr + op->size);
+}
+
 static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 	int i;
 	r_strbuf_init (buf);
@@ -76,12 +109,63 @@ static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 	r_strbuf_append (buf, "]}");
 }
 
-static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
+static int parse_reg_name(RRegItem *reg, csh handle, cs_insn *insn, int reg_num) {
+	if (!reg) {
+		return -1;
+	}
+	switch (OPERAND (reg_num).type) {
+	case M68K_OP_REG:
+		reg->name = (char *)cs_reg_name (handle, OPERAND (reg_num).reg);
+		break;
+	case M68K_OP_MEM:
+		if (OPERAND (reg_num).mem.base_reg != M68K_REG_INVALID) {
+			reg->name = (char *)cs_reg_name (handle, OPERAND (reg_num).mem.base_reg);
+		}
+		break;
+	default:
+		break;
+	}
+	return 0;
+}
+
+static void op_fillval(RAnalOp *op, csh handle, cs_insn *insn) {
+	static RRegItem reg;
+	switch (op->type & R_ANAL_OP_TYPE_MASK) {
+	case R_ANAL_OP_TYPE_MOV:
+		ZERO_FILL (reg);
+		if (OPERAND(1).type == M68K_OP_MEM) {
+			op->src[0] = r_anal_value_new ();
+			op->src[0]->reg = &reg;
+			parse_reg_name (op->src[0]->reg, handle, insn, 1);
+			op->src[0]->delta = OPERAND(0).mem.disp;
+		} else if (OPERAND(0).type == M68K_OP_MEM) {
+			op->dst = r_anal_value_new ();
+			op->dst->reg = &reg;
+			parse_reg_name (op->dst->reg, handle, insn, 0);
+			op->dst->delta = OPERAND(1).mem.disp;
+		}
+		break;
+	case R_ANAL_OP_TYPE_LEA:
+		ZERO_FILL (reg);
+		if (OPERAND(1).type == M68K_OP_MEM) {
+			op->dst = r_anal_value_new ();
+			op->dst->reg = &reg;
+			parse_reg_name (op->dst->reg, handle, insn, 1);
+			op->dst->delta = OPERAND(1).mem.disp;
+		}
+		break;
+	}
+}
+
+static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, RAnalOpMask mask) {
 	int n, ret, opsize = -1;
 	static csh handle = 0;
 	static int omode = -1;
 	static int obits = 32;
 	cs_insn* insn;
+	cs_m68k *m68k;
+	cs_detail *detail;
+
 	int mode = a->big_endian? CS_MODE_BIG_ENDIAN: CS_MODE_LITTLE_ENDIAN;
 
 	//mode |= (a->bits==64)? CS_MODE_64: CS_MODE_32;
@@ -94,22 +178,30 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 // XXX no arch->cpu ?!?! CS_MODE_MICRO, N64
 	op->delay = 0;
 	// replace this with the asm.features?
-	if (a->cpu && strstr (a->cpu, "68000"))
+	if (a->cpu && strstr (a->cpu, "68000")) {
 		mode |= CS_MODE_M68K_000;
-	if (a->cpu && strstr (a->cpu, "68010"))
+	}
+	if (a->cpu && strstr (a->cpu, "68010")) {
 		mode |= CS_MODE_M68K_010;
-	if (a->cpu && strstr (a->cpu, "68020"))
+	}
+	if (a->cpu && strstr (a->cpu, "68020")) {
 		mode |= CS_MODE_M68K_020;
-	if (a->cpu && strstr (a->cpu, "68030"))
+	}
+	if (a->cpu && strstr (a->cpu, "68030")) {
 		mode |= CS_MODE_M68K_030;
-	if (a->cpu && strstr (a->cpu, "68040"))
+	}
+	if (a->cpu && strstr (a->cpu, "68040")) {
 		mode |= CS_MODE_M68K_040;
-	if (a->cpu && strstr (a->cpu, "68060"))
+	}
+	if (a->cpu && strstr (a->cpu, "68060")) {
 		mode |= CS_MODE_M68K_060;
+	}
 	op->size = 4;
 	if (handle == 0) {
 		ret = cs_open (CS_ARCH_M68K, mode, &handle);
-		if (ret != CS_ERR_OK) goto fin;
+		if (ret != CS_ERR_OK) {
+			goto fin;
+		}
 		cs_option (handle, CS_OPT_DETAIL, CS_OPT_ON);
 	}
 	n = cs_disasm (handle, (ut8*)buf, len, addr, 1, &insn);
@@ -119,17 +211,21 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		opsize = -1;
 		goto beach;
 	}
-	if (!memcmp (buf, "\xff\xff", 2)) {
+	if (!memcmp (buf, "\xff\xff", R_MIN (len, 2))) {
 		op->type = R_ANAL_OP_TYPE_ILL;
 		op->size = 2;
 		opsize = -1;
 		goto beach;
 	}
+	detail = insn->detail;
+	m68k = &detail->m68k;
 	op->type = R_ANAL_OP_TYPE_NULL;
 	op->delay = 0;
 	op->id = insn->id;
 	opsize = op->size = insn->size;
-	opex (&op->opex, handle, insn);
+	if (mask & R_ANAL_OP_MASK_OPEX) {
+		opex (&op->opex, handle, insn);
+	}
 	switch (insn->id) {
 	case M68K_INS_INVALID:
 		op->type  = R_ANAL_OP_TYPE_ILL;
@@ -169,18 +265,13 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	case M68K_INS_BLT:
 	case M68K_INS_BGT:
 	case M68K_INS_BLE:
-		op->type = R_ANAL_OP_TYPE_CJMP;
-		op->jump = ((addr >>32)<<32) | (UT32_MAX & IMM(0));
-		op->fail = addr + 2;
+		handle_branch_instruction (op, addr, m68k, R_ANAL_OP_TYPE_CJMP, 0);
 		break;
 	case M68K_INS_BRA:
-		op->type = R_ANAL_OP_TYPE_JMP;
-		op->jump = ((addr >>32)<<32) | (UT32_MAX & IMM(0));
+		handle_branch_instruction (op, addr, m68k, R_ANAL_OP_TYPE_JMP, 0);
 		break;
 	case M68K_INS_BSR:
-		op->type = R_ANAL_OP_TYPE_CALL;
-		op->jump = IMM(0);
-		op->fail = addr + 2;
+		handle_branch_instruction (op, addr, m68k, R_ANAL_OP_TYPE_CALL, 0);
 		break;
 	case M68K_INS_BCHG:
 	case M68K_INS_BCLR:
@@ -218,6 +309,7 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	case M68K_INS_CPUSHL:
 	case M68K_INS_CPUSHP:
 	case M68K_INS_CPUSHA:
+		break;
 	case M68K_INS_DBT:
 	case M68K_INS_DBF:
 	case M68K_INS_DBHI:
@@ -235,6 +327,7 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	case M68K_INS_DBGT:
 	case M68K_INS_DBLE:
 	case M68K_INS_DBRA:
+		handle_branch_instruction (op, addr, m68k, R_ANAL_OP_TYPE_CJMP, 1);
 		break;
 	case M68K_INS_DIVS:
 	case M68K_INS_DIVSL:
@@ -247,6 +340,8 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		op->type = R_ANAL_OP_TYPE_XOR;
 		break;
 	case M68K_INS_EXG:
+		op->type = R_ANAL_OP_TYPE_MOV;
+		break;
 	case M68K_INS_EXT:
 	case M68K_INS_EXTB:
 		break;
@@ -447,12 +542,10 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		op->type = R_ANAL_OP_TYPE_ILL;
 		break;
 	case M68K_INS_JMP:
-		op->type = R_ANAL_OP_TYPE_JMP;
+		handle_jump_instruction (op, addr, m68k, R_ANAL_OP_TYPE_JMP);
 		break;
 	case M68K_INS_JSR:
-		op->type = R_ANAL_OP_TYPE_CALL;
-		op->jump = UT32_MAX & (ut64)IMM(0);
-		op->fail = addr + op->size;
+		handle_jump_instruction (op, addr, m68k, R_ANAL_OP_TYPE_CALL);
 		break;
 	case M68K_INS_LPSTOP:
 		op->type = R_ANAL_OP_TYPE_NOP;
@@ -494,6 +587,8 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		op->type = R_ANAL_OP_TYPE_NOP;
 		break;
 	case M68K_INS_NOT:
+		op->type = R_ANAL_OP_TYPE_NOT;
+		break;
 	case M68K_INS_OR:
 	case M68K_INS_ORI:
 		op->type = R_ANAL_OP_TYPE_OR;
@@ -515,15 +610,23 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 	case M68K_INS_REMS:
 	case M68K_INS_REMU:
 	case M68K_INS_RESET:
+		break;
 	case M68K_INS_ROL:
+		op->type = R_ANAL_OP_TYPE_ROL;
+		break;
 	case M68K_INS_ROR:
+		op->type = R_ANAL_OP_TYPE_ROR;
+		break;
 	case M68K_INS_ROXL:
 	case M68K_INS_ROXR:
+		break;
 	case M68K_INS_RTD:
 	case M68K_INS_RTE:
 	case M68K_INS_RTM:
 	case M68K_INS_RTR:
 	case M68K_INS_RTS:
+		op->type = R_ANAL_OP_TYPE_RET;
+		break;
 	case M68K_INS_SBCD:
 	case M68K_INS_ST:
 	case M68K_INS_SF:
@@ -592,17 +695,21 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 		op->stackptr = 0;
 		break;
 	}
-	beach:
+	if (mask & R_ANAL_OP_MASK_VAL) {
+		op_fillval (op, handle, insn);
+	}
+beach:
 	cs_free (insn, n);
 	//cs_close (&handle);
-	fin:
+fin:
 	return opsize;
 }
 
 static int set_reg_profile(RAnal *anal) {
 	const char *p = \
 		"=PC    pc\n"
-		"=SP    sp\n"
+		"=SP    a7\n"
+		"=BP    a6\n"
 		"=A0    a0\n"
 		"=A1    a1\n"
 		"=A2    a2\n"
@@ -623,30 +730,30 @@ static int set_reg_profile(RAnal *anal) {
 		"gpr	a5	.32	52	0\n"
 		"gpr	a6 	.32	56	0\n"
 		"gpr	a7 	.32	60	0\n"
-		"gpr	fp0	.32	64	0\n"
-		"gpr	fp1	.32	68	0\n"
-		"gpr	fp2	.32	72	0\n"
-		"gpr	fp3 	.32	76	0\n"
-		"gpr	fp4 	.32	80	0\n"
-		"gpr	fp5 	.32	84	0\n"
-		"gpr	fp6 	.32	88	0\n"
-		"gpr	fp7 	.32	92	0\n"
+		"gpr	fp0	.32	64	0\n" //FPU register 0, 96bits to write and read max
+		"gpr	fp1	.32	68	0\n" //FPU register 1, 96bits to write and read max
+		"gpr	fp2	.32	72	0\n" //FPU register 2, 96bits to write and read max
+		"gpr	fp3 	.32	76	0\n" //FPU register 3, 96bits to write and read max
+		"gpr	fp4 	.32	80	0\n" //FPU register 4, 96bits to write and read max
+		"gpr	fp5 	.32	84	0\n" //FPU register 5, 96bits to write and read max
+		"gpr	fp6 	.32	88	0\n" //FPU register 6, 96bits to write and read max
+		"gpr	fp7 	.32	92	0\n" //FPU register 7, 96bits to write and read max
 		"gpr	pc 	.32	96	0\n"
-		"gpr	sr 	.32	100	0\n"
-		"gpr	ccr 	.32	104	0\n"
-		"gpr	sfc 	.32	108	0\n"
-		"gpr	dfc	.32	112	0\n"
-		"gpr	usp	.32	116	0\n"
-		"gpr	vbr	.32	120	0\n"
-		"gpr	cacr	.32	124	0\n"
-		"gpr	caar	.32	128	0\n"
-		"gpr	msp	.32	132	0\n"
-		"gpr	isp	.32	136	0\n"
+		"gpr	sr 	.32	100	0\n" //only available for read and write access during supervisor mode 16bit
+		"gpr	ccr 	.32	104	0\n" //subset of the SR, available from any mode
+		"gpr	sfc 	.32	108	0\n" //source function code register
+		"gpr	dfc	.32	112	0\n" //destination function code register
+		"gpr	usp	.32	116	0\n" //user stack point this is an shadow register of A7 user mode, SR bit 0xD is 0
+		"gpr	vbr	.32	120	0\n" //vector base register, this is a Address pointer
+		"gpr	cacr	.32	124	0\n" //cache control register, implementation specific
+		"gpr	caar	.32	128	0\n" //cache address register, 68020, 68EC020, 68030 and 68EC030 only.  
+		"gpr	msp	.32	132	0\n" //master stack pointer, this is an shadow register of A7 supervisor mode, SR bits 0xD && 0xC are set
+		"gpr	isp	.32	136	0\n" //interrupt stack pointer, this is an shadow register of A7  supervisor mode, SR bit 0xD is set, 0xC is not.
 		"gpr	tc	.32	140	0\n"
-		"gpr	itt0	.32	144	0\n"
-		"gpr	itt1	.32	148	0\n"
-		"gpr	dtt0	.32	156	0\n"
-		"gpr	dtt1	.32	160	0\n"
+		"gpr	itt0	.32	144	0\n" //in 68EC040 this is IACR0
+		"gpr	itt1	.32	148	0\n" //in 68EC040 this is IACR1
+		"gpr	dtt0	.32	156	0\n" //in 68EC040 this is DACR0
+		"gpr	dtt1	.32	160	0\n" //in 68EC040 this is DACR1
 		"gpr	mmusr	.32	164	0\n"
 		"gpr	urp	.32	168	0\n"
 		"gpr	srp	.32	172	0\n"
@@ -663,12 +770,12 @@ RAnalPlugin r_anal_plugin_m68k_cs = {
 	.esil = false,
 	.arch = "m68k",
 	.set_reg_profile = &set_reg_profile,
-	.bits = 16 | 32,
+	.bits = 32,
 	.op = &analop,
 };
 #else
 RAnalPlugin r_anal_plugin_m68k_cs = {
-	.name = "m68k.cs (unsupported)",
+	.name = "m68k (unsupported)",
 	.desc = "Capstone M68K analyzer (unsupported)",
 	.license = "BSD",
 	.arch = "m68k",
@@ -676,8 +783,8 @@ RAnalPlugin r_anal_plugin_m68k_cs = {
 };
 #endif
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ANAL,
 	.data = &r_anal_plugin_m68k_cs,
 	.version = R2_VERSION

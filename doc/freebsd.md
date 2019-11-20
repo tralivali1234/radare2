@@ -1,11 +1,11 @@
 FreeBSD build instructions
 ==========================
 
-FreeBSD, as well as other BSD systems have some differences in the way commands are named and packages installed. This document aims to explain the steps needed to build r2 and r2b-python on FreeBSD.
+This document aims to explain the steps needed to build r2 and r2b-python on FreeBSD.
 
 * Note that `make` (from GNU) is named `gmake`
 * Stuff is installed in /usr/local
-* gcc is named cc and g++ is c++
+* clang (or gcc) is named cc and clang++ (or g++) is c++
 * valabind is not packaged in the ports
 
 Radare2 Dependencies:
@@ -13,7 +13,7 @@ Radare2 Dependencies:
 
 	sudo pkg install git gcc gmake patch pkgconf
 
-	git clone https://github.com/radare/radare2
+	git clone https://github.com/radareorg/radare2
 	cd radare2
 	sys/install.sh /usr/local
 
@@ -30,7 +30,7 @@ Python Swig Bindings Dependencies:
 Building Python Swig Bindings:
 ------------------------------
 
-	git clone https://github.com/radare/radare2-bindings
+	git clone https://github.com/radareorg/radare2-bindings
 	cd radare2-bindings
 	export CC=cc
 	export CXX=c++

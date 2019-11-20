@@ -5,7 +5,9 @@ ec bin rgb:0f0
 ec crypto rgb:0f0
 ec other rgb:0a0
 ec btext rgb:0b0
+ec ucall rgb:0b0
 ec call rgb:0b0
+ec ujmp rgb:2f2
 ec cjmp rgb:2f2
 ec jmp rgb:2f2
 ec cmp rgb:191
@@ -34,6 +36,7 @@ ec trap rgb:040
 ec swi rgb:0b0
 ec creg rgb:080
 ec flag rgb:0f0
+ec linehl rgb:020
 ec graph.box green
 ec graph.box2 rgb:060
 ec graph.box3 rgb:ff0000
@@ -43,3 +46,16 @@ ec graph.false rgb:050
 ec graph.trufae green
 ec graph.current green
 ec graph.traced rgb:060
+
+ec func_var rgb:060
+ec func_var_type rgb:383
+ec func_var_addr rgb:060
+
+ec ai.read rgb:0a1
+ec ai.write rgb:1a1
+ec ai.exec rgb:383
+ec ai.seq rgb:3f3
+ec ai.ascii rgb:3f3
+
+ec widget_bg rgb:0b0 rgb:000
+ec widget_sel black rgb:0c0

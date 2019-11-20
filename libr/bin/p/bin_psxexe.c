@@ -1,21 +1,22 @@
-/* radare - LGPL - Copyright 2015-2016 - Dax89, pancake */
+/* radare - LGPL - Copyright 2015-2018 - Dax89, pancake */
 
 #include <string.h>
 #include <r_types.h>
 #include <r_lib.h>
 #include <r_bin.h>
+#include "../i/private.h"
 #include "psxexe/psxexe.h"
 
-static bool check_bytes(const ut8 *buf, ut64 length) {
-	if (!buf || (length < PSXEXE_ID_LEN)) {
-		return false;
+static bool check_buffer(RBuffer *b) {
+	ut8 magic[PSXEXE_ID_LEN];
+	if (r_buf_read_at (b, 0, magic, sizeof (magic)) == PSXEXE_ID_LEN) {
+		return !memcmp (magic, PSXEXE_ID, PSXEXE_ID_LEN);
 	}
-	return !memcmp (buf, PSXEXE_ID, PSXEXE_ID_LEN);
+	return false;
 }
 
-static void* load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb) {
-	check_bytes (buf, sz);
-	return R_NOTNULL;
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
+	return check_buffer (b);
 }
 
 static RBinInfo* info(RBinFile* bf) {
@@ -27,8 +28,9 @@ static RBinInfo* info(RBinFile* bf) {
 		return NULL;
 	}
 
-	if (!(ret = R_NEW0 (RBinInfo)))
+	if (!(ret = R_NEW0 (RBinInfo))) {
 		return NULL;
+	}
 
 	ret->file = strdup (bf->file);
 	ret->type = strdup ("Sony PlayStation 1 Executable");
@@ -50,7 +52,7 @@ static RList* sections(RBinFile* bf) {
 		return NULL;
 	}
 
-	if(!(sect = R_NEW0 (RBinSection))) {
+	if (!(sect = R_NEW0 (RBinSection))) {
 		r_list_free (ret);
 		return NULL;
 	}
@@ -64,12 +66,12 @@ static RList* sections(RBinFile* bf) {
 
 	sz = r_buf_size (bf->buf);
 
-	strcpy (sect->name, "TEXT");
+	sect->name = strdup ("TEXT");
 	sect->paddr = PSXEXE_TEXTSECTION_OFFSET;
 	sect->size = sz - PSXEXE_TEXTSECTION_OFFSET;
 	sect->vaddr = psxheader.t_addr;
 	sect->vsize = psxheader.t_size;
-	sect->srwx = R_BIN_SCN_MAP | R_BIN_SCN_EXECUTABLE;
+	sect->perm = R_PERM_RX;
 	sect->add = true;
 	sect->has_strings = true;
 
@@ -82,8 +84,9 @@ static RList* entries(RBinFile* bf) {
 	RBinAddr* addr = NULL;
 	psxexe_header psxheader;
 
-	if (!(ret = r_list_new ()))
+	if (!(ret = r_list_new ())) {
 		return NULL;
+	}
 
 	if (!(addr = R_NEW0 (RBinAddr))) {
 		r_list_free (ret);
@@ -104,19 +107,25 @@ static RList* entries(RBinFile* bf) {
 	return ret;
 }
 
+static RList* strings(RBinFile* bf) {
+	// hardcode minstrlen = 20
+	return r_bin_file_get_strings (bf, 20, 0, 2);
+}
+
 RBinPlugin r_bin_plugin_psxexe = {
 	.name = "psxexe",
 	.desc = "Sony PlayStation 1 Executable",
 	.license = "LGPL3",
-	.load_bytes = &load_bytes,
-	.check_bytes = &check_bytes,
+	.load_buffer = &load_buffer,
+	.check_buffer = &check_buffer,
 	.info = &info,
 	.sections = &sections,
 	.entries = &entries,
+	.strings = &strings,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_psxexe,
 	.version = R2_VERSION

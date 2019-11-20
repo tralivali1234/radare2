@@ -5,8 +5,10 @@
 
 R_LIB_VERSION (r_crypto);
 
-struct { const char *name; ut64 bit; }
-static const crypto_name_bytes[] = {
+static const struct {
+	const char *name;
+	ut64 bit;
+} crypto_name_bytes[] = {
 	{"all", UT64_MAX},
 	{"rc2", R_CRYPTO_RC2},
 	{"rc4", R_CRYPTO_RC4},
@@ -89,7 +91,7 @@ R_API struct r_crypto_t *r_crypto_as_new(struct r_crypto_t *cry) {
 }
 
 R_API struct r_crypto_t *r_crypto_free(RCrypto *cry) {
-	// TODO: call the destructor function of the plugin to destory the *user pointer if needed
+	// TODO: call the destructor function of the plugin to destroy the *user pointer if needed
 	r_list_free (cry->plugins);
 	free (cry->output);
 	free (cry->key);

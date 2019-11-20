@@ -1,30 +1,30 @@
-/* radare2 - LGPL - Copyright 2016 - Davis, Alex Kornitzer */
+/* radare2 - LGPL - Copyright 2016-2018 - Davis, Alex Kornitzer */
 
 #include <r_util.h>
 #include <r_list.h>
 
 #include "mdmp_pe.h"
 
-static void PE_(add_tls_callbacks)(struct PE_(r_bin_pe_obj_t) *bin, RList* list) {
+static void PE_(add_tls_callbacks)(struct PE_(r_bin_pe_obj_t) * bin, RList *list) {
 	char *key;
 	int count = 0;
 	PE_DWord haddr, paddr, vaddr;
 	RBinAddr *ptr = NULL;
 
 	do {
-		key =  sdb_fmt (0, "pe.tls_callback%d_paddr", count);
+		key = sdb_fmt ("pe.tls_callback%d_paddr", count);
 		paddr = sdb_num_get (bin->kv, key, 0);
 		if (!paddr) {
 			break;
 		}
 
-		key =  sdb_fmt (0, "pe.tls_callback%d_vaddr", count);
+		key = sdb_fmt ("pe.tls_callback%d_vaddr", count);
 		vaddr = sdb_num_get (bin->kv, key, 0);
 		if (!vaddr) {
 			break;
 		}
 
-		key =  sdb_fmt (0, "pe.tls_callback%d_haddr", count);
+		key = sdb_fmt ("pe.tls_callback%d_haddr", count);
 		haddr = sdb_num_get (bin->kv, key, 0);
 		if (!haddr) {
 			break;
@@ -32,19 +32,19 @@ static void PE_(add_tls_callbacks)(struct PE_(r_bin_pe_obj_t) *bin, RList* list)
 		if ((ptr = R_NEW0 (RBinAddr))) {
 			ptr->paddr = paddr;
 			ptr->vaddr = vaddr;
-			ptr->haddr = haddr;
-			ptr->type  = R_BIN_ENTRY_TYPE_TLS;
+			ptr->hpaddr = haddr;
+			ptr->type = R_BIN_ENTRY_TYPE_TLS;
 			r_list_append (list, ptr);
 		}
 		count++;
 	} while (vaddr);
 }
 
-RList *PE_(r_bin_mdmp_pe_get_entrypoint)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
+RList *PE_(r_bin_mdmp_pe_get_entrypoint) (struct PE_(r_bin_mdmp_pe_bin) * pe_bin) {
 	ut64 offset;
 	struct r_bin_pe_addr_t *entry = NULL;
 	RBinAddr *ptr = NULL;
-	RList* ret;
+	RList *ret;
 
 	if (!(entry = PE_(r_bin_pe_get_entrypoint) (pe_bin->bin))) {
 		return NULL;
@@ -60,13 +60,14 @@ RList *PE_(r_bin_mdmp_pe_get_entrypoint)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) 
 		}
 		ptr->paddr = offset + pe_bin->paddr;
 		ptr->vaddr = offset + pe_bin->vaddr;
-		ptr->haddr = pe_bin->paddr + entry->haddr;
-		ptr->type  = R_BIN_ENTRY_TYPE_PROGRAM;
+		ptr->hpaddr = pe_bin->paddr + entry->haddr;
+		ptr->type = R_BIN_ENTRY_TYPE_PROGRAM;
 
 		r_list_append (ret, ptr);
 	}
 
-	PE_(add_tls_callbacks) (pe_bin->bin, ret);
+	PE_(add_tls_callbacks)
+	(pe_bin->bin, ret);
 
 	free (entry);
 
@@ -83,7 +84,7 @@ static void filter_import(ut8 *n) {
 	}
 }
 
-RList *PE_(r_bin_mdmp_pe_get_imports)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
+RList *PE_(r_bin_mdmp_pe_get_imports) (struct PE_(r_bin_mdmp_pe_bin) * pe_bin) {
 	int i;
 	ut64 offset;
 	struct r_bin_pe_import_t *imports = NULL;
@@ -91,25 +92,26 @@ RList *PE_(r_bin_mdmp_pe_get_imports)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 	RBinReloc *rel;
 	RList *ret, *relocs;
 
-	if (!(imports = PE_(r_bin_pe_get_imports) (pe_bin->bin))) {
-		return NULL;
-	}
-	if (!(ret = r_list_new ())) {
-		return NULL;
-	}
-	if (!(relocs = r_list_newf (free))) {
+	imports = PE_(r_bin_pe_get_imports) (pe_bin->bin);
+	ret = r_list_new ();
+	relocs = r_list_newf (free);
+
+	if (!imports || !ret || !relocs) {
+		free (imports);
 		free (ret);
+		free (relocs);
 		return NULL;
 	}
+
 	pe_bin->bin->relocs = relocs;
 	for (i = 0; !imports[i].last; i++) {
 		if (!(ptr = R_NEW0 (RBinImport))) {
 			break;
 		}
 		filter_import (imports[i].name);
-		ptr->name = strdup ((char*)imports[i].name);
-		ptr->bind = r_str_const ("NONE");
-		ptr->type = r_str_const ("FUNC");
+		ptr->name = strdup ((char *)imports[i].name);
+		ptr->bind = "NONE";
+		ptr->type = R_BIN_TYPE_FUNC_STR;
 		ptr->ordinal = imports[i].ordinal;
 		r_list_append (ret, ptr);
 
@@ -137,10 +139,10 @@ RList *PE_(r_bin_mdmp_pe_get_imports)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 	return ret;
 }
 
-RList *PE_(r_bin_mdmp_pe_get_sections)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
+RList *PE_(r_bin_mdmp_pe_get_sections) (struct PE_(r_bin_mdmp_pe_bin) * pe_bin) {
 	/* TODO: Vet code, taken verbatim(ish) from bin_pe.c */
 	int i;
-	ut64 ba = pe_bin->vaddr;//baddr (arch);
+	ut64 ba = pe_bin->vaddr; //baddr (arch);
 	struct r_bin_pe_section_t *sections = NULL;
 	RBinSection *ptr;
 	RList *ret;
@@ -148,17 +150,20 @@ RList *PE_(r_bin_mdmp_pe_get_sections)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 	if (!(ret = r_list_new ())) {
 		return NULL;
 	}
-	if (!(sections = PE_(r_bin_pe_get_sections) (pe_bin->bin))){
+	if (!pe_bin->bin || !(sections = pe_bin->bin->sections)) {
 		r_list_free (ret);
 		return NULL;
 	}
-	PE_(r_bin_pe_check_sections) (pe_bin->bin, &sections);
+	PE_(r_bin_pe_check_sections)
+	(pe_bin->bin, &sections);
 	for (i = 0; !sections[i].last; i++) {
 		if (!(ptr = R_NEW0 (RBinSection))) {
 			break;
 		}
 		if (sections[i].name[0]) {
-			strncpy (ptr->name, (char*)sections[i].name, R_BIN_SIZEOF_STRINGS);
+			ptr->name = strdup ((char *)sections[i].name);
+		} else {
+			ptr->name = strdup ("");
 		}
 		ptr->size = sections[i].size;
 		if (ptr->size > pe_bin->bin->size) {
@@ -176,41 +181,38 @@ RList *PE_(r_bin_mdmp_pe_get_sections)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 		ptr->paddr = sections[i].paddr + pe_bin->paddr;
 		ptr->vaddr = sections[i].vaddr + ba;
 		ptr->add = false;
-		ptr->srwx = R_BIN_SCN_MAP;
-		if (R_BIN_PE_SCN_IS_EXECUTABLE (sections[i].flags)) {
-			ptr->srwx |= R_BIN_SCN_EXECUTABLE;
+		ptr->perm = 0;
+		if (R_BIN_PE_SCN_IS_EXECUTABLE (sections[i].perm)) {
+			ptr->perm |= R_PERM_X;
 		}
-		if (R_BIN_PE_SCN_IS_WRITABLE (sections[i].flags)) {
-			ptr->srwx |= R_BIN_SCN_WRITABLE;
+		if (R_BIN_PE_SCN_IS_WRITABLE (sections[i].perm)) {
+			ptr->perm |= R_PERM_W;
 		}
-		if (R_BIN_PE_SCN_IS_READABLE (sections[i].flags)) {
-			ptr->srwx |= R_BIN_SCN_READABLE;
+		if (R_BIN_PE_SCN_IS_READABLE (sections[i].perm)) {
+			ptr->perm |= R_PERM_R;
 		}
-		if (R_BIN_PE_SCN_IS_SHAREABLE (sections[i].flags)) {
-			ptr->srwx |= R_BIN_SCN_SHAREABLE;
+		if (R_BIN_PE_SCN_IS_SHAREABLE (sections[i].perm)) {
+			ptr->perm |= R_PERM_SHAR;
 		}
-#define X 1
-#define ROW (4 | 2)
-		if (ptr->srwx & ROW && !(ptr->srwx & X) && ptr->size > 0) {
-			if (!strcmp (ptr->name, ".rsrc") ||
-				!strcmp (ptr->name, ".data") ||
-				!strcmp (ptr->name, ".rdata")) {
-					ptr->is_data = true;
-				}
+		if ((ptr->perm & R_PERM_R) && !(ptr->perm & R_PERM_X) && ptr->size > 0) {
+			if (!strncmp (ptr->name, ".rsrc", 5) ||
+				!strncmp (ptr->name, ".data", 5) ||
+				!strncmp (ptr->name, ".rdata", 5)) {
+				ptr->is_data = true;
+			}
 		}
 		r_list_append (ret, ptr);
 	}
-	free (sections);
 	return ret;
 }
 
-RList *PE_(r_bin_mdmp_pe_get_symbols)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
+RList *PE_(r_bin_mdmp_pe_get_symbols) (RBin *rbin, struct PE_(r_bin_mdmp_pe_bin) * pe_bin) {
 	int i;
 	ut64 offset;
 	struct r_bin_pe_export_t *symbols = NULL;
 	struct r_bin_pe_import_t *imports = NULL;
 	RBinSymbol *ptr = NULL;
-	RList* ret;
+	RList *ret;
 
 	if (!(ret = r_list_new ())) {
 		return NULL;
@@ -227,9 +229,9 @@ RList *PE_(r_bin_mdmp_pe_get_symbols)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 				offset -= pe_bin->vaddr;
 			}
 			ptr->name = strdup ((char *)symbols[i].name);
-			ptr->forwarder = r_str_const ((char *)symbols[i].forwarder);
-			ptr->bind = r_str_const ("GLOBAL");
-			ptr->type = r_str_const ("FUNC");
+			ptr->forwarder = r_str_constpool_get (&rbin->constpool, (char *)symbols[i].forwarder);
+			ptr->bind = R_BIN_BIND_GLOBAL_STR;
+			ptr->type = R_BIN_TYPE_FUNC_STR;
 			ptr->size = 0;
 			ptr->vaddr = offset + pe_bin->vaddr;
 			ptr->paddr = symbols[i].paddr + pe_bin->paddr;
@@ -250,8 +252,8 @@ RList *PE_(r_bin_mdmp_pe_get_symbols)(struct PE_(r_bin_mdmp_pe_bin) *pe_bin) {
 				offset -= pe_bin->vaddr;
 			}
 			ptr->name = r_str_newf ("imp.%s", imports[i].name);
-			ptr->bind = r_str_const ("NONE");
-			ptr->type = r_str_const ("FUNC");
+			ptr->bind = "NONE";
+			ptr->type = R_BIN_TYPE_FUNC_STR;
 			ptr->size = 0;
 			ptr->vaddr = offset + pe_bin->vaddr;
 			ptr->paddr = imports[i].paddr + pe_bin->paddr;

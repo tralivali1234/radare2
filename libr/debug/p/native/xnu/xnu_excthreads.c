@@ -88,7 +88,7 @@ static bool modify_trace_bit(RDebug *dbg, xnu_thread *th, int enable) {
 #define BAS_IMVA_2_3		((uint32_t)(3u << 7))
 #define BAS_IMVA_ALL		((uint32_t)(0xfu << 5))
 
-// Break only in priveleged or user mode
+// Break only in privileged or user mode
 #define S_RSVD			((uint32_t)(0u << 1))
 #define S_PRIV			((uint32_t)(1u << 1))
 #define S_USER			((uint32_t)(2u << 1))
@@ -105,9 +105,11 @@ static bool modify_trace_bit(RDebug *dbg, xnu_thread *th, int enable) {
 // (SS bit in the MDSCR_EL1 register)
 #define SS_ENABLE ((uint32_t)(1u))
 
+#if __arm || __arm__ || __armv7 || __armv7__
 static bool is_thumb_32(ut16 op) {
 	return (((op & 0xE000) == 0xE000) && (op & 0x1800));
 }
+#endif
 
 static int modify_trace_bit(RDebug *dbg, xnu_thread_t *th, int enable) {
 	int i = 0;
@@ -116,10 +118,24 @@ static int modify_trace_bit(RDebug *dbg, xnu_thread_t *th, int enable) {
 		eprintf ("error to get drx registers modificy_trace_bit arm\n");
 		return false;
 	}
+#if __arm64 || __arm64__ || __aarch64 || __aarch64__
 	if (th->flavor == ARM_DEBUG_STATE32) {
 		arm_debug_state32_t *state = &th->debug.drx32;
-		state->__mdscr_el1 = (state->__mdscr_el1 & SS_ENABLE) & (enable ? SS_ENABLE : 0);
-	} else if (th->flavor == ARM_DEBUG_STATE) {
+		if (enable) {
+			state->__mdscr_el1 = state->__mdscr_el1 | SS_ENABLE;
+		} else {
+			state->__mdscr_el1 = state->__mdscr_el1 & ~SS_ENABLE;
+		}
+	} else if (th->flavor == ARM_DEBUG_STATE64) {
+		arm_debug_state64_t *state = &th->debug.drx64;
+		if (enable) {
+			state->__mdscr_el1 = state->__mdscr_el1 | SS_ENABLE;
+		} else {
+			state->__mdscr_el1 = state->__mdscr_el1 & ~SS_ENABLE;
+		}
+	} else
+#elif __arm || __arm__ || __armv7 || __armv7__
+	if (th->flavor == ARM_DEBUG_STATE) {
 		arm_debug_state_t *state = &th->debug.drx;
 		R_REG_T *regs;
 		ret = xnu_thread_get_gpr (dbg, th);
@@ -178,7 +194,9 @@ static int modify_trace_bit(RDebug *dbg, xnu_thread_t *th, int enable) {
 				state->__bcr[i] = 0;
 			}
 		}
-	} else {
+	} else
+#endif
+	{
 		eprintf ("Bad flavor modificy_trace_bit arm\n");
 		return false;
 	}
@@ -243,15 +261,18 @@ static bool validate_mach_message (RDebug *dbg, exc_msg *msg) {
 	return false;
 #else
 	/*check if the message is for us*/
-	if (msg->hdr.msgh_local_port != ex.exception_port)
+	if (msg->hdr.msgh_local_port != ex.exception_port) {
 		return false;
+	}
 	/*gdb from apple check this so why not us*/
-	if (!(msg->hdr.msgh_bits & MACH_MSGH_BITS_COMPLEX))
+	if (!(msg->hdr.msgh_bits & MACH_MSGH_BITS_COMPLEX)) {
 		return false;
+	}
 	/*mach exception we are interested*/
 	//XXX for i386 this id seems to be different
-	if (msg->hdr.msgh_id > 2405 || msg->hdr.msgh_id < 2401)
+	if (msg->hdr.msgh_id > 2405 || msg->hdr.msgh_id < 2401) {
 		return false;
+	}
 	/* check descriptors.  */
 	if (msg->hdr.msgh_size <
 	    sizeof (mach_msg_header_t) + sizeof (mach_msg_body_t) +
@@ -295,6 +316,7 @@ static bool handle_dead_notify (RDebug *dbg, exc_msg *msg) {
 	}
 	return false;
 }
+
 static int handle_exception_message (RDebug *dbg, exc_msg *msg, int *ret_code) {
 	int ret = R_DEBUG_REASON_UNKNOWN;
 	kern_return_t kr;
@@ -304,16 +326,18 @@ static int handle_exception_message (RDebug *dbg, exc_msg *msg, int *ret_code) {
 		ret = R_DEBUG_REASON_SEGFAULT;
 		*ret_code = KERN_FAILURE;
 		kr = task_suspend (msg->task.name);
-		if (kr != KERN_SUCCESS)
+		if (kr != KERN_SUCCESS) {
 			eprintf ("failed to suspend task bad access\n");
+		}
 		eprintf ("EXC_BAD_ACCESS\n");
 		break;
 	case EXC_BAD_INSTRUCTION:
 		ret = R_DEBUG_REASON_ILLEGAL;
 		*ret_code = KERN_FAILURE;
 		kr = task_suspend (msg->task.name);
-		if (kr != KERN_SUCCESS)
+		if (kr != KERN_SUCCESS) {
 			eprintf ("failed to suspend task bad instruction\n");
+		}
 		eprintf ("EXC_BAD_INSTRUCTION\n");
 		break;
 	case EXC_ARITHMETIC:
@@ -327,8 +351,9 @@ static int handle_exception_message (RDebug *dbg, exc_msg *msg, int *ret_code) {
 		break;
 	case EXC_BREAKPOINT:
 		kr = task_suspend (msg->task.name);
-		if (kr != KERN_SUCCESS)
+		if (kr != KERN_SUCCESS) {
 			eprintf ("failed to suspend task breakpoint\n");
+		}
 		ret = R_DEBUG_REASON_BREAKPOINT;
 		break;
 	default:
@@ -369,7 +394,7 @@ static int __xnu_wait (RDebug *dbg, int pid) {
 			reason = R_DEBUG_REASON_MACH_RCV_INTERRUPTED;
 			break;
 		} else if (kr != MACH_MSG_SUCCESS) {
-			eprintf ("message didn't succeded\n");
+			eprintf ("message didn't succeeded\n");
 			break;
 		}
 		ret = validate_mach_message (dbg, &msg);
@@ -388,8 +413,9 @@ static int __xnu_wait (RDebug *dbg, int pid) {
 					MACH_PORT_NULL);
 			if (reply.Head.msgh_remote_port != 0 && kr != MACH_MSG_SUCCESS) {
 				kr = mach_port_deallocate(mach_task_self (), reply.Head.msgh_remote_port);
-				if (kr != KERN_SUCCESS)
+				if (kr != KERN_SUCCESS) {
 					eprintf ("failed to deallocate reply port\n");
+				}
 			}
 			continue;
 		}
@@ -407,6 +433,7 @@ static int __xnu_wait (RDebug *dbg, int pid) {
 		}
 		break; // to avoid infinite loops
 	}
+	dbg->stopaddr = r_debug_reg_get (dbg, "PC");
 	return reason;
 }
 
@@ -425,6 +452,7 @@ bool xnu_create_exception_thread(RDebug *dbg) {
 			" xnu_start_exception_thread\n");
 		return false;
 	}
+	r_debug_ptrace (dbg, PT_ATTACHEXC, dbg->pid, 0, 0);
 	if (!MACH_PORT_VALID (task_self)) {
 		eprintf ("error to get the task for the current process"
 			" xnu_start_exception_thread\n");

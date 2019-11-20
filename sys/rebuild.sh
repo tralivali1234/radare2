@@ -43,11 +43,15 @@ RebuildIOSDebug() {
 RebuildJava() {
 	Rebuild shlr/java
 	Rebuild libr/asm
+	Rebuild libr/anal
 	Rebuild libr/bin
 	Rebuild libr/core
 }
 
 RebuildCapstone() {
+	if [ ! -d shlr/capstone ]; then
+		make -C shlr capstone
+	fi
 	Rebuild shlr/capstone
 	Rebuild libr/asm
 	Rebuild libr/anal
@@ -79,12 +83,18 @@ RebuildZip() {
 	Rebuild libr/io
 }
 
+RebuildTcc() {
+	Rebuild shlr/tcc
+	Rebuild libr/parse
+}
+
 case "$1" in
 grub|fs)RebuildFs; ;;
 bin)    RebuildBin ; ;;
 gdb)    RebuildGdb ; ;;
 sdb)    RebuildSdb ; ;;
 spp)    RebuildSpp ; ;;
+tcc)    RebuildTcc ; ;;
 bin)    RebuildBin ; ;;
 zip)    RebuildZip ; ;;
 java)   RebuildJava ; ;;

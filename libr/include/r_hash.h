@@ -2,6 +2,7 @@
 #define R2_HASH_H
 
 #include "r_types.h"
+#include "r_util/r_mem.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -9,6 +10,15 @@ extern "C" {
 
 R_LIB_VERSION_HEADER (r_hash);
 
+#if HAVE_LIB_SSL
+#include <openssl/sha.h>
+#include <openssl/md5.h>
+typedef MD5_CTX R_MD5_CTX;
+typedef SHA_CTX R_SHA_CTX;
+typedef SHA256_CTX R_SHA256_CTX;
+typedef SHA512_CTX R_SHA384_CTX;
+typedef SHA512_CTX R_SHA512_CTX;
+#else
 #define MD5_CTX R_MD5_CTX
 
 /* hashing */
@@ -25,9 +35,26 @@ typedef struct {
 	ut32 sizeHi, sizeLo;
 } R_SHA_CTX;
 
+#define SHA256_BLOCK_LENGTH 64
+typedef struct _SHA256_CTX {
+	ut32 state[8];
+	ut64 bitcount;
+	ut8 buffer[SHA256_BLOCK_LENGTH];
+} R_SHA256_CTX;
+
+#define SHA384_BLOCK_LENGTH 128
+#define SHA512_BLOCK_LENGTH 128
+typedef struct _SHA512_CTX {
+	ut64 state[8];
+	ut64 bitcount[2];
+	ut8 buffer[SHA512_BLOCK_LENGTH];
+} R_SHA512_CTX;
+typedef R_SHA512_CTX R_SHA384_CTX;
+#endif
+
 
 /*
- * Since we have not enought space in bitmask, you may do fine
+ * Since we have not enough space in bitmask, you may do fine
  * selection of required hash functions by the followed macros.
  *
  * TODO: subject to place in config
@@ -49,6 +76,11 @@ typedef ut32 utcrc;
 #define PFMTCRCx PFMT32x
 #endif
 #define UTCRC_C(x) ((utcrc)(x))
+
+R_API ut16 r_hash_fletcher8(const ut8 *d, size_t length);
+R_API ut16 r_hash_fletcher16(const ut8 *data, size_t len);
+R_API ut32 r_hash_fletcher32(const ut8 *data, size_t len);
+R_API ut64 r_hash_fletcher64(const ut8 *addr, size_t len);
 
 typedef struct {
 	utcrc crc;
@@ -134,22 +166,6 @@ enum CRC_PRESETS {
 	CRC_PRESET_SIZE
 };
 
-#define SHA256_BLOCK_LENGTH 64
-typedef struct _SHA256_CTX {
-	ut32 state[8];
-	ut64 bitcount;
-	ut8 buffer[SHA256_BLOCK_LENGTH];
-} R_SHA256_CTX;
-
-#define SHA384_BLOCK_LENGTH 128
-#define SHA512_BLOCK_LENGTH 128
-typedef struct _SHA512_CTX {
-	ut64 state[8];
-	ut64 bitcount[2];
-	ut8 buffer[SHA512_BLOCK_LENGTH];
-} R_SHA512_CTX;
-typedef R_SHA512_CTX R_SHA384_CTX;
-
 /* Fix names conflict with ruby bindings */
 #define RHash struct r_hash_t
 
@@ -160,8 +176,8 @@ struct r_hash_t {
 	R_SHA384_CTX sha384;
 	R_SHA512_CTX sha512;
 	bool rst;
-	ut8 digest[128];
 	double entropy;
+	ut8 R_ALIGNED(8) digest[128];
 };
 
 typedef struct r_hash_seed_t {
@@ -258,6 +274,10 @@ typedef struct r_hash_seed_t {
 #define R_HASH_SIZE_XORPAIR 2
 #define R_HASH_SIZE_HAMDIST 1
 #define R_HASH_SIZE_LUHN 1
+#define R_HASH_SIZE_FLETCHER8 1
+#define R_HASH_SIZE_FLETCHER16 2
+#define R_HASH_SIZE_FLETCHER32 4
+#define R_HASH_SIZE_FLETCHER64 8
 
 #define R_HASH_NBITS (8*sizeof(ut64))
 
@@ -353,6 +373,10 @@ enum HASH_INDICES {
 	R_HASH_IDX_CRC64_ISO,
 #endif /* #if R_HAVE_CRC64_EXTRA */
 
+	R_HASH_IDX_FLETCHER8,
+	R_HASH_IDX_FLETCHER16,
+	R_HASH_IDX_FLETCHER32,
+	R_HASH_IDX_FLETCHER64,
 	R_HASH_NUM_INDICES
 };
 
@@ -376,6 +400,10 @@ enum HASH_INDICES {
 #define R_HASH_BASE91 (1ULL << R_HASH_IDX_BASE91)
 #define R_HASH_PUNYCODE (1ULL << R_HASH_IDX_PUNYCODE)
 #define R_HASH_LUHN (1ULL << R_HASH_IDX_LUHN)
+#define R_HASH_FLETCHER8 (1ULL << R_HASH_IDX_FLETCHER8)
+#define R_HASH_FLETCHER16 (1ULL << R_HASH_IDX_FLETCHER16)
+#define R_HASH_FLETCHER32 (1ULL << R_HASH_IDX_FLETCHER32)
+#define R_HASH_FLETCHER64 (1ULL << R_HASH_IDX_FLETCHER64)
 
 #define R_HASH_CRC8_SMBUS (1ULL << R_HASH_IDX_CRC8_SMBUS)
 #if R_HAVE_CRC8_EXTRA
@@ -462,7 +490,6 @@ R_API ut8 *r_hash_do_sha1(RHash *ctx, const ut8 *input, int len);
 R_API ut8 *r_hash_do_sha256(RHash *ctx, const ut8 *input, int len);
 R_API ut8 *r_hash_do_sha384(RHash *ctx, const ut8 *input, int len);
 R_API ut8 *r_hash_do_sha512(RHash *ctx, const ut8 *input, int len);
-R_API ut8 *r_hash_do_xxhash(RHash *ctx, const ut8 *input, int len);
 
 R_API char *r_hash_to_string(RHash *ctx, const char *name, const ut8 *data, int len);
 

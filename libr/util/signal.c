@@ -20,7 +20,7 @@ static struct {
 	{ "SIGPWR", SIGPWR },
 	{ "SIGPOLL", SIGPOLL },
 #endif
-#if !__WINDOWS__ || __CYGWIN__
+#if !__WINDOWS__
 	{ "SIGHUP", SIGHUP },
 	{ "SIGQUIT", SIGQUIT },
 	{ "SIGTRAP", SIGTRAP },
@@ -66,3 +66,9 @@ R_API const char* r_signal_to_string (int code) {
 	}
 	return NULL;
 }
+
+#if HAVE_PTHREAD
+R_API void r_signal_sigmask(int how, const sigset_t *newmask, sigset_t *oldmask) {
+	pthread_sigmask (how, newmask, oldmask);
+}
+#endif

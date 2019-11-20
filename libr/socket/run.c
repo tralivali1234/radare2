@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <fcntl.h>
 #include <r_socket.h>
 #include <r_util.h>
@@ -47,6 +46,9 @@
 #endif
 #if defined(__APPLE__) || defined(__NetBSD__) || defined(__OpenBSD__)
 #include <util.h>
+#elif defined(__FreeBSD__) || defined(__DragonFly__)
+#include <sys/sysctl.h>
+#include <libutil.h>
 #endif
 #endif
 #ifdef _MSC_VER
@@ -54,7 +56,7 @@
 #include <process.h>  // to compile execv in msvc windows
 #endif
 
-#define HAVE_PTY __UNIX__ && !__ANDROID__ && LIBC_HAVE_FORK && !defined(__sun)
+#define HAVE_PTY __UNIX__ && !__ANDROID__ && LIBC_HAVE_FORK && !__sun
 
 #if EMSCRIPTEN
 #undef HAVE_PTY
@@ -84,7 +86,7 @@ R_API bool r_run_parse(RRunProfile *pf, const char *profile) {
 		return false;
 	}
 	r_str_replace_char (str, '\r',0);
-	for (o = p = str; (o = strchr (p, '\n')); p = o) {
+	for (p = str; (o = strchr (p, '\n')); p = o) {
 		*o++ = 0;
 		r_run_parseline (pf, p);
 	}
@@ -218,37 +220,23 @@ static char *getstr(const char *src) {
 
 static int parseBool(const char *e) {
 	return (strcmp (e, "yes")?
+		(strcmp (e, "on")?
 		(strcmp (e, "true")?
 		(strcmp (e, "1")?
-		0: 1): 1): 1);
+		0: 1): 1): 1): 1);
 }
-
-#if __linux__
-#define RVAS "/proc/sys/kernel/randomize_va_space"
-static void setRVA(const char *v) {
-	int fd = open (RVAS, O_WRONLY);
-	if (fd != -1) {
-		write (fd, v, 2);
-		close (fd);
-	}
-}
-#endif
 
 // TODO: move into r_util? r_run_... ? with the rest of funcs?
 static void setASLR(RRunProfile *r, int enabled) {
 #if __linux__
-	if (enabled) {
-		setRVA ("2\n");
-	} else {
-#if __ANDROID__
-		setRVA ("0\n");
-#else
-#ifdef ADDR_NO_RANDOMIZE
-		if (personality (ADDR_NO_RANDOMIZE) == -1)
+	r_sys_aslr (enabled);
+#if HAVE_DECL_ADDR_NO_RANDOMIZE && !__ANDROID__
+	if (personality (ADDR_NO_RANDOMIZE) == -1) {
 #endif
-			setRVA ("0\n");
-#endif
+		r_sys_aslr (0);
+#if HAVE_DECL_ADDR_NO_RANDOMIZE && !__ANDROID__
 	}
+#endif
 #elif __APPLE__
 	// TOO OLD setenv ("DYLD_NO_PIE", "1", 1);
 	// disable this because its
@@ -262,11 +250,14 @@ static void setASLR(RRunProfile *r, int enabled) {
 	// for osxver>=10.7
 	// "unset the MH_PIE bit in an already linked executable" with --no-pie flag of the script
 	// the right way is to disable the aslr bit in the spawn call
+#elif __FreeBSD__
+	r_sys_aslr (enabled);
 #else
 	// not supported for this platform
 #endif
 }
 
+#if HAVE_PTY
 static void restore_saved_fd(int saved, bool restore, int fd) {
 	if (saved == -1) {
 		return;
@@ -276,6 +267,7 @@ static void restore_saved_fd(int saved, bool restore, int fd) {
 	}
 	close (saved);
 }
+#endif
 
 static int handle_redirection_proc(const char *cmd, bool in, bool out, bool err) {
 #if HAVE_PTY
@@ -372,8 +364,17 @@ static int handle_redirection(const char *cmd, bool in, bool out, bool err) {
 		if (in) {
 			int pipes[2];
 			if (pipe (pipes) != -1) {
-				write (pipes[1], cmd + 1, strlen (cmd)-2);
-				write (pipes[1], "\n", 1);
+				size_t cmdl = strlen (cmd)-2;
+				if (write (pipes[1], cmd + 1, cmdl) != cmdl) {
+					eprintf ("[ERROR] rarun2: Cannot write to the pipe\n");
+					close (0);
+					return 1;
+				}
+				if (write (pipes[1], "\n", 1) != 1) {
+					eprintf ("[ERROR] rarun2: Cannot write to the pipe\n");
+					close (0);
+					return 1;
+				}
 				close (0);
 				dup2 (pipes[0], 0);
 			} else {
@@ -446,17 +447,27 @@ R_API bool r_run_parseline(RRunProfile *p, char *b) {
 	if (!e) {
 		return 0;
 	}
-	if (!strcmp (b, "program")) p->_args[0] = p->_program = strdup (e);
-	else if (!strcmp (b, "system")) p->_system = strdup (e);
-	else if (!strcmp (b, "runlib")) p->_runlib = strdup (e);
-	else if (!strcmp (b, "runlib.fcn")) p->_runlib_fcn = strdup (e);
-	else if (!strcmp (b, "aslr")) p->_aslr = parseBool (e);
-	else if (!strcmp (b, "pid")) p->_pid = atoi (e);
-	else if (!strcmp (b, "pidfile")) p->_pidfile = strdup (e);
-	else if (!strcmp (b, "connect")) p->_connect = strdup (e);
-	else if (!strcmp (b, "listen")) p->_listen = strdup (e);
-	else if (!strcmp (b, "pty")) p->_pty = parseBool (e);
-	else if (!strcmp (b, "stdio")) {
+	if (!strcmp (b, "program")) {
+		p->_args[0] = p->_program = strdup (e);
+	} else if (!strcmp (b, "system")) {
+		p->_system = strdup (e);
+	} else if (!strcmp (b, "runlib")) {
+		p->_runlib = strdup (e);
+	} else if (!strcmp (b, "runlib.fcn")) {
+		p->_runlib_fcn = strdup (e);
+	} else if (!strcmp (b, "aslr")) {
+		p->_aslr = parseBool (e);
+	} else if (!strcmp (b, "pid")) {
+		p->_pid = atoi (e);
+	} else if (!strcmp (b, "pidfile")) {
+		p->_pidfile = strdup (e);
+	} else if (!strcmp (b, "connect")) {
+		p->_connect = strdup (e);
+	} else if (!strcmp (b, "listen")) {
+		p->_listen = strdup (e);
+	} else if (!strcmp (b, "pty")) {
+		p->_pty = parseBool (e);
+	} else if (!strcmp (b, "stdio")) {
 		if (e[0] == '!') {
 			p->_stdio = strdup (e);
 		} else {
@@ -464,32 +475,55 @@ R_API bool r_run_parseline(RRunProfile *p, char *b) {
 			p->_stderr = strdup (e);
 			p->_stdin = strdup (e);
 		}
-	}
-	else if (!strcmp (b, "stdout")) p->_stdout = strdup (e);
-	else if (!strcmp (b, "stdin")) p->_stdin = strdup (e);
-	else if (!strcmp (b, "stderr")) p->_stderr = strdup (e);
-	else if (!strcmp (b, "input")) p->_input = strdup (e);
-	else if (!strcmp (b, "chdir")) p->_chgdir = strdup (e);
-	else if (!strcmp (b, "core")) p->_docore = parseBool (e);
-	else if (!strcmp (b, "fork")) p->_dofork = parseBool (e);
-	else if (!strcmp (b, "sleep")) p->_r2sleep = atoi (e);
-	else if (!strcmp (b, "maxstack")) p->_maxstack = atoi (e);
-	else if (!strcmp (b, "maxproc")) p->_maxproc = atoi (e);
-	else if (!strcmp (b, "maxfd")) p->_maxfd = atoi (e);
-	else if (!strcmp (b, "bits")) p->_bits = atoi (e);
-	else if (!strcmp (b, "chroot")) p->_chroot = strdup (e);
-	else if (!strcmp (b, "libpath")) p->_libpath = strdup (e);
-	else if (!strcmp (b, "preload")) p->_preload = strdup (e);
-	else if (!strcmp (b, "r2preload")) p->_r2preload = parseBool (e);
-	else if (!strcmp (b, "r2preweb")) r_sys_setenv ("RARUN2_WEB", "yes");
-	else if (!strcmp (b, "setuid")) p->_setuid = strdup (e);
-	else if (!strcmp (b, "seteuid")) p->_seteuid = strdup (e);
-	else if (!strcmp (b, "setgid")) p->_setgid = strdup (e);
-	else if (!strcmp (b, "setegid")) p->_setegid = strdup (e);
-	else if (!strcmp (b, "nice")) p->_nice = atoi (e);
-	else if (!strcmp (b, "timeout")) p->_timeout = atoi (e);
-	else if (!strcmp (b, "timeoutsig")) p->_timeout_sig = r_signal_from_string (e);
-	else if (!memcmp (b, "arg", 3)) {
+	} else if (!strcmp (b, "stdout")) {
+		p->_stdout = strdup (e);
+	} else if (!strcmp (b, "stdin")) {
+		p->_stdin = strdup (e);
+	} else if (!strcmp (b, "stderr")) {
+		p->_stderr = strdup (e);
+	} else if (!strcmp (b, "input")) {
+		p->_input = strdup (e);
+	} else if (!strcmp (b, "chdir")) {
+		p->_chgdir = strdup (e);
+	} else if (!strcmp (b, "core")) {
+		p->_docore = parseBool (e);
+	} else if (!strcmp (b, "fork")) {
+		p->_dofork = parseBool (e);
+	} else if (!strcmp (b, "sleep")) {
+		p->_r2sleep = atoi (e);
+	} else if (!strcmp (b, "maxstack")) {
+		p->_maxstack = atoi (e);
+	} else if (!strcmp (b, "maxproc")) {
+		p->_maxproc = atoi (e);
+	} else if (!strcmp (b, "maxfd")) {
+		p->_maxfd = atoi (e);
+	} else if (!strcmp (b, "bits")) {
+		p->_bits = atoi (e);
+	} else if (!strcmp (b, "chroot")) {
+		p->_chroot = strdup (e);
+	} else if (!strcmp (b, "libpath")) {
+		p->_libpath = strdup (e);
+	} else if (!strcmp (b, "preload")) {
+		p->_preload = strdup (e);
+	} else if (!strcmp (b, "r2preload")) {
+		p->_r2preload = parseBool (e);
+	} else if (!strcmp (b, "r2preweb")) {
+		r_sys_setenv ("RARUN2_WEB", "yes");
+	} else if (!strcmp (b, "setuid")) {
+		p->_setuid = strdup (e);
+	} else if (!strcmp (b, "seteuid")) {
+		p->_seteuid = strdup (e);
+	} else if (!strcmp (b, "setgid")) {
+		p->_setgid = strdup (e);
+	} else if (!strcmp (b, "setegid")) {
+		p->_setegid = strdup (e);
+	} else if (!strcmp (b, "nice")) {
+		p->_nice = atoi (e);
+	} else if (!strcmp (b, "timeout")) {
+		p->_timeout = atoi (e);
+	} else if (!strcmp (b, "timeoutsig")) {
+		p->_timeout_sig = r_signal_from_string (e);
+	} else if (!memcmp (b, "arg", 3)) {
 		int n = atoi (b + 3);
 		if (n >= 0 && n < R_RUN_PROFILE_NARGS) {
 			p->_args[n] = getstr (e);
@@ -500,7 +534,7 @@ R_API bool r_run_parseline(RRunProfile *p, char *b) {
 	} else if (!strcmp (b, "envfile")) {
 		char *p, buf[1024];
 		size_t len;
-		FILE *fd = fopen (e, "r");
+		FILE *fd = r_sandbox_fopen (e, "r");
 		if (!fd) {
 			eprintf ("Cannot open '%s'\n", e);
 			if (must_free == true) {
@@ -509,16 +543,22 @@ R_API bool r_run_parseline(RRunProfile *p, char *b) {
 			return false;
 		}
 		for (;;) {
-			fgets (buf, sizeof (buf) - 1, fd);
+			if (!fgets (buf, sizeof (buf) - 1, fd)) {
+				break;
+			}
 			if (feof (fd)) {
 				break;
 			}
 			p = strchr (buf, '=');
 			if (p) {
 				*p++ = 0;
-				len = strlen(p);
-				if (p[len-1] == '\n') p[len-1] = 0;
-				if (p[len-2] == '\r') p[len-2] = 0;
+				len = strlen (p);
+				if (len > 0 && p[len - 1] == '\n') {
+					p[len - 1] = 0;
+				}
+				if (len > 1 && p[len - 2] == '\r') {
+					p[len - 2] = 0;
+				}
 				r_sys_setenv (buf, p);
 			}
 		}
@@ -590,7 +630,7 @@ R_API const char *r_run_help() {
 	"# nice=5\n";
 }
 
-#if __UNIX__
+#if HAVE_PTY
 static int fd_forward(int in_fd, int out_fd, char **buff) {
 	int size = 0;
 
@@ -608,7 +648,10 @@ static int fd_forward(int in_fd, int out_fd, char **buff) {
 		return -1;
 	}
 	*buff = new_buff;
-	(void)read (in_fd, *buff, size);
+	if (read (in_fd, *buff, size) != size) {
+		perror ("read");
+		return -1;
+	}
 	if (write (out_fd, *buff, size) != size) {
 		perror ("write");
 		return -1;
@@ -726,18 +769,22 @@ R_API int r_run_config_env(RRunProfile *p) {
 	if (handle_redirection (p->_stderr, false, false, true) != 0) {
 		return 1;
 	}
-	if (p->_aslr != -1)
+	if (p->_aslr != -1) {
 		setASLR (p, p->_aslr);
+	}
 #if __UNIX__
 	set_limit (p->_docore, RLIMIT_CORE, RLIM_INFINITY);
-	if (p->_maxfd)
+	if (p->_maxfd) {
 		set_limit (p->_maxfd, RLIMIT_NOFILE, p->_maxfd);
+	}
 #ifdef RLIMIT_NPROC
-	if (p->_maxproc)
+	if (p->_maxproc) {
 		set_limit (p->_maxproc, RLIMIT_NPROC, p->_maxproc);
+	}
 #endif
-	if (p->_maxstack)
+	if (p->_maxstack) {
 		set_limit (p->_maxstack, RLIMIT_STACK, p->_maxstack);
+	}
 #else
 	if (p->_docore || p->_maxfd || p->_maxproc || p->_maxstack)
 		eprintf ("Warning: setrlimits not supported for this platform\n");
@@ -832,7 +879,11 @@ R_API int r_run_config_env(RRunProfile *p) {
 				eprintf ("Cannot chroot to %s\n", p->_chroot);
 				return 1;
 			} else {
-				(void) chdir ("/");
+				// Silenting pedantic meson flags...
+				if (chdir ("/") == -1) {
+					eprintf ("Cannot chdir to /\n");
+					return 1;
+				}
 				if (p->_chgdir) {
 					if (chdir (p->_chgdir) == -1) {
 						eprintf ("Cannot chdir after chroot to %s\n", p->_chgdir);
@@ -887,12 +938,19 @@ R_API int r_run_config_env(RRunProfile *p) {
 	if (p->_input) {
 		char *inp;
 		int f2[2];
-		pipe (f2);
-		close (0);
-		dup2 (f2[0], 0);
+		if (pipe (f2) != -1) {
+			close (0);
+			dup2 (f2[0], 0);
+		} else {
+			eprintf ("[ERROR] rarun2: Cannot create pipe\n");
+			return 1;
+		}
 		inp = getstr (p->_input);
 		if (inp) {
-			write (f2[1], inp, strlen (inp));
+			size_t inpl = strlen (inp);
+			if  (write (f2[1], inp, inpl) != inpl) {
+				eprintf ("[ERROR] rarun2: Cannot write to the pipe\n");
+			}
 			close (f2[1]);
 			free (inp);
 		} else {
@@ -904,7 +962,11 @@ R_API int r_run_config_env(RRunProfile *p) {
 		if (p->_preload) {
 			eprintf ("WARNING: Only one library can be opened at a time\n");
 		}
-		p->_preload = R2_LIBDIR"/libr2."R_LIB_EXT;
+#ifdef __WINDOWS__
+		p->_preload = r_str_r2_prefix (R_JOIN_2_PATHS (R2_LIBDIR, "libr2."R_LIB_EXT));
+#else
+		p->_preload = strdup (R2_LIBDIR"/libr2."R_LIB_EXT);
+#endif
 	}
 	if (p->_libpath) {
 #if __WINDOWS__
@@ -1025,12 +1087,17 @@ R_API int r_run_start(RRunProfile *p) {
 		}
 #if __UNIX__
 		// XXX HACK close all non-tty fds
-		{ int i; for (i=3; i<10; i++) close (i); }
+		{ int i;
+			for (i = 3; i < 10; i++) {
+				close (i);
+			}
+		}
 		// TODO: use posix_spawn
 		if (p->_setgid) {
 			int ret = setgid (atoi (p->_setgid));
-			if (ret < 0)
+			if (ret < 0) {
 				return 1;
+			}
 		}
 		if (p->_pid) {
 			eprintf ("PID: %d\n", getpid ());

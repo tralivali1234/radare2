@@ -1,32 +1,38 @@
-/* radare - LGPL - Copyright 2011-2016 - pancake */
+/* radare - LGPL - Copyright 2011-2019 - pancake */
 
 #include <r_core.h>
 
-R_API int r_core_patch_line (RCore *core, char *str) {
+R_API int r_core_patch_line(RCore *core, char *str) {
 	char *p, *q;
 	p = strchr (str + 1, ' ');
 	if (!p) {
 		return 0;
 	}
 	*p = 0;
-	for (++p; *p == ' '; p++); // XXX: skipsspaces here
+	for (++p; *p == ' '; p++) {
+		; // XXX: skipsspaces here
+	}
 
 	switch (*p) {
 	case '"':
-		  q = strchr (p + 1,'"');
-		  if (q) *q = 0;
-		  r_core_cmdf (core, "s %s", str);
-		  r_core_cmdf (core, "\"w %s\"", p+1);
-		  break;
+		q = strchr (p + 1,'"');
+		if (q) {
+			*q = 0;
+		}
+		r_core_cmdf (core, "s %s", str);
+		r_core_cmdf (core, "\"w %s\"", p+1);
+		break;
 	case ':':
-		  r_core_cmdf (core, "s %s", str);
-		  r_core_cmdf (core, "wa %s", p);
-		  break;
+		r_core_cmdf (core, "s %s", str);
+		r_core_cmdf (core, "\"wa %s\"", p);
+		break;
 	case 'v':
 		q = strchr (p + 1,' ');
 		if (q) {
 			*q = 0;
-			for (++q; *q == ' '; q++); // XXX: skipsspaces here
+			for (++q; *q == ' '; q++) {
+				; // XXX: skipsspaces here
+			}
 		} else {
 			return 0;
 		}
@@ -34,9 +40,9 @@ R_API int r_core_patch_line (RCore *core, char *str) {
 		r_core_cmdf (core, "wv%s %s", p + 1, q);
 		break;
 	default:
-		  r_core_cmdf (core, "s %s", str);
-		  r_core_cmdf (core, "wx %s", p);
-		  break;
+		r_core_cmdf (core, "s %s", str);
+		r_core_cmdf (core, "wx %s", p);
+		break;
 	}
 	return 1;
 }
@@ -60,8 +66,9 @@ static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 			p++;
 			continue;
 		}
-		if (*str == '}')
+		if (*str == '}') {
 			break;
+		}
 		if ((q = strstr (str, "${"))) {
 			char *end = strchr (q+2,'}');
 			if (end) {
@@ -91,13 +98,15 @@ static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 	if (strcmp (off, "+")) {
 		*noff = r_num_math (core->num, off);
 	}
-	r_core_write_at (core, *noff, b->buf, b->length);
-	*noff += b->length;
+	ut64 tmpsz;
+	const ut8 *tmpbuf = r_buf_data (b, &tmpsz);
+	r_core_write_at (core, *noff, tmpbuf, tmpsz);
+	*noff += r_buf_size (b);
 	free (off);
 	return 1;
 }
 
-R_API int r_core_patch (RCore *core, const char *patch) {
+R_API int r_core_patch(RCore *core, const char *patch) {
 	char *p, *p0, *str;
 	ut64 noff = 0LL;
 

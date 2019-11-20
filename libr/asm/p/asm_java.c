@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2019 - nibble, pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -10,26 +10,26 @@
 #include "../../shlr/java/class.h"
 
 static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
-	//void *cp;
 	RBinJavaObj *obj = NULL;
 	RBin *bin = a->binb.bin;
 	RBinPlugin *plugin = bin && bin->cur && bin->cur->o ?
 		bin->cur->o->plugin : NULL;
-	if (plugin) {
+	if (plugin && plugin->name) {
 		if (!strcmp (plugin->name, "java")) { // XXX slow
 			obj = bin->cur->o->bin_obj; //o;
 			//eprintf("Handling: %s disasm.\n", b->cur.file);
 		}
 	}
-
-	op->size = r_java_disasm (obj, a->pc, buf, len,
-		op->buf_asm, sizeof (op->buf_asm));
+	char buf_asm[256];
+	op->size = r_java_disasm (obj, a->pc, buf, len, buf_asm, sizeof (buf_asm));
+	r_strbuf_set (&op->buf_asm, buf_asm);
 	return op->size;
 }
 
-static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
+static int assemble(RAsm *a, RAsmOp *op, const char *input) {
 	// TODO: get class info from bin if possible
-	return op->size = r_java_assemble (a->pc, op->buf, buf);
+	// XXX wrong usage of strbuf_get here
+	return op->size = r_java_assemble (a->pc, (ut8*)r_strbuf_get (&op->buf), input);
 }
 
 RAsmPlugin r_asm_plugin_java = {
@@ -43,8 +43,8 @@ RAsmPlugin r_asm_plugin_java = {
 	.assemble = &assemble
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ASM,
 	.data = &r_asm_plugin_java,
 	.version = R2_VERSION

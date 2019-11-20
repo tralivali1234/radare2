@@ -22,12 +22,21 @@
 typedef struct _WindCtx WindCtx;
 
 typedef struct WindProc {
+	ut64 eprocess;
 	ut32 uniqueid;
 	ut64 vadroot;
 	ut64 dir_base_table;
 	ut64 peb;
 	char name[17];
 } WindProc;
+
+typedef struct WindThread {
+	ut32 uniqueid;
+	bool runnable;
+	char status;
+	ut64 ethread;
+	ut64 entrypoint;
+} WindThread;
 
 enum {
 	K_PaeEnabled = 0x036,
@@ -41,10 +50,16 @@ enum {
 	E_Peb,                // EPROCESS
 	E_ImageFileName,      // EPROCESS
 	E_VadRoot,            // EPROCESS
+	E_ThreadListHead,     // EPROCESS
 	P_DirectoryTableBase, // PCB
 	P_ImageBaseAddress,   // PEB
 	P_ProcessParameters,  // PEB
 	R_ImagePathName,      // RTL_USER_PROCESS_PARAMETERS
+	ET_Tcb,               // ETHREAD
+	ET_ThreadListEntry,   // ETHREAD
+	ET_Win32StartAddress, // ETHREAD
+	ET_Cid,               // ETHREAD
+	C_UniqueThread,       // CLIENT_ID
 	O_Max,
 };
 
@@ -57,15 +72,17 @@ typedef struct {
 } Profile;
 
 // grep -e "^windbg_" shlr/wind/wind.c | sed -e 's/ {$/;/' -e 's/^/int /'
+int windbg_get_bits(WindCtx *ctx);
 ut64 windbg_get_target_base (WindCtx *ctx);
 ut32 windbg_get_target (WindCtx *ctx);
 bool windbg_set_target (WindCtx *ctx, ut32 pid);
 RList *windbg_list_process (WindCtx *ctx);
+RList *windbg_list_threads(WindCtx *ctx);
 int windbg_get_cpus (WindCtx *ctx);
 bool windbg_set_cpu (WindCtx *ctx, int cpu);
 int windbg_get_cpu (WindCtx *ctx);
 WindCtx * windbg_ctx_new (void *io_ptr);
-void windbg_ctx_free (WindCtx *ctx);
+void windbg_ctx_free (WindCtx **ctx);
 int windbg_wait_packet (WindCtx *ctx, const ut32 type, kd_packet_t **p);
 int windbg_sync (WindCtx *ctx);
 bool windbg_read_ver (WindCtx *ctx);

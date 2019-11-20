@@ -121,14 +121,14 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "sput-char", "2[3] = (char) 1"},
 		{ "iput-int", "2[3] = (int) 1"},
 		{ "iget", "1 = 2[3]"},
-		{ "sget-byte", "1 = (byte) 2[3]"},
-		{ "iget-byte", "1 = (byte) 2[3]"},
-		{ "iget-char", "1 = (char) 2[3]"},
-		{ "iget-short", "1 = (short) 2[3]"},
-		{ "iget-wide", "1 = (wide) 2[3]"},
-		{ "iget-object", "1 = (object) 2[3]"},
-		{ "iget-boolean", "1 = (bool) 2[3]"},
-		{ "+iget-wide-volatile", "1 = (wide-volatile) 2[3]"},
+		{ "sget-byte", "1 = (byte) 2 [3]"},
+		{ "iget-byte", "1 = (byte) 2 [3]"},
+		{ "iget-char", "1 = (char) 2 [3]"},
+		{ "iget-short", "1 = (short) 2 [3]"},
+		{ "iget-wide", "1 = (wide) 2 [3]"},
+		{ "iget-object", "1 = (2) 3"},
+		{ "iget-boolean", "1 = (bool) 2 [3]"},
+		{ "+iget-wide-volatile", "1 = (wide-volatile) 2 [3]"},
 		{ "if-eq", "if (1 == 2) goto 3"},
 		{ "if-lt", "if (1 < 2) goto 3"},
 		{ "if-ne", "if (1 != 2) goto 3"},
@@ -149,6 +149,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ "invoke-static", "call 2 1"},
 		{ "invoke-super", "call super 2 1"},
 		{ "invoke-super/range", "call super 2 1"},
+		{ "invoke-polymorphic", "call polymorphic 2 1" },
 		{ "invoke-virtual/range", "call 2 1"},
 		{ "invoke-virtual", "call 2 1"},
 		{ "+invoke-virtual-quick", "call 2 1"},
@@ -203,7 +204,9 @@ static int replace(int argc, const char *argv[], char *newstr) {
 							strcpy (newstr+k, w);
 							k += strlen(w)-1;
 						}
-					} else newstr[k] = ops[i].str[j];
+					} else {
+						newstr[k] = ops[i].str[j];
+					}
 				}
 				newstr[k]='\0';
 			}
@@ -240,9 +243,10 @@ static int parse(RParse *p, const char *data, char *str) {
 	}
 
 	// malloc can be slow here :?
-	if (!(buf = malloc (len+1)))
+	if (!(buf = malloc (len + 1))) {
 		return false;
-	memcpy (buf, data, len+1);
+	}
+	memcpy (buf, data, len + 1);
 
 	r_str_trim (buf);
 
@@ -253,11 +257,14 @@ static int parse(RParse *p, const char *data, char *str) {
 		w3[0]='\0';
 		w4[0]='\0';
 		ptr = strchr (buf, ' ');
-		if (!ptr)
+		if (!ptr) {
 			ptr = strchr (buf, '\t');
+		}
 		if (ptr) {
 			*ptr = '\0';
-			for (++ptr; *ptr==' '; ptr++);
+			for (++ptr; *ptr == ' '; ptr++) {
+				;
+			}
 			strncpy (w0, buf, sizeof (w0) - 1);
 			w0[sizeof(w0)-1] = '\0';
 			strncpy (w1, ptr, sizeof (w1) - 1);
@@ -265,11 +272,15 @@ static int parse(RParse *p, const char *data, char *str) {
 
 			optr=ptr;
 			ptr2 = strchr (ptr, '}');
-			if (ptr2) ptr = ptr2+1;
+			if (ptr2) {
+				ptr = ptr2 + 1;
+			}
 			ptr = strchr (ptr, ',');
 			if (ptr) {
 				*ptr = '\0';
-				for (++ptr; *ptr==' '; ptr++);
+				for (++ptr; *ptr == ' '; ptr++) {
+					;
+				}
 				strncpy (w1, optr, sizeof (w1) - 1);
 				w1[sizeof(w1)-1] = '\0';
 				strncpy (w2, ptr, sizeof (w2) - 1);
@@ -278,7 +289,9 @@ static int parse(RParse *p, const char *data, char *str) {
 				ptr = strchr (ptr, ',');
 				if (ptr) {
 					*ptr = '\0';
-					for (++ptr; *ptr==' '; ptr++);
+					for (++ptr; *ptr == ' '; ptr++) {
+						;
+					}
 					strncpy (w2, optr, sizeof (w2) - 1);
 					w2[sizeof(w2)-1] = '\0';
 					strncpy (w3, ptr, sizeof (w3) - 1);
@@ -288,7 +301,9 @@ static int parse(RParse *p, const char *data, char *str) {
 					ptr = strchr (ptr, ',');
 					if (ptr) {
 						*ptr = '\0';
-						for (++ptr; *ptr==' '; ptr++);
+						for (++ptr; *ptr == ' '; ptr++) {
+							;
+						}
 						strncpy (w3, optr, sizeof (w3) - 1);
 						w3[sizeof(w3)-1] = '\0';
 						strncpy (w4, ptr, sizeof (w4) - 1);
@@ -301,8 +316,9 @@ static int parse(RParse *p, const char *data, char *str) {
 			const char *wa[] = { w0, w1, w2, w3, w4 };
 			int nw = 0;
 			for (i=0; i<4; i++) {
-				if (wa[i][0] != '\0')
-				nw++;
+				if (wa[i][0] != '\0') {
+					nw++;
+				}
 			}
 			replace (nw, wa, str);
 {
@@ -314,12 +330,15 @@ static int parse(RParse *p, const char *data, char *str) {
 #endif
 	if (!strcmp (w1, w2)) {
 		char a[32], b[32];
-#define REPLACE(x,y) \
-		sprintf (a, x, w1, w1); \
-		sprintf (b, y, w1); \
-		p = r_str_replace (p, a, b, 0);
+#define REPLACE(x,y) do { \
+		int snprintf_len1_ = snprintf (a, 32, x, w1, w1); \
+		int snprintf_len2_ = snprintf (b, 32, y, w1); \
+		if (snprintf_len1_ < 32 && snprintf_len2_ < 32) { \
+			p = r_str_replace (p, a, b, 0); \
+		} \
+	} while (0)
 
-// TODO: optimize
+		// TODO: optimize
 		REPLACE ("%s = %s +", "%s +=");
 		REPLACE ("%s = %s -", "%s -=");
 		REPLACE ("%s = %s &", "%s &=");
@@ -345,8 +364,8 @@ RParsePlugin r_parse_plugin_dalvik_pseudo = {
 	.parse = parse,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_PARSE,
 	.data = &r_parse_plugin_dalvik_pseudo,
 	.version = R2_VERSION

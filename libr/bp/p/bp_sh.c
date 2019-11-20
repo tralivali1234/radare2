@@ -16,8 +16,8 @@ struct r_bp_plugin_t r_bp_plugin_sh = {
 	.bps = r_bp_plugin_sh_bps,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BP,
 	.data = &r_bp_plugin_sh,
 	.version = R2_VERSION

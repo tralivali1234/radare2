@@ -14,30 +14,54 @@ extern REggEmit emit_trace;
 static REggPlugin *egg_static_plugins[] =
 	{ R_EGG_STATIC_PLUGINS };
 
-R_API REgg *r_egg_new () {
+struct egg_patch_t {
+	RBuffer *b;
+	int off;
+};
+
+void egg_patch_free (void *p) {
+	struct egg_patch_t *ep = (struct egg_patch_t *)p;
+	r_buf_free (ep->b);
+	free (ep);
+}
+
+R_API REgg *r_egg_new() {
 	int i;
 	REgg *egg = R_NEW0 (REgg);
 	if (!egg) {
 		return NULL;
 	}
 	egg->src = r_buf_new ();
-	if (!egg->src) goto beach;
+	if (!egg->src) {
+		goto beach;
+	}
 	egg->buf = r_buf_new ();
-	if (!egg->buf) goto beach;
+	if (!egg->buf) {
+		goto beach;
+	}
 	egg->bin = r_buf_new ();
-	if (!egg->bin) goto beach;
+	if (!egg->bin) {
+		goto beach;
+	}
 	egg->remit = &emit_x86;
 	egg->syscall = r_syscall_new ();
-	if (!egg->syscall) goto beach;
+	if (!egg->syscall) {
+		goto beach;
+	}
 	egg->rasm = r_asm_new ();
-	if (!egg->rasm) goto beach;
+	if (!egg->rasm) {
+		goto beach;
+	}
 	egg->bits = 0;
 	egg->endian = 0;
 	egg->db = sdb_new (NULL, NULL, 0);
-	if (!egg->db) goto beach;
-	egg->patches = r_list_new ();
-	if (!egg->patches) goto beach;
-	egg->patches->free = (RListFree)r_buf_free;
+	if (!egg->db) {
+		goto beach;
+	}
+	egg->patches = r_list_newf (egg_patch_free);
+	if (!egg->patches) {
+		goto beach;
+	}
 	egg->plugins = r_list_new ();
 	for (i=0; egg_static_plugins[i]; i++) {
 		r_egg_add (egg, egg_static_plugins[i]);
@@ -49,7 +73,7 @@ beach:
 	return NULL;
 }
 
-R_API int r_egg_add (REgg *a, REggPlugin *foo) {
+R_API int r_egg_add(REgg *a, REggPlugin *foo) {
 	RListIter *iter;
 	RAsmPlugin *h;
 	// TODO: cache foo->name length and use memcmp instead of strcmp
@@ -65,11 +89,11 @@ R_API int r_egg_add (REgg *a, REggPlugin *foo) {
 	return true;
 }
 
-R_API char *r_egg_to_string (REgg *egg) {
-	return strdup ((const char *)egg->buf->buf);
+R_API char *r_egg_to_string(REgg *egg) {
+	return r_buf_to_string (egg->buf);
 }
 
-R_API void r_egg_free (REgg *egg) {
+R_API void r_egg_free(REgg *egg) {
 	if (egg) {
 		r_buf_free (egg->src);
 		r_buf_free (egg->buf);
@@ -85,7 +109,7 @@ R_API void r_egg_free (REgg *egg) {
 	}
 }
 
-R_API void r_egg_reset (REgg *egg) {
+R_API void r_egg_reset(REgg *egg) {
 	r_egg_lang_include_init (egg);
 	// TODO: use r_list_purge instead of free/new here
 	r_buf_free (egg->src);
@@ -102,7 +126,7 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 	egg->remit = NULL;
 
 	egg->os = os? r_str_hash (os): R_EGG_OS_DEFAULT;
-//eprintf ("%s -> %x (linux=%x) (darwin=%x)\n", os, egg->os, R_EGG_OS_LINUX, R_EGG_OS_DARWIN);
+	//eprintf ("%s -> %x (linux=%x) (darwin=%x)\n", os, egg->os, R_EGG_OS_LINUX, R_EGG_OS_DARWIN);
 	// TODO: setup egg->arch for all archs
 	if (!strcmp (arch, "x86")) {
 		egg->arch = R_SYS_ARCH_X86;
@@ -118,8 +142,7 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 			egg->bits = bits;
 			break;
 		}
-	} else
-	if (!strcmp (arch, "arm")) {
+	} else if (!strcmp (arch, "arm")) {
 		egg->arch = R_SYS_ARCH_ARM;
 		switch (bits) {
 		case 16:
@@ -130,8 +153,7 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 			egg->endian = endian;
 			break;
 		}
-	} else
-	if (!strcmp (arch, "trace")) {
+	} else if (!strcmp (arch, "trace")) {
 		//r_syscall_setup (egg->syscall, arch, os, bits);
 		egg->remit = &emit_trace;
 		egg->bits = bits;
@@ -142,10 +164,11 @@ R_API int r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const c
 
 R_API int r_egg_include(REgg *egg, const char *file, int format) {
 	int sz;
-	const ut8 *foo = (const ut8*)r_file_slurp (file, &sz);
-	if (!foo)
+	const ut8 *foo = (const ut8 *)r_file_slurp (file, &sz);
+	if (!foo) {
 		return 0;
-// XXX: format breaks compiler layers
+	}
+	// XXX: format breaks compiler layers
 	switch (format) {
 	case 'r': // raw
 		r_egg_raw (egg, foo, sz);
@@ -163,10 +186,10 @@ R_API int r_egg_include(REgg *egg, const char *file, int format) {
 R_API void r_egg_load(REgg *egg, const char *code, int format) {
 	switch (format) {
 	case 'a': // assembly
-		r_buf_append_bytes (egg->buf, (const ut8*)code, strlen (code));
+		r_buf_append_bytes (egg->buf, (const ut8 *)code, strlen (code));
 		break;
 	default:
-		r_buf_append_bytes (egg->src, (const ut8*)code, strlen (code));
+		r_buf_append_bytes (egg->src, (const ut8 *)code, strlen (code));
 		break;
 	}
 }
@@ -177,8 +200,9 @@ R_API void r_egg_syscall(REgg *egg, const char *arg, ...) {
 	if (!strcmp (arg, "close")) {
 		//egg->remit->syscall_args ();
 	}
-	if (!item)
+	if (!item) {
 		return;
+	}
 	egg->remit->syscall (egg, item->num);
 }
 
@@ -190,39 +214,41 @@ R_API void r_egg_label(REgg *egg, const char *name) {
 	r_egg_printf (egg, "%s:\n", name);
 }
 
-R_API void r_egg_math (REgg *egg) {//, char eq, const char *vs, char type, const char *sr
+R_API void r_egg_math(REgg *egg) { //, char eq, const char *vs, char type, const char *sr
 	// TODO
 	//e->mathop (egg, op, type, eq, p);
 }
 
 R_API int r_egg_raw(REgg *egg, const ut8 *b, int len) {
-	char *out;
-	int outlen = len*2; // two hexadecimal digits per byte
-	out = malloc (outlen+1);
-	if (!out) return false;
-	r_hex_bin2str (b, len, out);
-	r_buf_append_bytes (egg->buf, (const ut8*)".hex ", 5);
-	r_buf_append_bytes (egg->buf, (const ut8*)out, outlen);
-	r_buf_append_bytes (egg->buf, (const ut8*)"\n", 1);
+	int outlen = len * 2; // two hexadecimal digits per byte
+	char *out = malloc (outlen + 1);
+	if (!out) {
+		return false;
+	}
+	(void)r_hex_bin2str (b, len, out);
+	r_buf_append_bytes (egg->buf, (const ut8 *)".hex ", 5);
+	r_buf_append_bytes (egg->buf, (const ut8 *)out, outlen);
+	r_buf_append_bytes (egg->buf, (const ut8 *)"\n", 1);
 	free (out);
 	return true;
 }
 
 static int r_egg_raw_prepend(REgg *egg, const ut8 *b, int len) {
-	char *out;
-	int outlen = len*2; // two hexadecimal digits per byte
-	out = malloc (outlen+1);
-	if (!out) return false;
+	int outlen = len * 2; // two hexadecimal digits per byte
+	char *out = malloc (outlen + 1);
+	if (!out) {
+		return false;
+	}
 	r_hex_bin2str (b, len, out);
-	r_buf_prepend_bytes (egg->buf, (const ut8*)"\n", 1);
-	r_buf_prepend_bytes (egg->buf, (const ut8*)out, outlen);
-	r_buf_prepend_bytes (egg->buf, (const ut8*)".hex ", 5);
+	r_buf_prepend_bytes (egg->buf, (const ut8 *)"\n", 1);
+	r_buf_prepend_bytes (egg->buf, (const ut8 *)out, outlen);
+	r_buf_prepend_bytes (egg->buf, (const ut8 *)".hex ", 5);
 	free (out);
 	return true;
 }
 
 static int r_egg_prepend_bytes(REgg *egg, const ut8 *b, int len) {
-	if (!r_egg_raw_prepend(egg, b, len)) {
+	if (!r_egg_raw_prepend (egg, b, len)) {
 		return false;
 	}
 	if (!r_buf_prepend_bytes (egg->bin, b, len)) {
@@ -232,18 +258,20 @@ static int r_egg_prepend_bytes(REgg *egg, const ut8 *b, int len) {
 }
 
 static int r_egg_append_bytes(REgg *egg, const ut8 *b, int len) {
-	if (!r_egg_raw(egg, b, len))
+	if (!r_egg_raw (egg, b, len)) {
 		return false;
+	}
 
-	if (!r_buf_append_bytes (egg->bin, b, len))
+	if (!r_buf_append_bytes (egg->bin, b, len)) {
 		return false;
+	}
 
 	return true;
 }
 
 // r_egg_block (egg, FRAME | IF | ELSE | ENDIF | FOR | WHILE, sz)
 R_API void r_egg_if(REgg *egg, const char *reg, char cmp, int v) {
-//	egg->depth++;
+	//	egg->depth++;
 }
 
 R_API void r_egg_printf(REgg *egg, const char *fmt, ...) {
@@ -252,20 +280,19 @@ R_API void r_egg_printf(REgg *egg, const char *fmt, ...) {
 	char buf[1024];
 	va_start (ap, fmt);
 	len = vsnprintf (buf, sizeof (buf), fmt, ap);
-	r_buf_append_bytes (egg->buf, (const ut8*)buf, len);
+	r_buf_append_bytes (egg->buf, (const ut8 *)buf, len);
 	va_end (ap);
 }
 
-R_API int r_egg_assemble_asm(REgg *egg, char **asm_list) {
+R_API bool r_egg_assemble_asm(REgg *egg, char **asm_list) {
 	RAsmCode *asmcode = NULL;
 	char *code = NULL;
-	int ret = false;
 	char *asm_name = NULL;
 
 	if (asm_list) {
 		char **asm_;
 
-		for (asm_ = asm_list; *asm_; asm_+= 2) {
+		for (asm_ = asm_list; *asm_; asm_ += 2) {
 			if (!strcmp (egg->remit->arch, asm_[0])) {
 				asm_name = asm_[1];
 				break;
@@ -288,7 +315,7 @@ R_API int r_egg_assemble_asm(REgg *egg, char **asm_list) {
 		asmcode = r_asm_massemble (egg->rasm, code);
 		if (asmcode) {
 			if (asmcode->len > 0) {
-				r_buf_append_bytes (egg->bin, asmcode->buf, asmcode->len);
+				r_buf_append_bytes (egg->bin, asmcode->bytes, asmcode->len);
 			}
 			// LEAK r_asm_code_free (asmcode);
 		} else {
@@ -296,34 +323,35 @@ R_API int r_egg_assemble_asm(REgg *egg, char **asm_list) {
 		}
 	}
 	free (code);
-	ret = (asmcode != NULL);
+	bool ret = (asmcode != NULL);
 	r_asm_code_free (asmcode);
 	return ret;
 }
 
-R_API int r_egg_assemble(REgg *egg) {
+R_API bool r_egg_assemble(REgg *egg) {
 	return r_egg_assemble_asm (egg, NULL);
 }
 
 R_API int r_egg_compile(REgg *egg) {
-	const char *b = (const char *)egg->src->buf;
-	if (!b || !egg->remit) {
+	r_buf_seek (egg->src, 0, R_BUF_SET);
+	char b;
+	int r = r_buf_read (egg->src, (ut8 *)&b, sizeof (b));
+	if (r != sizeof (b) || !egg->remit) {
 		return true;
 	}
 	// only emit begin if code is found
-#if 0
-	if (*b)
-	if (egg->remit) {
-		if (egg->remit->init)
-			egg->remit->init (egg);
-	}
-#endif
 	r_egg_lang_init (egg);
-	if (b && *b) {
-		for (; b[0]; b++) {
-			r_egg_lang_parsechar (egg, *b);
-			// XXX: some parse fail errors are false positives :(
+	for (; b; ) {
+		r_egg_lang_parsechar (egg, b);
+		if (egg->lang.elem_n >= sizeof (egg->lang.elem)) {
+			eprintf ("ERROR: elem too large.\n");
+			break;
 		}
+		int r = r_buf_read (egg->src, (ut8 *)&b, sizeof (b));
+		if (r != sizeof (b)) {
+			break;
+		}
+		// XXX: some parse fail errors are false positives :(
 	}
 	if (egg->context>0) {
 		eprintf ("ERROR: expected '}' at the end of the file. %d left\n", egg->context);
@@ -354,7 +382,16 @@ R_API void r_egg_append(REgg *egg, const char *src) {
 
 /* JIT : TODO: accept arguments here */
 R_API int r_egg_run(REgg *egg) {
-	return r_sys_run (egg->bin->buf, egg->bin->length);
+	ut64 tmpsz;
+	const ut8 *tmp = r_buf_data (egg->bin, &tmpsz);
+	bool res = r_sys_run (tmp, tmpsz);
+	return res;
+}
+
+R_API int r_egg_run_rop(REgg *egg) {
+	ut64 sz;
+	const ut8 *tmp = r_buf_data (egg->bin, &sz);
+	return r_sys_run_rop (tmp, sz);
 }
 
 #define R_EGG_FILL_TYPE_TRAP
@@ -364,21 +401,23 @@ R_API int r_egg_run(REgg *egg) {
 #define R_EGG_FILL_TYPE_SEQ
 
 static inline char *eon(char *n) {
-	while (*n && (*n>='0' && *n<='9')) n++;
+	while (*n && (*n >= '0' && *n <= '9')) {
+		n++;
+	}
 	return n;
 }
 
 /* padding looks like:
   ([snatSNAT][0-9]+)*
 */
-R_API int r_egg_padding (REgg *egg, const char *pad) {
+R_API int r_egg_padding(REgg *egg, const char *pad) {
 	int number;
-	ut8* buf, padding_byte;
+	ut8 *buf, padding_byte;
 	char *p, *o = strdup (pad);
 
-	for (p = o; *p; ) { // parse pad string
+	for (p = o; *p;) { // parse pad string
 		const char f = *p++;
-		number = strtol(p, NULL, 10);
+		number = strtol (p, NULL, 10);
 
 		if (number < 1) {
 			eprintf ("Invalid padding length at %d\n", number);
@@ -390,8 +429,10 @@ R_API int r_egg_padding (REgg *egg, const char *pad) {
 		switch (f) {
 		case 's': case 'S': padding_byte = 0; break;
 		case 'n': case 'N': padding_byte = 0x90; break;
-		case 'a': case 'A': padding_byte = 'A'; break;
-		case 't': case 'T': padding_byte = 0xcc; break;
+		case 'a':
+		case 'A': padding_byte = 'A'; break;
+		case 't':
+		case 'T': padding_byte = 0xcc; break;
 		default:
 			eprintf ("Invalid padding format (%c)\n", *p);
 			eprintf ("Valid ones are:\n");
@@ -444,8 +485,9 @@ R_API int r_egg_shellcode(REgg *egg, const char *name) {
 				eprintf ("%s Shellcode has failed\n", p->name);
 				return false;
 			}
-			r_egg_raw (egg, b->buf, b->length);
-			r_buf_free (b);
+			ut64 tmpsz;
+			const ut8 *tmp = r_buf_data (b, &tmpsz);
+			r_egg_raw (egg, tmp, tmpsz);
 			return true;
 		}
 	}
@@ -459,7 +501,9 @@ R_API int r_egg_encode(REgg *egg, const char *name) {
 	r_list_foreach (egg->plugins, iter, p) {
 		if (p->type == R_EGG_PLUGIN_ENCODER && !strcmp (name, p->name)) {
 			b = p->build (egg);
-			if (!b) return false;
+			if (!b) {
+				return false;
+			}
 			r_buf_free (egg->bin);
 			egg->bin = b;
 			return true;
@@ -469,33 +513,43 @@ R_API int r_egg_encode(REgg *egg, const char *name) {
 }
 
 R_API int r_egg_patch(REgg *egg, int off, const ut8 *buf, int len) {
-	RBuffer *b = r_buf_new ();
-	if (!b) return false;
-	if (!r_buf_set_bytes (b, buf, len)) {
-		r_buf_free (b);
+	struct egg_patch_t *ep = R_NEW (struct egg_patch_t);
+	if (!ep) {
 		return false;
 	}
-	b->cur = off;
-	r_list_append (egg->patches, b);
+	ep->b = r_buf_new_with_bytes (buf, len);
+	if (!ep->b) {
+		egg_patch_free (ep);
+		return false;
+	}
+	ep->off = off;
+	r_list_append (egg->patches, ep);
 	return true;
 }
 
 R_API void r_egg_finalize(REgg *egg) {
-	RBuffer *b;
+	struct egg_patch_t *ep;
 	RListIter *iter;
-	if (!egg->bin->buf) {
+	if (!egg->bin) {
+		r_buf_free (egg->bin);
 		egg->bin = r_buf_new ();
 	}
-	r_list_foreach (egg->patches, iter, b) {
-		if (b->cur < 0) {
-			r_egg_append_bytes (egg, b->buf, b->length);
-		} else {
-			// TODO: use r_buf_cpy_buf or what
-			if (b->length+b->cur > egg->bin->length) {
-				eprintf ("Fuck this shit. Cannot patch outside\n");
+	r_list_foreach (egg->patches, iter, ep) {
+		if (ep->off < 0) {
+			ut64 sz;
+			const ut8 *buf = r_buf_data (ep->b, &sz);
+			r_egg_append_bytes (egg, buf, sz);
+		} else if (ep->off < r_buf_size (egg->bin)) {
+			ut64 sz;
+			const ut8 *buf = r_buf_data (ep->b, &sz);
+			int r = r_buf_write_at (egg->bin, ep->off, buf, sz);
+			if (r < sz) {
+				eprintf ("Error during patch\n");
 				return;
 			}
-			memcpy (egg->bin->buf + b->cur, b->buf, b->length);
+		} else {
+			eprintf ("Cannot patch outside\n");
+			return;
 		}
 	}
 }
@@ -505,5 +559,7 @@ R_API void r_egg_pattern(REgg *egg, int size) {
 	if (ret) {
 		r_egg_prepend_bytes (egg, (const ut8*)ret, strlen(ret));
 		free (ret);
-	} else eprintf ("Invalid debruijn pattern length.\n");
+	} else {
+		eprintf ("Invalid debruijn pattern length.\n");
+	}
 }

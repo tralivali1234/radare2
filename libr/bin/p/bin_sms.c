@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2016 - shengdi */
+/* radare - LGPL - Copyright 2015-2018 - shengdi */
 
 #include <r_bin.h>
 
@@ -11,35 +11,32 @@ typedef struct gen_hdr {
 	ut8 RegionRomSize; //Low 4 bits RomSize, Top 4 bits Region
 } SMS_Header;
 
-#define CMP8(o,x) strncmp((const char*)bs+o,x,8)
-#define CMP4(o,x) strncmp((const char*)bs+o,x,4)
-static bool check_bytes(const ut8 *bs, ut64 length) {
-	if (length > 0x2000 && !CMP8(0x1ff0, "TMR SEGA")) {
-		return true;
-	}
-	if (length > 0x4000 && !CMP8(0x3ff0, "TMR SEGA")) {
-		return true;
-	}
-	if (length > 0x8000 && !CMP8(0x7ff0, "TMR SEGA")) {
-		return true;
-	}
-	if (length > 0x9000 && !CMP8(0x8ff0, "TMR SEGA")) {
-		return true;
-	}
-	if (length > 0x8000 && !CMP4(0x7fe0, "SDSC")) {
-		return true;
+static ut32 cb = 0;
+
+static bool check_buffer(RBuffer *b) {
+	ut32 *off, offs[] = { 0x2000, 0x4000, 0x8000, 0x9000, 0 };
+	ut8 signature[8];
+	for (off = (ut32*)&offs; *off; off++) {
+		r_buf_read_at (b, *off - 16, (ut8*)&signature, 8);
+		if (!strncmp ((const char *)signature, "TMR SEGA", 8)) {
+			cb = *off - 16;
+			return true; // int)(*off - 16);
+		}
+		if (*off == 0x8000) {
+			if (!strncmp ((const char *)signature, "SDSC", 4)) {
+				cb = *off - 16;
+				return true; // (int)(*off - 16);
+			}
+		}
 	}
 	return false;
 }
 
-static void * load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
-	check_bytes (buf, sz);
-	return R_NOTNULL;
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+	return check_buffer (buf);
 }
 
-static RBinInfo* info(RBinFile *bf) {
-	const char *bs;
-	SMS_Header *hdr = NULL;
+static RBinInfo *info(RBinFile *bf) {
 	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret || !bf || !bf->buf) {
 		free (ret);
@@ -52,27 +49,19 @@ static RBinInfo* info(RBinFile *bf) {
 	ret->arch = strdup ("z80");
 	ret->has_va = 1;
 	ret->bits = 8;
-	bs = (const char*)bf->buf->buf;
-	// TODO: figure out sections/symbols for this format and move this there
-	//       also add SDSC headers..and find entry
-	if (!CMP8(0x1ff0, "TMR SEGA")) {
-		hdr = (SMS_Header*)(bs + 0x1ff0);
-	} else if (!CMP8(0x3ff0, "TMR SEGA")) {
-		hdr = (SMS_Header*)(bs + 0x3ff0);
-	} else if (!CMP8(0x7ff0, "TMR SEGA")) {
-		hdr = (SMS_Header*)(bs + 0x7ff0);
-	} else if (!CMP8(0x8ff0, "TMR SEGA")) {
-		hdr = (SMS_Header*)(bs + 0x8ff0);
-	} else {
+	if (!check_buffer (bf->buf)) {
 		eprintf ("Cannot find magic SEGA copyright\n");
 		free (ret);
 		return NULL;
 	}
+	SMS_Header hdr = {{0}};
+	r_buf_read_at (bf->buf, cb, (ut8*)&hdr, sizeof (hdr));
+	hdr.CheckSum = r_read_le16 (&hdr.CheckSum);
 
-	eprintf ("Checksum: 0x%04x\n", (ut32)hdr->CheckSum);
-	eprintf ("ProductCode: %02d%02X%02X\n", (hdr->Version >> 4), hdr->ProductCode[1],
-			hdr->ProductCode[0]);
-	switch (hdr->RegionRomSize >> 4) {
+	eprintf ("Checksum: 0x%04x\n", (ut32)hdr.CheckSum); // use endian safe apis here
+	eprintf ("ProductCode: %02d%02X%02X\n", (hdr.Version >> 4), hdr.ProductCode[1],
+		hdr.ProductCode[0]);
+	switch (hdr.RegionRomSize >> 4) {
 	case 3:
 		eprintf ("Console: Sega Master System\n");
 		eprintf ("Region: Japan\n");
@@ -95,7 +84,7 @@ static RBinInfo* info(RBinFile *bf) {
 		break;
 	}
 	int romsize = 0;
-	switch (hdr->RegionRomSize & 0xf) {
+	switch (hdr.RegionRomSize & 0xf) {
 	case 0xa: romsize = 8; break;
 	case 0xb: romsize = 16; break;
 	case 0xc: romsize = 32; break;
@@ -110,20 +99,19 @@ static RBinInfo* info(RBinFile *bf) {
 	return ret;
 }
 
-
 RBinPlugin r_bin_plugin_sms = {
 	.name = "sms",
 	.desc = "SEGA MasterSystem/GameGear",
 	.license = "LGPL3",
-	.load_bytes = &load_bytes,
-	.check_bytes = &check_bytes,
+	.load_buffer = &load_buffer,
+	.check_buffer = &check_buffer,
 	.info = &info,
 	.minstrlen = 10,
 	.strfilter = 'U'
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_sms,
 	.version = R2_VERSION

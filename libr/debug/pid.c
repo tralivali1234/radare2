@@ -39,18 +39,17 @@ R_API int r_debug_pid_list(RDebug *dbg, int pid, char fmt) {
 		if (!list) {
 			return false;
 		}
-		if (fmt == 'j') {
-			dbg->cb_printf ("[");
-		}
+		PJ *j = pj_new ();
+		pj_a (j);
 		r_list_foreach (list, iter, p) {
 			switch (fmt) {
 			case 'j':
-				dbg->cb_printf ("{\"pid\":%d,"
-					"\"uid\":%d,"
-					"\"status\":\"%c\","
-					"\"path\":\"%s\"}%s",
-					p->pid, p->uid, p->status, p->path,
-					iter->n?",":"");
+				pj_o (j);
+				pj_ki (j, "pid", p->pid);
+				pj_ki (j, "uid", p->uid);
+				pj_ks (j, "status", &p->status);
+				pj_ks (j, "path", p->path);
+				pj_end (j);
 				break;
 			default:
 				dbg->cb_printf (" %c %d uid:%d %c %s\n",
@@ -59,15 +58,17 @@ R_API int r_debug_pid_list(RDebug *dbg, int pid, char fmt) {
 				break;
 			}
 		}
+		pj_end (j);
 		if (fmt == 'j') {
-			dbg->cb_printf ("]\n");
+			dbg->cb_printf (pj_string (j));
 		}
+		pj_free (j);
 		r_list_free (list);
 	}
 	return false;
 }
 
-R_API int r_debug_thread_list(RDebug *dbg, int pid) {
+R_API int r_debug_thread_list(RDebug *dbg, int pid, char fmt) {
 	RList *list;
 	RListIter *iter;
 	RDebugPid *p;
@@ -76,24 +77,33 @@ R_API int r_debug_thread_list(RDebug *dbg, int pid) {
 	}
 	if (dbg && dbg->h && dbg->h->threads) {
 		list = dbg->h->threads (dbg, pid);
-		if (!list) return false;
-		if (pid == -'j') {
-			dbg->cb_printf ("[");
-			r_list_foreach (list, iter, p) {
-				dbg->cb_printf ("{\"pid\":%d,"
-						"\"status\":\"%s\","
-						"\"path\":\"%s\"}%s",
-						p->pid, p->status, p->path,
-						iter->n?",":"");
-			}
-			dbg->cb_printf ("]\n");
-		} else {
-			r_list_foreach (list, iter, p) {
+		if (!list) {
+			return false;
+		}
+		PJ *j = pj_new ();
+		pj_a (j);
+		r_list_foreach (list, iter, p) {
+			switch (fmt) {
+			case 'j':
+				pj_o (j);
+				pj_kb (j, "current", dbg->tid == p->pid);
+				pj_ki (j, "pid", p->pid);
+				pj_ks (j, "status", &p->status);
+				pj_ks (j, "path", p->path);
+				pj_end (j);
+				break;
+			default:
 				dbg->cb_printf (" %c %d %c %s\n",
-						dbg->tid == p->pid ? '*' : '-',
-						p->pid, p->status, p->path);
+					dbg->tid == p->pid? '*': '-',
+					p->pid, p->status, p->path);
+				break;
 			}
 		}
+		pj_end (j);
+		if (fmt == 'j') {
+			dbg->cb_printf (pj_string (j));
+		}
+		pj_free (j);
 		r_list_free (list);
 	}
 	return false;

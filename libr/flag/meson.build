@@ -1,25 +1,30 @@
-files = [
+r_flag_sources = [
   'flag.c',
-  'sort.c',
-  'spaces.c',
+  'tags.c',
   'zones.c'
 ]
 
-r_flag = library('r_flag', files,
+r_flag = library('r_flag', r_flag_sources,
   include_directories: [platform_inc],
-  link_with: [r_util, libr_shlr],
+  c_args: library_cflags,
+  dependencies: [
+    r_util_dep
+  ],
   install: true,
-  implicit_include_directories: false
+  implicit_include_directories: false,
+  soversion: r2_libversion
 )
 
+r_flag_dep = declare_dependency(link_with: r_flag,
+                                include_directories: [platform_inc])
 
-pkg = import('pkgconfig')
-pkg.generate(libraries: [r_flag],
-             subdirs: 'libr',
-             version: r2version,
-             name: 'r_flag',
-             filebase: 'r_flag',
-             requires: [
-               'r_util'
-             ],
-             description: 'radare foundation libraries')
+pkgconfig_mod.generate(r_flag,
+  subdirs: 'libr',
+  version: r2_version,
+  name: 'r_flag',
+  filebase: 'r_flag',
+  requires: [
+    'r_util'
+  ],
+  description: 'radare foundation libraries'
+)

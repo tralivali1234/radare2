@@ -1,12 +1,11 @@
 /* sdb - MIT - Copyright 2011-2016 - pancake */
 
 #include "sdb.h"
-#include <unistd.h>
 #include <fcntl.h>
 
 static const char *sdb_journal_filename(Sdb *s) {
 	return (s && s->name)
-		? sdb_fmt (0, "%s.journal", s->name)
+		? sdb_fmt ("%s.journal", s->name)
 		: NULL;
 }
 
@@ -79,11 +78,10 @@ SDB_API int sdb_journal_load(Sdb *s) {
 }
 
 SDB_API bool sdb_journal_log(Sdb *s, const char *key, const char *val) {
-	const char *str;
 	if (s->journal == -1) {
 		return false;
 	}
-	str = sdb_fmt (0, "%s=%s\n", key, val);
+	const char *str = sdb_fmt ("%s=%s\n", key, val);
 	int len = strlen (str);
 	if (write (s->journal, str, len) != len) {
 		return false;

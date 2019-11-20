@@ -33,14 +33,15 @@ static bool rc4_init(struct rc4_state *const state, const ut8 *key, int keylen) 
 	}
 	state->key_size = keylen;
 	/* Initialize state with identity permutation */
-	for (i = 0; i < 256; i++)
-		state->perm[i] = (ut8)i; 
+	for (i = 0; i < 256; i++) {
+		state->perm[i] = (ut8)i;
+	}
 	state->index1 = 0;
 	state->index2 = 0;
-  
+
 	/* Randomize the permutation using key data */
 	for (j = i = 0; i < 256; i++) {
-		j += state->perm[i] + key[i % keylen]; 
+		j += state->perm[i] + key[i % keylen];
 		swap_bytes (&state->perm[i], &state->perm[j]);
 	}
 	return true;
@@ -57,7 +58,7 @@ static void rc4_crypt(struct rc4_state *const state, const ut8 *inbuf, ut8 *outb
 	ut8 j;
 
 	for (i = 0; i < buflen; i++) {
-		/* Update modification indicies */
+		/* Update modification indices */
 		state->index1++;
 		state->index2 += state->perm[state->index1];
 		/* Modify permutation */
@@ -109,8 +110,8 @@ RCryptoPlugin r_crypto_plugin_rc4 = {
 	.final = final
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = { 
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_CRYPTO,
 	.data = &r_crypto_plugin_rc4,
 	.version = R2_VERSION

@@ -32,6 +32,11 @@ R_LIB_VERSION_HEADER(r_debug);
 #undef trapframe
 #undef rwindow
 
+#ifdef PTRACE_SYSCALL
+/* on freebsd does not have the same meaning */
+#undef PTRACE_SYSCALL
+#endif
+
 #define PTRACE_PEEKTEXT PT_READ_I
 #define PTRACE_POKETEXT PT_WRITE_I
 #define PTRACE_PEEKDATA PT_READ_D
@@ -277,13 +282,16 @@ typedef struct r_debug_t {
 	int steps; /* counter of steps done */
 	RDebugReason reason; /* stop reason */
 	RDebugRecoilMode recoil_mode; /* what did the user want to do? */
+	ut64 stopaddr;  /* stop address  */
 
 	/* tracing vars */
 	RDebugTrace *trace;
 	Sdb *tracenodes;
 	RTree *tree;
+	RList *call_frames;
 
 	RReg *reg;
+	RList *q_regs;
 	const char *creg; // current register value
 	RBreakpoint *bp;
 	void *user; // XXX(jjd): unused?? meant for caller's use??
@@ -296,6 +304,9 @@ typedef struct r_debug_t {
 	struct r_debug_plugin_t *h;
 	RList *plugins;
 
+	bool pc_at_bp; /* after a breakpoint, is the pc at the bp? */
+	bool pc_at_bp_set; /* is the pc_at_bp variable set already? */
+
 	RAnal *anal;
 	RList *maps; // <RDebugMap>
 	RList *maps_user; // <RDebugMap>
@@ -307,6 +318,7 @@ typedef struct r_debug_t {
 	int _mode;
 	RNum *num;
 	REgg *egg;
+	bool verbose;
 } RDebug;
 
 typedef struct r_debug_desc_plugin_t {
@@ -346,7 +358,7 @@ typedef struct r_debug_plugin_t {
 	const char *license;
 	const char *author;
 	const char *version;
-	//const char **archs; // MUST BE DEPREACTED!!!!
+	//const char **archs; // MUST BE DEPRECATED!!!!
 	ut32 bits;
 	const char *arch;
 	int canstep;
@@ -356,7 +368,7 @@ typedef struct r_debug_plugin_t {
 	int (*startv)(int argc, char **argv);
 	int (*attach)(RDebug *dbg, int pid);
 	int (*detach)(RDebug *dbg, int pid);
-	int (*select)(int pid, int tid);
+	int (*select)(RDebug *dbg, int pid, int tid);
 	RList *(*threads)(RDebug *dbg, int pid);
 	RList *(*pids)(RDebug *dbg, int pid);
 	RList *(*tids)(RDebug *dbg, int pid);
@@ -380,11 +392,11 @@ typedef struct r_debug_plugin_t {
 	/* memory */
 	RList *(*map_get)(RDebug *dbg);
 	RList *(*modules_get)(RDebug *dbg);
-	RDebugMap* (*map_alloc)(RDebug *dbg, ut64 addr, int size);
+	RDebugMap* (*map_alloc)(RDebug *dbg, ut64 addr, int size, bool thp);
 	int (*map_dealloc)(RDebug *dbg, ut64 addr, int size);
 	int (*map_protect)(RDebug *dbg, ut64 addr, int size, int perms);
 	int (*init)(RDebug *dbg);
-	int (*drx)(RDebug *dbg, int n, ut64 addr, int size, int rwx, int g);
+	int (*drx)(RDebug *dbg, int n, ut64 addr, int size, int rwx, int g, int api_type);
 	RDebugDescPlugin desc;
 	// TODO: use RList here
 } RDebugPlugin;
@@ -434,7 +446,7 @@ R_API int r_debug_continue_syscall(RDebug *dbg, int sc);
 R_API int r_debug_continue_syscalls(RDebug *dbg, int *sc, int n_sc);
 R_API int r_debug_continue(RDebug *dbg);
 R_API int r_debug_continue_kill(RDebug *dbg, int signal);
-#if __WINDOWS__ && !__CYGWIN__
+#if __WINDOWS__
 R_API int r_debug_continue_pass_exception(RDebug *dbg);
 #endif
 
@@ -479,14 +491,14 @@ R_API bool r_debug_plugin_add(RDebug *dbg, RDebugPlugin *foo);
 
 /* memory */
 R_API RList *r_debug_modules_list(RDebug*);
-R_API RDebugMap *r_debug_map_alloc(RDebug *dbg, ut64 addr, int size);
+R_API RDebugMap *r_debug_map_alloc(RDebug *dbg, ut64 addr, int size, bool thp);
 R_API int r_debug_map_dealloc(RDebug *dbg, RDebugMap *map);
 R_API RList *r_debug_map_list_new(void);
 R_API RDebugMap *r_debug_map_get(RDebug *dbg, ut64 addr);
 R_API RDebugMap *r_debug_map_new (char *name, ut64 addr, ut64 addr_end, int perm, int user);
 R_API void r_debug_map_free(RDebugMap *map);
-R_API void r_debug_map_list(RDebug *dbg, ut64 addr, int rad);
-R_API void r_debug_map_list_visual(RDebug *dbg, ut64 addr, int use_color, int cons_cols);
+R_API void r_debug_map_list(RDebug *dbg, ut64 addr, const char *input);
+R_API void r_debug_map_list_visual(RDebug *dbg, ut64 addr, const char *input, int colors);
 
 /* descriptors */
 R_API RDebugDesc *r_debug_desc_new (int fd, char* path, int perm, int type, int off);
@@ -524,7 +536,7 @@ R_API bool r_debug_arg_set(RDebug *dbg, int fast, int num, ut64 value);
 R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch, int rw, char *module, st64 m_delta);
 
 /* pid */
-R_API int r_debug_thread_list(RDebug *dbg, int pid);
+R_API int r_debug_thread_list(RDebug *dbg, int pid, char fmt);
 
 R_API void r_debug_tracenodes_reset(RDebug *dbg);
 
@@ -532,7 +544,7 @@ R_API void r_debug_trace_reset(RDebug *dbg);
 R_API int r_debug_trace_pc(RDebug *dbg, ut64 pc);
 R_API void r_debug_trace_at(RDebug *dbg, const char *str);
 R_API RDebugTracepoint *r_debug_trace_get(RDebug *dbg, ut64 addr);
-R_API void r_debug_trace_list(RDebug *dbg, int mode);
+R_API void r_debug_trace_list(RDebug *dbg, int mode, ut64 offset);
 R_API RDebugTracepoint *r_debug_trace_add(RDebug *dbg, ut64 addr, int size);
 R_API RDebugTrace *r_debug_trace_new(void);
 R_API void r_debug_trace_free(RDebugTrace *dbg);
@@ -591,6 +603,17 @@ R_API void r_debug_session_save(RDebug *dbg, const char *file);
 R_API void r_debug_session_restore(RDebug *dbg, const char *file);
 R_API bool r_debug_step_back(RDebug *dbg);
 R_API bool r_debug_continue_back(RDebug *dbg);
+
+/* ptrace */
+#if HAVE_PTRACE
+static inline long r_debug_ptrace(RDebug *dbg, r_ptrace_request_t request, pid_t pid, void *addr, r_ptrace_data_t data) {
+	return dbg->iob.ptrace (dbg->iob.io, request, pid, addr, data);
+}
+
+static inline void *r_debug_ptrace_func(RDebug *dbg, void *(*func)(void *), void *user) {
+	return dbg->iob.ptrace_func (dbg->iob.io, func, user);
+}
+#endif
 
 /* plugin pointers */
 extern RDebugPlugin r_debug_plugin_native;

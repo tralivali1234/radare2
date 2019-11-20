@@ -1,20 +1,19 @@
-/* radare - LGPL - 2015-2016 - maijin */
+/* radare - LGPL - 2015-2019 - maijin */
 
 #include <r_bin.h>
 #include <r_lib.h>
 #include "../format/spc700/spc_specs.h"
 
-static bool check_bytes(const ut8 *buf, ut64 length) {
-	if (!buf || length < 27) {
-		return false;
+static bool check_buffer(RBuffer *b) {
+	ut8 buf[27];
+	if (r_buf_read_at (b, 0, buf, sizeof (buf)) == 27) {
+		return !memcmp (buf, SPC_MAGIC, 27);
 	}
-	return !memcmp (buf, SPC_MAGIC, 27);
+	return false;
 }
 
-
-static void * load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
-	check_bytes (buf, sz);
-	return R_NOTNULL;
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb){
+	return check_buffer (b);
 }
 
 static RBinInfo* info(RBinFile *bf) {
@@ -56,29 +55,27 @@ static RList* sections(RBinFile *bf) {
 		r_list_free (ret);
 		return NULL;
 	}
-	strcpy (ptr->name, "RAM");
+	ptr->name = strdup ("RAM");
 	ptr->paddr = RAM_START_ADDRESS;
 	ptr->size = RAM_SIZE;
 	ptr->vaddr = 0x0;
 	ptr->vsize = RAM_SIZE;
-	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP;
+	ptr->perm = R_PERM_R;
 	ptr->add = true;
 	r_list_append (ret, ptr);
 	return ret;
 }
 
 static RList* entries(RBinFile *bf) {
-	RList *ret;
-	RBinAddr *ptr = NULL;
-	if (!(ret = r_list_new ())) {
-		return NULL;
+	RList *ret = r_list_newf (free);
+	if (ret) {
+		RBinAddr *ptr = R_NEW0 (RBinAddr);
+		if (ptr) {
+			ptr->paddr = RAM_START_ADDRESS;
+			ptr->vaddr = 0;
+			r_list_append (ret, ptr);
+		}
 	}
-	if (!(ptr = R_NEW0 (RBinAddr))) {
-		return ret;
-	}
-	ptr->paddr = RAM_START_ADDRESS;
-	ptr->vaddr = 0;
-	r_list_append (ret, ptr);
 	return ret;
 }
 
@@ -86,15 +83,15 @@ RBinPlugin r_bin_plugin_spc700 = {
 	.name = "spc700",
 	.desc = "SNES-SPC700 Sound File Data",
 	.license = "LGPL3",
-	.load_bytes = &load_bytes,
-	.check_bytes = &check_bytes,
+	.load_buffer = &load_buffer,
+	.check_buffer = &check_buffer,
 	.entries = &entries,
 	.sections = &sections,
 	.info = &info,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_spc700,
 	.version = R2_VERSION

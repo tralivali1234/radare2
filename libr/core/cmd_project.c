@@ -2,14 +2,14 @@
 
 #include "r_config.h"
 #include "r_core.h"
-#include "r_print.h"
+#include "r_util.h"
 
 static const char *help_msg_P[] = {
 	"Usage:", "P[?osi] [file]", "Project management",
+	"P", "", "list all projects",
 	"Pc", " [file]", "show project script to console",
 	"Pd", " [file]", "delete project",
 	"Pi", " [file]", "show project information",
-	"Pl", "", "list all projects",
 	"Pn", "[j]", "show project notes (Pnj for json)",
 	"Pn", " [base64]", "set notes text",
 	"Pn", " -", "edit notes with cfg.editor",
@@ -18,7 +18,7 @@ static const char *help_msg_P[] = {
 	"PS", " [file]", "save script file",
 	"P-", " [file]", "delete project (alias for Pd)",
 	"NOTE:", "", "See 'e??prj.'",
-	"NOTE:", "", "project are stored in ~/.config/radare2/projects",
+	"NOTE:", "", "project are stored in " R_JOIN_2_PATHS ("~", R2_HOME_PROJECTS),
 	NULL
 };
 
@@ -42,7 +42,7 @@ static void cmd_project_init(RCore *core) {
 
 static int cmd_project(void *data, const char *input) {
 	RCore *core = (RCore *) data;
-	const char *file, *arg = (input && *input)? input + 1: NULL;
+	const char *file, *arg;
 	const char *fileproject = r_config_get (core->config, "prj.name");
 	char *str = NULL;
 
@@ -73,7 +73,7 @@ static int cmd_project(void *data, const char *input) {
 	case 'o':
 		//	if (r_file_is_regular (file))
 		if (input[1] == '&') {
-			r_core_project_open (core, file, true);
+			r_core_cmdf (core, "& Po %s", file);
 		} else if (input[1]) {
 			r_core_project_open (core, file, false);
 		} else {
@@ -81,9 +81,6 @@ static int cmd_project(void *data, const char *input) {
 				r_cons_println (file);
 			}
 		}
-		break;
-	case 'l':
-		r_core_project_list (core, input[1]);
 		break;
 	case 'd':
 	case '-':
@@ -233,6 +230,10 @@ static int cmd_project(void *data, const char *input) {
 			r_cons_println (prjName);
 			free (prjName);
 		}
+		break;
+	case 0:
+	case 'j':
+		r_core_project_list (core, input[0]);
 		break;
 	default:
 		r_core_cmd_help (core, help_msg_P);

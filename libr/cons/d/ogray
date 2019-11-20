@@ -32,6 +32,8 @@ ec push rgb:ddd
 ec ret rgb:777
 ec swi rgb:f72
 ec trap rgb:f72
+ec ucall rgb:f72 rgb:333
+ec ujmp rgb:f72
 ec graph.true rgb:f72
 ec graph.false rgb:777
 ec graph.trufae rgb:ddd
@@ -39,9 +41,23 @@ ec graph.current rgb:f72
 ec graph.traced rgb:f00
 ec graph.box rgb:fff
 ec graph.box2 rgb:f72
-ec graph.box3 rgb:f00
-ec graph.box4 rgb:f00
+ec graph.box3 rgb:000
+ec graph.box4 rgb:000
 ec gui.cflow rgb:f72
 ec gui.dataoffset rgb:f72
 ec crypto rgb:f72
 ec floc rgb:777
+ec linehl rgb:111
+
+ec func_var rgb:f72
+ec func_var_type rgb:777
+ec func_var_addr rgb:555
+
+ec ai.read rgb:eee
+ec ai.write rgb:ddd
+ec ai.exec rgb:fff
+ec ai.seq rgb:f72
+ec ai.ascii rgb:f72
+
+ec widget_bg rgb:f72 rgb:333
+ec widget_sel rgb:333 rgb:f72

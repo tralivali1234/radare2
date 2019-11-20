@@ -1,16 +1,19 @@
-/* radare - LGPL - Copyright 2007-2017 pancake */
+/* radare2 - LGPL - Copyright 2007-2019 pancake */
 
 #include <r_hash.h>
 #include "r_util.h"
-#ifdef _MSC_VER
-#define strcasecmp stricmp
+#if USE_LIB_XXHASH
+#include <xxhash.h>
+#else
+#include "xxhash.h"
 #endif
+
 R_LIB_VERSION (r_hash);
 
-struct {
-	const char *name; ut64 bit;
-}
-static const hash_name_bytes[] = {
+static const struct {
+	const char *name;
+	ut64 bit;
+} hash_name_bytes[] = {
 	{ "all", UT64_MAX },
 	{ "xor", R_HASH_XOR },
 	{ "xorpair", R_HASH_XORPAIR },
@@ -31,6 +34,11 @@ static const hash_name_bytes[] = {
 	// {"base91", R_HASH_BASE91},
 	// {"punycode", R_HASH_PUNYCODE},
 	{ "luhn", R_HASH_LUHN },
+
+	{ "fletcher8", R_HASH_FLETCHER8 },
+	{ "fletcher16", R_HASH_FLETCHER16 },
+	{ "fletcher32", R_HASH_FLETCHER32 },
+	{ "fletcher64", R_HASH_FLETCHER64 },
 
 	{ "crc8smbus", R_HASH_CRC8_SMBUS },
 #if R_HAVE_CRC8_EXTRA
@@ -90,7 +98,7 @@ static const hash_name_bytes[] = {
 	{ /* CRC-32/POSIX       */ "crc32posix", R_HASH_CRC32_POSIX },
 	{ /* CRC-32Q            */ "crc32q", R_HASH_CRC32Q },
 	{ /* CRC-32/JAMCRC      */ "crc32jamcrc", R_HASH_CRC32_JAMCRC },
-	{ /* CRC-32/XFER        */ "crc32xfer",   R_HASH_CRC32_XFER },
+	{ /* CRC-32/XFER        */ "crc32xfer", R_HASH_CRC32_XFER },
 #endif /* #if R_HAVE_CRC32_EXTRA */
 
 #if R_HAVE_CRC64
@@ -126,8 +134,8 @@ R_API int r_hash_parity(const ut8 *buf, ut64 len) {
 	ut32 ones = 0;
 	for (; buf < end; buf++) {
 		ut8 x = buf[0];
-		ones += ((x & 128)? 1: 0) + ((x & 64)? 1: 0) + ((x & 32)? 1: 0) + ((x & 16)? 1: 0) +
-		((x & 8)? 1: 0) + ((x & 4)? 1: 0) + ((x & 2)? 1: 0) + ((x & 1)? 1: 0);
+		ones += ((x & 128) ? 1 : 0) + ((x & 64) ? 1 : 0) + ((x & 32) ? 1 : 0) + ((x & 16) ? 1 : 0) +
+			((x & 8) ? 1 : 0) + ((x & 4) ? 1 : 0) + ((x & 2) ? 1 : 0) + ((x & 1) ? 1 : 0);
 	}
 	return ones % 2;
 }
@@ -135,7 +143,7 @@ R_API int r_hash_parity(const ut8 *buf, ut64 len) {
 /* These functions comes from 0xFFFF */
 /* fmi: nopcode.org/0xFFFF */
 R_API ut16 r_hash_xorpair(const ut8 *a, ut64 len) {
-	ut16 result = 0, *b = (ut16 *) a;
+	ut16 result = 0, *b = (ut16 *)a;
 	for (len >>= 1; len--; b++) {
 		result ^= *b;
 	}
@@ -159,6 +167,10 @@ R_API ut8 r_hash_mod255(const ut8 *b, ut64 len) {
 	return c % 255;
 }
 
+R_API ut32 r_hash_xxhash(const ut8 *buf, ut64 len) {
+	return XXH32 (buf, (size_t)len, 0);
+}
+
 R_API ut8 r_hash_deviation(const ut8 *b, ut64 len) {
 	int i, c;
 	for (c = i = 0, len--; i < len; i++) {
@@ -178,7 +190,14 @@ R_API const char *r_hash_name(ut64 bit) {
 }
 
 R_API int r_hash_size(ut64 algo) {
-#	define ALGOBIT(x) if (algo & R_HASH_ ## x) { return R_HASH_SIZE_ ## x; }
+#define ALGOBIT(x)\
+	if (algo & R_HASH_##x) {\
+		return R_HASH_SIZE_##x;\
+	}
+	ALGOBIT (FLETCHER8);
+	ALGOBIT (FLETCHER16);
+	ALGOBIT (FLETCHER32);
+	ALGOBIT (FLETCHER64);
 	ALGOBIT (MD4);
 	ALGOBIT (MD5);
 	ALGOBIT (SHA1);
@@ -274,11 +293,8 @@ R_API int r_hash_size(ut64 algo) {
 R_API ut64 r_hash_name_to_bits(const char *name) {
 	char tmp[128];
 	int i;
-	const char *ptr;
-	ut64 ret;
-
-	ret = 0;
-	ptr = name;
+	const char *ptr = name;
+	ut64 ret = 0;
 
 	if (!ptr) {
 		return ret;
@@ -287,14 +303,14 @@ R_API ut64 r_hash_name_to_bits(const char *name) {
 	do {
 		/* Eat everything up to the comma */
 		for (i = 0; *ptr && *ptr != ',' && i < sizeof (tmp) - 1; i++) {
-			tmp[i] = *ptr++;
+			tmp[i] = tolower ((ut8)*ptr++);
 		}
 
 		/* Safety net */
 		tmp[i] = '\0';
 
 		for (i = 0; hash_name_bytes[i].name; i++) {
-			if (!strcasecmp (tmp, hash_name_bytes[i].name)) {
+			if (!strcmp (tmp, hash_name_bytes[i].name)) {
 				ret |= hash_name_bytes[i].bit;
 				break;
 			}
@@ -326,7 +342,7 @@ R_API void r_hash_do_spice(RHash *ctx, ut64 algo, int loops, RHashSeed *seed) {
 			memcpy (buf, ctx->digest, hlen);
 			len = hlen;
 		}
-		(void) r_hash_calculate (ctx, algo, buf, len);
+		(void)r_hash_calculate (ctx, algo, buf, len);
 	}
 }
 
@@ -352,10 +368,12 @@ R_API char *r_hash_to_string(RHash *ctx, const char *name, const ut8 *data, int 
 			digest_hex = NULL;
 		} else {
 			digest_hex = malloc ((digest_size * 2) + 1);
-			for (i = 0; i < digest_size; i++) {
-				sprintf (digest_hex + (i * 2), "%02x", ctx->digest[i]);
+			if (digest_hex) {
+				for (i = 0; i < digest_size; i++) {
+					sprintf (digest_hex + (i * 2), "%02x", ctx->digest[i]);
+				}
+				digest_hex[digest_size * 2] = 0;
 			}
-			digest_hex[digest_size * 2] = 0;
 		}
 	}
 	r_hash_free (myctx);

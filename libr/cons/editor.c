@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2016 - pancake */
+/* radare - LGPL - Copyright 2008-2018 - pancake */
 
 #include <r_cons.h>
 #define I r_cons_singleton ()
@@ -21,7 +21,9 @@ static void setnewline(int old) {
 
 static void saveline(int n, const char *str) {
 	char *out;
-	if (!str) return;
+	if (!str) {
+		return;
+	}
 	out = r_str_word_get0set (lines, bytes, _n, str, &bytes);
 	free (lines);
 	lines = out;
@@ -29,7 +31,9 @@ static void saveline(int n, const char *str) {
 
 static int up(void *n) {
 	int old = _n;
-	if (_n > 0) _n--;
+	if (_n > 0) {
+		_n--;
+	}
 	setnewline (old);
 	return -1;
 }
@@ -46,13 +50,14 @@ static void filesave() {
 	if (!path) {
 		eprintf ("File: ");
 		buf[0] = 0;
-		fgets (buf, sizeof (buf) - 1, stdin);
-		buf[sizeof (buf) - 1] = 0;
-		i = strlen (buf);
-		if (i > 0) {
-			buf[i - 1] = 0;
-			free (path);
-			path = strdup (buf);
+		if (fgets (buf, sizeof (buf) - 1, stdin)) {
+			buf[sizeof (buf) - 1] = 0;
+			i = strlen (buf);
+			if (i > 0) {
+				buf[i - 1] = 0;
+				free (path);
+				path = strdup (buf);
+			}
 		}
 	}
 	if (lines) {
@@ -73,8 +78,8 @@ static void filesave() {
 R_API char *r_cons_editor(const char *file, const char *str) {
 	const char *line;
 	_n = 0;
-	if (I->editor) {
-		return I->editor (I->user, file, str);
+	if (I->cb_editor) {
+		return I->cb_editor (I->user, file, str);
 	}
 	free (path);
 	if (file) {

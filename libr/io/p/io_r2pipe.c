@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2016 - pancake */
+/* radare - LGPL - Copyright 2015-2019 - pancake */
 
 #include "r_io.h"
 #include "r_lib.h"
@@ -8,33 +8,38 @@
 #include <sys/types.h>
 
 /* --------------------------------------------------------- */
-#define R2P(x) ((R2Pipe*)x->data)
+#define R2P(x) ((R2Pipe*)(x)->data)
 
-// TODO: add r2p_assert
+// TODO: add r2pipe_assert
 
 static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	char fmt[4096];
 	char *bufn, bufnum[4096];
 	int i, rv, rescount = -1;
 	char *res, *r;
-	if (!fd || !fd->data)
+	if (!fd || !fd->data) {
 		return -1;
+	}
 	bufn = bufnum;
 	*bufn = 0;
-	for (i=0; i<count; i++) {
-		int bufn_sz = sizeof (bufnum) - (bufn-bufnum);
-		snprintf (bufn, bufn_sz, "%s%d", i?",":"", buf[i]);
+	for (i = 0; i < count; i++) {
+		int bufn_sz = sizeof (bufnum) - (bufn - bufnum);
+		snprintf (bufn, bufn_sz, "%s%d", i ? "," : "", buf[i]);
 		bufn += strlen (bufn);
 	}
-	snprintf (fmt, sizeof (fmt),
-		"{\"op\":\"write\",\"address\":%"PFMT64d",\"data\":[%s]}",
+	int len = snprintf (fmt, sizeof (fmt),
+		"{\"op\":\"write\",\"address\":%" PFMT64d ",\"data\":[%s]}",
 		io->off, bufnum);
-	rv = r2p_write (R2P (fd), fmt);
-	if (rv <1) {
-		eprintf ("r2p_write: error\n");
+	if (len >= sizeof (fmt)) {
+		eprintf ("r2pipe_write: error, fmt string has been truncated\n");
 		return -1;
 	}
-	res = r2p_read (R2P (fd));
+	rv = r2pipe_write (R2P (fd), fmt);
+	if (rv < 1) {
+		eprintf ("r2pipe_write: error\n");
+		return -1;
+	}
+	res = r2pipe_read (R2P (fd));
 	/* TODO: parse json back */
 	r = strstr (res, "result");
 	if (r) {
@@ -58,12 +63,12 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	snprintf (fmt, sizeof (fmt),
 		"{\"op\":\"read\",\"address\":%"PFMT64d",\"count\":%d}",
 		io->off, count);
-	rv = r2p_write (R2P (fd), fmt);
+	rv = r2pipe_write (R2P (fd), fmt);
 	if (rv < 1) {
-		eprintf ("r2p_write: error\n");
+		eprintf ("r2pipe_write: error\n");
 		return -1;
 	}
-	res = r2p_read (R2P (fd));
+	res = r2pipe_read (R2P (fd));
 
 	/* TODO: parse json back */
 	r = strstr (res, "result");
@@ -116,9 +121,10 @@ beach:
 }
 
 static int __close(RIODesc *fd) {
-	if (!fd || !fd->data)
+	if (!fd || !fd->data) {
 		return -1;
-	r2p_free (fd->data);
+	}
+	r2pipe_close (fd->data);
 	fd->data = NULL;
 	return 0;
 }
@@ -139,31 +145,32 @@ static bool __check(RIO *io, const char *pathname, bool many) {
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	R2Pipe *r2p = NULL;
 	if (__check (io, pathname, 0)) {
-		r2p = r2p_open (pathname + 9);
+		r2p = r2pipe_open (pathname + 9);
 	}
 	return r2p? r_io_desc_new (io, &r_io_plugin_r2pipe,
 		pathname, rw, mode, r2p): NULL;
 }
 
 static char *__system(RIO *io, RIODesc *fd, const char *msg) {
-	char fmt[4096];
-	int rv, rescount = -1;
-	char *res, *r;
-	if (!fd || !fd->data) {
-		return NULL;
-	}
-	snprintf (fmt, sizeof (fmt), "{\"op\":\"system\",\"cmd\":\"%s\"}", msg);
-	rv = r2p_write (R2P (fd), fmt);
+	r_return_val_if_fail (io && fd && msg, NULL);
+	PJ *pj = pj_new ();
+	pj_o (pj);
+	pj_ks (pj, "op", "system");
+	pj_ks (pj, "cmd", msg);
+	pj_end (pj);
+	const char *fmt = pj_string (pj);
+	int rv = r2pipe_write (R2P (fd), fmt);
+	pj_free (pj);
 	if (rv < 1) {
-		eprintf ("r2p_write: error\n");
+		eprintf ("r2pipe_write: error\n");
 		return NULL;
 	}
-	res = r2p_read (R2P (fd));
+	char *res = r2pipe_read (R2P (fd));
 	//eprintf ("%s\n", res);
 	/* TODO: parse json back */
-	r = strstr (res, "result");
+	char *r = strstr (res, "result");
 	if (r) {
-		rescount = atoi (r + 6 + 1);
+		int rescount = atoi (r + 6 + 1);
 		eprintf ("RESULT %d\n", rescount);
 	}
 	free (res);
@@ -172,19 +179,20 @@ static char *__system(RIO *io, RIODesc *fd, const char *msg) {
 
 RIOPlugin r_io_plugin_r2pipe = {
 	.name = "r2pipe",
-        .desc = "r2pipe io plugin",
+	.desc = "r2pipe io plugin",
 	.license = "MIT",
-        .open = __open,
-        .close = __close,
+	.uris = "r2pipe://",
+	.open = __open,
+	.close = __close,
 	.read = __read,
-        .check = __check,
+	.check = __check,
 	.lseek = __lseek,
 	.write = __write,
 	.system = __system
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_IO,
 	.data = &r_io_plugin_r2pipe,
 	.version = R2_VERSION

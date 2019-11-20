@@ -1,38 +1,38 @@
-/* radare - LGPL3 - 2017 - usrshare */
+/* radare - LGPL3 - 2017-2019 - usrshare */
 
 #include <r_bin.h>
 #include <r_lib.h>
 #include "sfc/sfc_specs.h"
 #include <r_endian.h>
 
-static bool check_bytes(const ut8 *buf, ut64 length) {
-	const ut8* buf_hdr = buf;
+static bool check_buffer(RBuffer *b) {
 	ut16 cksum1, cksum2;
-
-	if ((length & 0x8000) == 0x200) {
-		buf_hdr += 0x200;
-	}
+	ut64 length = r_buf_size (b);
+	// FIXME: this was commented out because it always evaluates to false.
+	//        Need to be fixed by someone with SFC knowledge
+	// if ((length & 0x8000) == 0x200) {
+	// 	buf_hdr += 0x200;
+	// }
 	if (length < 0x8000) {
 		return false;
 	}
 	//determine if ROM is headered, and add a 0x200 gap if so.
-	cksum1 = r_read_le16 (buf_hdr + 0x7FDC);
-	cksum2 = r_read_le16 (buf_hdr + 0x7FDE);
+	cksum1 = r_buf_read_le16_at (b, 0x7fdc);
+	cksum2 = r_buf_read_le16_at (b, 0x7fde);
 
 	if (cksum1 == (ut16)~cksum2) {
 		return true;
 	}
-
 	if (length < 0xffee) {
 		return false;
 	}
-	cksum1 = r_read_le16(buf_hdr + 0xFFDC);
-	cksum2 = r_read_le16(buf_hdr + 0xFFDE);
+	cksum1 = r_buf_read_le16_at (b, 0xffdc);
+	cksum2 = r_buf_read_le16_at (b, 0xffde);
 	return (cksum1 == (ut16)~cksum2);
 }
 
-static void * load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
-	return check_bytes (buf, sz) ? R_NOTNULL : NULL;
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb){
+	return check_buffer (b);
 }
 
 static RBinInfo* info(RBinFile *bf) {
@@ -86,11 +86,11 @@ static void addrom(RList *ret, const char *name, int i, ut64 paddr, ut64 vaddr, 
 	if (!ptr) {
 		return;
 	}
-	snprintf (ptr->name, sizeof (ptr->name), "%s_%02x", name, i);
+	ptr->name = r_str_newf ("%s_%02x", name, i);
 	ptr->paddr = paddr;
 	ptr->vaddr = vaddr;
 	ptr->size = ptr->vsize = size;
-	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP;
+	ptr->perm = R_PERM_RX;
 	ptr->add = true;
 	r_list_append (ret, ptr);
 }
@@ -176,7 +176,7 @@ static RList *mem (RBinFile *bf) {
 	RList *ret;
 	RBinMem *m;
 	RBinMem *m_bak;
-	if (!(ret = r_list_new())) {
+	if (!(ret = r_list_new ())) {
 		return NULL;
 	}
 	ret->free = free;
@@ -276,8 +276,8 @@ RBinPlugin r_bin_plugin_sfc = {
 	.name = "sfc",
 	.desc = "Super NES / Super Famicom ROM file",
 	.license = "LGPL3",
-	.load_bytes = &load_bytes,
-	.check_bytes = &check_bytes,
+	.load_buffer = &load_buffer,
+	.check_buffer = &check_buffer,
 	.entries = &entries,
 	.sections = sections,
 	.symbols = &symbols,
@@ -285,8 +285,8 @@ RBinPlugin r_bin_plugin_sfc = {
 	.mem = &mem,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_sfc,
 	.version = R2_VERSION

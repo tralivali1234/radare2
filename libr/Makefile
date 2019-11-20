@@ -3,53 +3,149 @@ include config.mk
 include ../config-user.mk
 include ../mk/platform.mk
 include ../mk/${COMPILER}.mk
+include ${SHLR}/zip/deps.mk
 
 DESTDIR:=$(DESTDIR)
 PREFIX?=${PWD}/../prefix
+OBJCOPY?=objcopy
 
 S=$
 B=`
 PWD=$(shell pwd)
 
-LIBS0=util hash
-LIBS1=socket reg cons magic bp search config
-LIBS2=syscall lang io crypto flag
-LIBS3=fs anal bin parse
-LIBS4=asm
-LIBS5=egg
-LIBS6=debug
-LIBS7=core
+include libs.mk
 
-LIBS=$(LIBS0) $(LIBS1) $(LIBS2) $(LIBS3) $(LIBS4) $(LIBS5) $(LIBS6) $(LIBS7)
 .PHONY: $(LIBS)
 
 all:
+ifneq ($(LIBS0),)
 	$(MAKE) $(LIBS0)
+endif
+ifneq ($(LIBS1),)
 	$(MAKE) $(LIBS1)
+endif
+ifneq ($(LIBS2),)
 	$(MAKE) $(LIBS2)
+endif
+ifneq ($(LIBS3),)
 	$(MAKE) $(LIBS3)
+endif
+ifneq ($(LIBS4),)
 	$(MAKE) $(LIBS4)
+endif
+ifneq ($(LIBS5),)
 	$(MAKE) $(LIBS5)
+endif
+ifneq ($(LIBS6),)
 	$(MAKE) $(LIBS6)
+endif
+ifneq ($(LIBS7),)
 	$(MAKE) $(LIBS7)
-ifeq (${WITHNONPIC},1)
+endif
+ifneq ($(LIBS8),)
+	$(MAKE) $(LIBS8)
+endif
+ifeq ($(WITH_LIBR),1)
 	$(MAKE) libr.${EXT_AR}
+	$(MAKE) libr.${EXT_SO}
 endif
 
+ifeq ($(WITH_LIBR),1)
+
+ifeq ($(OSTYPE),darwin)
+MLFLAGS+=-install_name @rpath/libr2.dylib
+endif
+ifeq ($(OSTYPE),ios)
+MLFLAGS+=-install_name @rpath/libr2.dylib
+MLFLAGS+=-fembed-bitcode
+endif
+LDFLAGS+=${SSL_LDFLAGS}
+# XXX version-script only works with shlib as output
+#ifeq ($(OSTYPE),linux)
+#PLFLAGS+=--version-script ./ld.script
+#endif
+# from env: ALFLAGS+=$(ALFLAGS)
+
+.libr: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
+	rm -rf .libr
+	mkdir -p .libr
+	for LIB in $^ ; do \
+		${PARTIALLD} $(ALFLAGS) $(MLFLAGS) $(PLFLAGS) -o .libr/$$(basename $${LIB}.a).o $${LIB} ; \
+	done
+ifeq ($(OSTYPE),linux)
+	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+endif
+ifeq ($(OSTYPE),gnulinux)
+	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+endif
+ifeq ($(OSTYPE),android)
+	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+endif
+ifeq ($(OSTYPE),bsd)
+	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+endif
+
+_libr.${EXT_AR}: .libr
+	-${AR} crs $@ .libr/*.o
+
+.libr2: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
+	rm -rf .libr2
+	mkdir -p .libr2
+	-for LIB in $^ ; do \
+		BN=`basename $$LIB` ; \
+		echo $$BN ; \
+		mkdir -p .libr2/$$BN ; \
+		echo .libr2/$$BN $$LIB; ${AR} ; \
+		( cd .libr2/$$BN ; pwd ; du -hs ../../$$LIB; ${AR} x ../../$$LIB ) ; \
+	done
+
+libr.${EXT_AR}: .libr2
+	-${AR} crs $@ .libr2/*/*.o
+
+ifeq (1,$(WITH_GPL))
+E+=../shlr/grub/libgrubfs.${EXT_AR}
+endif
+E+=../shlr/ar/libr_ar.${EXT_AR}
+E+=../shlr/windbg/libr_windbg.${EXT_AR}
+E+=../shlr/qnx/lib/libqnxr.${EXT_AR}
+E+=../shlr/bochs/lib/libbochs.${EXT_AR}
+#ifeq ($(COMPILER),ios-sdk)
+#E+=../shlr/sdb/src/libsdb.${EXT_AR}
+#endif
+#ifneq ($(OSTYPE),android)
+#E+=../shlr/sdb/src/libsdb.${EXT_AR}
+#endif
+
+ifeq ($(USE_CAPSTONE),1)
+E+=$(CAPSTONE_LDFLAGS)
+else
+E+=../shlr/capstone/libcapstone.${EXT_AR}
+endif
+
+libr.${EXT_SO}: .libr2
+ifeq (${COMPILER},emscripten)
+	echo nothing to do here
+else
+	$(CC) -fvisibility=hidden $(MLFLAGS) ${LINK} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} -shared -dynamiclib -o libr.${EXT_SO}  \
+		.libr2/*/*.o \
+		../shlr/gdb/lib/libgdbr.${EXT_AR} ../shlr/java/libr_java.${EXT_AR} \
+		../shlr/libr_shlr.${EXT_AR} ../shlr/mpc/libmpc.${EXT_AR} $(E) \
+		../libr/util/libr_util.${EXT_AR}
+endif
+
+else
+
+# WITH_LIBR=0
+
 libr.${EXT_SO}:
-	rm -rf .libr/tcc # WHY
-	$(CC) $(LDFLAGS) -shared -dynamic -arch arm64 -o libr.${EXT_SO} .libr/*/*.o ../shlr/gdb/lib/libgdbr.a
+	$(MAKE) libr.${EXT_SO} WITH_LIBR=1
+
+libr.${EXT_AR}:
+	$(MAKE) libr.${EXT_AR} WITH_LIBR=1
+endif
 
 ../shlr/libr_shlr.${EXT_AR}:
 	$(MAKE) -C ../shlr libr_shlr.${EXT_AR}
-
-libr.${EXT_AR}: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
-	rm -rf .libr
-	mkdir .libr
-	for LIB in $^ ; do \
-		${PARTIALLD} -o .libr/$$(basename $${LIB} .a).o $${LIB} ; \
-	done
-	${AR} crs $@ .libr/*.o
 
 $(LIBS):
 	@echo "DIR $@"
@@ -84,8 +180,10 @@ install-includes:
 	done)
 	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/r_util"
 	(cd include/r_util && for FILE in * ; do \
-		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_util/$$FILE" ; \
-	done)
+		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_util/$$FILE" ; done)
+	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/r_crypto"
+	(cd include/r_crypto && for FILE in * ; do \
+		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_crypto/$$FILE" ; done)
 
 symstall install-symlink:
 	@cd .. && \
@@ -111,12 +209,15 @@ install: install-includes install-pkgconfig
 	# TODO :Use INSTALL_DATA_DIR instead of mkdir
 	# libraries
 	@${INSTALL_DIR} "${DESTDIR}${LIBDIR}"
-	@$(foreach lib,$(shell find * -type f -iname "*.${EXT_SO}" | grep -v '(lib|parse)/t/' | grep lib | grep -v /bin/ | grep -v /p/), \
+	@$(foreach lib,$(shell find * -type f -iname "*.${EXT_SO}" | grep -vE '^libr\.${EXT_SO}$$' | grep -v '(lib|parse)/t/' | grep lib | grep -v /bin/ | grep -v /p/), \
 	  echo " ${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
 	  rm -f "${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
 	  ${INSTALL_LIB} "$(lib)" "${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
 	  ( cd "${DESTDIR}${LIBDIR}" ; ln -fs "$(call libpath-to-name-version,$(lib),${LIBVERSION})" "$(call libpath-to-name,$(lib))" ) ; \
 	)
+	lib=libr.$(EXT_SO) ; if [ -f "$$lib" ]; then \
+	  ${INSTALL_LIB} "$$lib" "${DESTDIR}${LIBDIR}/$$lib"; \
+	fi
 	# object archives
 	@for FILE in `find * -type f -iname "*.${EXT_AR}" | grep -v fs/p` ; do \
 	  echo " ${DESTDIR}${LIBDIR}/$$FILE"; ${INSTALL_DATA} $$FILE "${DESTDIR}${LIBDIR}" ; done || true
@@ -126,9 +227,6 @@ install: install-includes install-pkgconfig
 	  do echo " ${DESTDIR}${LIBDIR}/radare2/${VERSION}/$$FILE"; \
 	  ${INSTALL_LIB} "$$FILE" "${DESTDIR}${LIBDIR}/radare2/${VERSION}" ; done
 	cd "${DESTDIR}${LIBDIR}/radare2" ; ln -fs "${VERSION}" last
-
-#@echo "lang/p/radare.* ${DESTDIR}${DESTDIR}${PREFIX}/${LIBDIR}/radare2/${VERSION}"
-#${INSTALL_DATA} lang/p/radare.* ${DESTDIR}${LIBDIR}/radare2/${VERSION}
 
 deinstall uninstall:
 	# libraries
@@ -173,6 +271,7 @@ deinstall uninstall:
 
 clean:
 	for LIB in ${LIBS}; do ( cd $${LIB} && $(MAKE) clean ); done
+	rm -rf .libr libr.${LIB_SO} libr.${LIB_AR}
 
 mrproper:
 	rm -rf .libr libr.${LIB_SO} libr.${LIB_AR}

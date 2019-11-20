@@ -5,8 +5,8 @@
 #define TYPE_STR 1
 #define TYPE_SYM 2
 #define IS_ALPHA(x) (IS_UPPER(x) || IS_LOWER(x))
-#define IS_STRING(x,y) ((x)+3<end && *x == 's' && *((x)+1) == 't' && *((x)+2) == 'r' && *((x)+3) == '.')
-#define IS_SYMBOL(x,y) ((x)+3<end && *x == 's' && *((x)+1) == 'y' && *((x)+2) == 'm' && *((x)+3) == '.')
+#define IS_STRING(x,y) ((x)+3<end && *(x) == 's' && *((x)+1) == 't' && *((x)+2) == 'r' && *((x)+3) == '.')
+#define IS_SYMBOL(x,y) ((x)+3<end && *(x) == 's' && *((x)+1) == 'y' && *((x)+2) == 'm' && *((x)+3) == '.')
 
 typedef struct _find_ctx {
 	char *comment;
@@ -42,21 +42,26 @@ static void find_and_change (char* in, int len) {
 			if (ctx.type != TYPE_NONE && ctx.right && ctx.left && ctx.rightlen > 0 && ctx.leftlen > 0) {
 				char* copy = NULL;
 				if (ctx.leftlen > ctx.rightlen) {
+					// if new string is o
 					copy = (char*) malloc (ctx.leftlen);
 					if (copy) {
-						memcpy (copy, ctx.left, ctx.leftlen);
-						memcpy (ctx.left, ctx.right, ctx.rightlen);
+						memmove (copy, ctx.left, ctx.leftlen);
+						memmove (ctx.left, ctx.right, ctx.rightlen);
+						memset (ctx.left + ctx.rightlen, ' ', ctx.leftlen - ctx.rightlen);
 						memmove (ctx.comment - ctx.leftlen + ctx.rightlen, ctx.comment, ctx.right - ctx.comment);
-						memcpy (ctx.right - ctx.leftlen + ctx.rightlen, copy, ctx.leftlen);
+						memmove (ctx.right - ctx.leftlen + ctx.rightlen, copy, ctx.leftlen);
 					}
 				} else if (ctx.leftlen < ctx.rightlen) {
 					if (ctx.linecount < 1) {
 						copy = (char*) malloc (ctx.rightlen);
 						if (copy) {
+							// ###LEFTLEN### ### RIGHT
+							// backup ctx.right+len into copy
 							memcpy (copy, ctx.right, ctx.rightlen);
+							// move string into
 							memcpy (ctx.right + ctx.rightlen - ctx.leftlen, ctx.left, ctx.leftlen);
 							memmove (ctx.comment + ctx.rightlen - ctx.leftlen, ctx.comment, ctx.right - ctx.comment);
-							memcpy (ctx.left + ctx.rightlen - ctx.leftlen, copy, ctx.rightlen);
+							memmove (ctx.left + ctx.rightlen - ctx.leftlen, copy, ctx.rightlen);
 						}
 					} else {
 //						copy = (char*) malloc (ctx.linebegin - ctx.left);
@@ -164,6 +169,15 @@ static void find_and_change (char* in, int len) {
 R_API int r_core_pseudo_code(RCore *core, const char *input) {
 	const char *cmdPdc = r_config_get (core->config, "cmd.pdc");
 	if (cmdPdc && *cmdPdc && !strstr (cmdPdc, "pdc")) {
+		if (strstr (cmdPdc, "!*") || strstr (cmdPdc, "#!")) {
+			if (!strcmp (input, "*")) {
+				input = " -r2";
+			} else if (!strcmp (input, "=")) {
+				input = " -a";
+			} else if (!strcmp (input, "?")) {
+				input = " -h";
+			}
+		}
 		return r_core_cmdf (core, "%s%s", cmdPdc, input);
 	}
 
@@ -175,17 +189,18 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 	if (!hc) {
 		return false;
 	}
-	r_config_save_num (hc, "asm.pseudo", "asm.decode", "asm.lines", "asm.bytes", NULL);
-	r_config_save_num (hc, "asm.offset", "asm.flags", "asm.fcnlines", "asm.comments", NULL);
-	r_config_save_num (hc, "asm.functions", "asm.section", "asm.cmt.col", "asm.filter", NULL);
-	r_config_save_num (hc, "scr.color", "asm.emu.str", "asm.emu", "asm.emu.write", NULL);
-	r_config_save_num (hc, "io.cache", NULL);
+	r_config_hold_i (hc, "asm.pseudo", "asm.decode", "asm.lines", "asm.bytes", "asm.stackptr", NULL);
+	r_config_hold_i (hc, "asm.offset", "asm.flags", "asm.lines.fcn", "asm.comments", NULL);
+	r_config_hold_i (hc, "asm.functions", "asm.section", "asm.cmt.col", "asm.filter", NULL);
+	r_config_hold_i (hc, "scr.color", "emu.str", "asm.emu", "emu.write", NULL);
+	r_config_hold_i (hc, "io.cache", NULL);
 	if (!fcn) {
 		eprintf ("Cannot find function in 0x%08"PFMT64x"\n", core->offset);
 		r_config_hold_free (hc);
 		return false;
 	}
 	r_config_set_i (core->config, "scr.color", 0);
+	r_config_set_i (core->config, "asm.stackptr", 0);
 	r_config_set_i (core->config, "asm.pseudo", 1);
 	r_config_set_i (core->config, "asm.decode", 0);
 	r_config_set_i (core->config, "asm.filter", 1);
@@ -194,9 +209,9 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 	r_config_set_i (core->config, "asm.offset", 0);
 	r_config_set_i (core->config, "asm.flags", 0);
 	r_config_set_i (core->config, "asm.emu", 1);
-	r_config_set_i (core->config, "asm.emu.str", 1);
-	r_config_set_i (core->config, "asm.emu.write", 1);
-	r_config_set_i (core->config, "asm.fcnlines", 0);
+	r_config_set_i (core->config, "emu.str", 1);
+	r_config_set_i (core->config, "emu.write", 1);
+	r_config_set_i (core->config, "asm.lines.fcn", 0);
 	r_config_set_i (core->config, "asm.comments", 1);
 	r_config_set_i (core->config, "asm.functions", 0);
 	r_config_set_i (core->config, "asm.tabs", 0);
@@ -221,10 +236,10 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 	r_cons_printf ("\n    //  %d basic blocks\n", n_bb);
 	do {
 #define I_TAB 4
-#define K_MARK(x) sdb_fmt(0,"mark.%"PFMT64x,x)
-#define K_ELSE(x) sdb_fmt(0,"else.%"PFMT64x,x)
-#define K_INDENT(x) sdb_fmt(0,"loc.%"PFMT64x,x)
-#define SET_INDENT(x) { x = x>0?x:1; memset (indentstr, ' ', x*I_TAB); indentstr [(x*I_TAB)-2] = 0; }
+#define K_MARK(x) sdb_fmt("mark.%"PFMT64x,x)
+#define K_ELSE(x) sdb_fmt("else.%"PFMT64x,x)
+#define K_INDENT(x) sdb_fmt("loc.%"PFMT64x,x)
+#define SET_INDENT(x) { (x) = (x)>0?(x):1; memset (indentstr, ' ', (x)*I_TAB); indentstr [((x)*I_TAB)-2] = 0; }
 		if (!bb) {
 			break;
 		}
@@ -232,7 +247,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 		r_cons_push ();
 		bool html = r_config_get_i (core->config, "scr.html");
 		r_config_set_i (core->config, "scr.html", 0);
-		char *code = r_core_cmd_str (core, sdb_fmt (0, "pD %d @ 0x%08"PFMT64x"\n", bb->size, bb->addr));
+		char *code = r_core_cmd_str (core, sdb_fmt ("pD %d @ 0x%08"PFMT64x"\n", bb->size, bb->addr));
 		r_cons_pop ();
 		r_config_set_i (core->config, "scr.html", html);
 		if (indent * I_TAB + 2 >= sizeof (indentstr)) {
@@ -264,7 +279,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 		}
 		if (sdb_const_get (db, K_INDENT (bb->addr), 0)) {
 			// already analyzed, go pop and continue
-			// XXX check if cant pop
+			// XXX check if can't pop
 			//eprintf ("%s// 0x%08llx already analyzed\n", indentstr, bb->addr);
 			ut64 addr = sdb_array_pop_num (db, "indent", NULL);
 			if (addr == UT64_MAX) {
@@ -329,7 +344,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 				if (curfcn != fcn) {
 					// chop that branch
 					r_cons_printf ("\n  // chop\n");
-				//	break;
+					// break;
 				}
 				if (sdb_get (db, K_INDENT (jump), 0)) {
 					// already tracekd
@@ -339,7 +354,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 				} else {
 					bb = r_anal_bb_from_offset (core->anal, jump);
 					if (!bb) {
-						eprintf ("failed to retrieve blcok at 0x%"PFMT64x"\n", jump);
+						eprintf ("failed to retrieve block at 0x%"PFMT64x"\n", jump);
 						break;
 					}
 					if (fail != UT64_MAX) {
@@ -349,7 +364,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 							/* do nothing here */
 							eprintf ("BlockAlready 0x%"PFMT64x"\n", bb->addr);
 						} else {
-							//		r_cons_printf (" { RADICAL %llx\n", bb->addr);
+							// r_cons_printf (" { RADICAL %llx\n", bb->addr);
 							sdb_array_push_num (db, "indent", fail, 0);
 							sdb_num_set (db, K_INDENT (fail), indent, 0);
 							sdb_num_set (db, K_ELSE (fail), 1, 0);
@@ -395,7 +410,7 @@ R_API int r_core_pseudo_code(RCore *core, const char *input) {
 	} while (n_bb > 0);
 	r_list_free (visited);
 	r_cons_printf ("\n}\n");
-	r_config_restore (hc);
+	r_config_hold_restore (hc);
 	r_config_hold_free (hc);
 	sdb_free (db);
 	return true;

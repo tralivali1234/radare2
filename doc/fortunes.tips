@@ -26,9 +26,9 @@ Invert the block bytes using the 'I' key in visual mode
 Switch between print modes using the 'p' and 'P' keys in visual mode
 Add comments using the ';' key in visual mode or the 'CC' command from the radare2 shell
 Assemble opcodes with the 'a' and 'A' keys in visual mode, which are bindings to the 'wa' and 'wA' commands
-Find expanded AES keys in memory with '/Ca'
+Find expanded AES keys in memory with '/ca'
 Find wide-char strings with the '/w <string>' command
-Enable ascii-art jump lines in disassembly by setting 'e asm.lines=true'. asm.linesout and asm.linestyle may interest you as well
+Enable ascii-art jump lines in disassembly by setting 'e asm.lines=true'. asm.lines.out and asm.linestyle may interest you as well
 Control the signal handlers of the child process with the 'dk' command
 Get a free shell with 'ragg2 -i exec -x'
 Interpret radare2 scripts with '. <path-to-script>'. Similar to the bash source alias command.
@@ -39,7 +39,6 @@ Use hasher to calculate hashes of portion blocks of a file
 Use zoom.byte=entropy and press 'z' in visual mode to zoom out to see the entropy of the whole file
 Use 'zoom.byte=printable' in zoom mode ('z' in Visual mode) to find strings
 Add colors to your screen with 'e scr.color=X' where 1 is 16 colors, 2 is 256 colors and 3 is 16M colors
-Trace register changes while debugging with 'e trace.cmtregs=true'
 Move the comments to the right changing their margin with asm.cmt.margin
 Execute a command on the visual prompt with cmd.vprompt
 Reduce the delta where flag resolving by address is used with cfg.delta
@@ -77,7 +76,6 @@ Run your own r2 scripts in awk using the r2awk program.
 Use '-e bin.strings=false' to disable automatic string search when loading the binary.
 The unix-like reverse engineering framework.
 This code was intentionally left blank, try 'e asm.arch = ws'
-For a full list of commands see `strings /dev/urandom`
 Thanks for using radare2!
 give | and > a try piping and redirection
 Run .dmm* to load the flags of the symbols of all modules loaded in the debugger
@@ -87,3 +85,4 @@ The more 'a' you add after 'aa' the more analysis steps are executed.
 Review all the subcommands of aa to see better ways to analyze your targets.
 Use /m to carve for known magic headers. speedup with search.
 You can use registers in math expressions. For example: 'wx 1234 @ esp - 2'
+For HTTP authentification 'e http.auth = 1', 'e http.authfile = <path>'

@@ -1,7 +1,6 @@
-/* radare2 - LGPL - Copyright 2009-2017 pancake */
+/* radare2 - LGPL - Copyright 2009-2019 pancake */
 
-#include "r_hash.h"
-
+#include <r_hash.h>
 
 #define HANDLE_CRC_PRESET(rbits, aname) \
 	do { \
@@ -46,6 +45,26 @@ R_API int r_hash_calculate(RHash *ctx, ut64 algobit, const ut8 *buf, int len) {
 		memcpy (ctx->digest, &res, R_HASH_SIZE_XXHASH);
 		return R_HASH_SIZE_XXHASH;
 	}
+	if (algobit & R_HASH_FLETCHER8) {
+		ut8 res = r_hash_fletcher8 (buf, len);
+		memcpy (ctx->digest, &res, R_HASH_SIZE_FLETCHER8);
+		return R_HASH_SIZE_FLETCHER8;
+	}
+	if (algobit & R_HASH_FLETCHER16) {
+		ut16 res = r_hash_fletcher16 (buf, len);
+		memcpy (ctx->digest, &res, R_HASH_SIZE_FLETCHER16);
+		return R_HASH_SIZE_FLETCHER16;
+	}
+	if (algobit & R_HASH_FLETCHER32) {
+		ut32 res = r_hash_fletcher32 (buf, len);
+		memcpy (ctx->digest, &res, R_HASH_SIZE_FLETCHER32);
+		return R_HASH_SIZE_FLETCHER32;
+	}
+	if (algobit & R_HASH_FLETCHER64) {
+		ut64 res = r_hash_fletcher64 (buf, len);
+		memcpy (ctx->digest, &res, R_HASH_SIZE_FLETCHER64);
+		return R_HASH_SIZE_FLETCHER64;
+	}
 	if (algobit & R_HASH_ADLER32) {
 		ut32 res = r_hash_adler32 (buf, len);
 		memcpy (ctx->digest, &res, R_HASH_SIZE_ADLER32);
@@ -64,7 +83,7 @@ R_API int r_hash_calculate(RHash *ctx, ut64 algobit, const ut8 *buf, int len) {
 		return R_HASH_SIZE_PARITY;
 	}
 	if (algobit & R_HASH_ENTROPY) {
-		memset (ctx->digest, 0, R_HASH_SIZE_ENTROPY);
+		r_mem_memzero (ctx->digest, sizeof (ctx->entropy));
 		ctx->entropy = r_hash_entropy (buf, len);
 		return R_HASH_SIZE_ENTROPY;
 	}

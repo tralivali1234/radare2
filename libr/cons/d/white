@@ -6,11 +6,13 @@ ec crypto magenta
 ec other blue
 ec push black
 ec pop black
-ec cmp black
-ec nop blue
-ec jmp green
-ec cjmp green
-ec call rgb:000 rgb:ff0
+ec cmp magenta
+ec nop black
+ec jmp blue
+ec cjmp magenta
+ec ujmp green
+ec call magenta white bold
+ec ucall magenta white bold
 ec input black
 ec fline green
 ec prompt black
@@ -32,6 +34,7 @@ ec flow blue
 ec flow2 green
 ec mov black
 ec invalid red
+ec linehl rgb:ff0
 ec graph.box blue
 ec graph.box2 green
 ec graph.box3 red
@@ -41,3 +44,16 @@ ec graph.false red
 ec graph.trufae blue
 ec graph.current rgb:0ff
 ec graph.traced red
+
+ec func_var magenta
+ec func_var_type blue
+ec func_var_addr magenta
+
+ec ai.read magenta
+ec ai.write magenta
+ec ai.exec blue
+ec ai.seq black
+ec ai.ascii black
+
+ec widget_bg blue white
+ec widget_sel black yellow

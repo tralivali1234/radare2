@@ -1,4 +1,5 @@
-files = [
+r_crypto_sources = [
+  'des.c',
   'crypto.c',
   'p/crypto_aes.c',
   'p/crypto_aes_algo.c',
@@ -15,26 +16,30 @@ files = [
   'p/crypto_rol.c',
   'p/crypto_ror.c',
   'p/crypto_rot.c',
-  'p/crypto_xor.c',
   'p/crypto_serpent.c',
   'p/crypto_serpent_algo.c',
+  'p/crypto_xor.c',
 ]
 
-r_crypto = library('r_crypto', files,
+r_crypto = library('r_crypto', r_crypto_sources,
   include_directories: [platform_inc],
-  link_with: [r_util],
-  c_args: ['-DCORELIB=1'],
+  dependencies: [r_util_dep],
+  c_args: library_cflags,
   install: true,
-  implicit_include_directories: false
+  implicit_include_directories: false,
+  soversion: r2_libversion
 )
 
-pkg = import('pkgconfig')
-pkg.generate(libraries: [r_crypto],
-             subdirs: 'libr',
-             version: r2version,
-             name: 'r_crypto',
-             filebase: 'r_crypto',
-             requires: [
-               'r_util'
-             ],
-             description: 'radare foundation libraries')
+r_crypto_dep = declare_dependency(link_with: r_crypto,
+                                  include_directories: [platform_inc])
+
+pkgconfig_mod.generate(r_crypto,
+  subdirs: 'libr',
+  version: r2_version,
+  name: 'r_crypto',
+  filebase: 'r_crypto',
+  requires: [
+    'r_util'
+  ],
+  description: 'radare foundation libraries'
+)

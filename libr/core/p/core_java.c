@@ -1,4 +1,4 @@
-/* radare - Apache - Copyright 2014-2016 - dso, pancake */
+/* radare - Apache - Copyright 2014-2019 - dso, pancake */
 
 #include <r_types.h>
 #include <r_lib.h>
@@ -9,11 +9,6 @@
 #include <r_anal.h>
 #include <r_anal_ex.h>
 
-#if 0
-#include "../../../shlr/java/ops.c"
-#include "../../../shlr/java/code.c"
-#include "../../../shlr/java/class.c"
-#endif
 #include "../../../shlr/java/class.h"
 #include "../../../shlr/java/code.h"
 #include "../../../shlr/java/dsojson.h"
@@ -290,10 +285,18 @@ enum {
 };
 
 static ut8 _(r_cmd_java_obj_ref)(const char *name, const char *class_name, ut32 len) {
-	if (!name || !class_name) return false;
-	if (strncmp (class_name, name, len)) return false;
-	if (*(name-1) == 'L' && *(name+len) == ';') return true;
-	if (!strncmp (class_name, name, len) && !*(name+len)) return true;
+	if (!name || !class_name) {
+		return false;
+	}
+	if (strncmp (class_name, name, len)) {
+		return false;
+	}
+	if (*(name - 1) == 'L' && *(name + len) == ';') {
+		return true;
+	}
+	if (!strncmp (class_name, name, len) && !*(name + len)) {
+		return true;
+	}
 	return false;
 }
 
@@ -304,7 +307,9 @@ static const char * r_cmd_get_next_classname_str (const char * str, const char *
 		result = str;
 		while (result && *result && (result - str < len)) {
 			result = strstr (result, match_me);
-			if (result ) break;
+			if (result) {
+				break;
+			}
 		}
 	}
 	return result;
@@ -315,7 +320,9 @@ static ut32 r_cmd_get_num_classname_str_occ (const char * str, const char *match
 	ut32 len = match_me && *match_me ? strlen (match_me) : 0;
 	ut32 occ = 0;
 
-	if (len == 0 || !str || !*str ) return 0;
+	if (len == 0 || !str || !*str) {
+		return 0;
+	}
 	result = str;
 	while (result && *result && (result - str < len)) {
 		result = strstr (result, match_me);
@@ -331,8 +338,12 @@ static ut32 r_cmd_get_num_classname_str_occ (const char * str, const char *match
 static const char * r_cmd_java_consumetok (const char *str1, const char b, size_t len) {
 	const char *p = str1;
 	size_t i = 0;
-	if (!p) return p;
-	if (len == -1) len = strlen (str1);
+	if (!p) {
+		return p;
+	}
+	if (len == -1) {
+		len = strlen (str1);
+	}
 	for ( ; i < len; i++,p++) {
 		if (*p != b) {
 			break;
@@ -344,8 +355,12 @@ static const char * r_cmd_java_consumetok (const char *str1, const char b, size_
 static const char * r_cmd_java_strtok (const char *str1, const char b, size_t len) {
 	const char *p = str1;
 	size_t i = 0;
-	if (!p || !*p) return p;
-	if (len == -1) len = strlen (str1);
+	if (!p || !*p) {
+		return p;
+	}
+	if (len == -1) {
+		len = strlen (str1);
+	}
 	IFDBG r_cons_printf ("Looking for char (%c) in (%s) up to %d\n", b, p, len);
 	for ( ; i < len; i++,p++) {
 		if (*p == b) {
@@ -353,7 +368,9 @@ static const char * r_cmd_java_strtok (const char *str1, const char b, size_t le
 			break;
 		}
 	}
-	if (i == len) p = NULL;
+	if (i == len) {
+		p = NULL;
+	}
 	IFDBG r_cons_printf ("Found? for char (%c) @ %d: (%s)\n", b, len, p);
 	return p;
 }
@@ -433,30 +450,40 @@ static int _(r_cmd_java_check_op_idx) (const ut8 *op_bytes, ut16 idx) {
 /* Find stuff in the constant pool */
 static RList * cpfind_double (RCore *core, RBinJavaObj *obj, const char *cmd) {
 	double value = cmd && *cmd ? strtod (cmd, NULL) : 0.0;
-	if (value == 0.0 && !(cmd && cmd[0] == '0' && cmd[1] == '.' && cmd[2] == '0') ) return r_list_new();
+	if (value == 0.0 && !(cmd && cmd[0] == '0' && cmd[1] == '.' && cmd[2] == '0')) {
+		return r_list_new ();
+	}
 	return r_bin_java_find_cp_const_by_val ( obj, (const ut8 *) &value, 8, R_BIN_JAVA_CP_DOUBLE);
 }
 
 static RList * cpfind_float (RCore *core, RBinJavaObj *obj, const char *cmd) {
 	float value = cmd && *cmd ? atof (cmd) : 0.0;
-	if (value == 0.0 && !(cmd && cmd[0] == '0' && cmd[1] == '.' && cmd[2] == '0') ) return r_list_new();
+	if (value == 0.0 && !(cmd && cmd[0] == '0' && cmd[1] == '.' && cmd[2] == '0')) {
+		return r_list_new ();
+	}
 	return r_bin_java_find_cp_const_by_val ( obj, (const ut8 *) &value, 4, R_BIN_JAVA_CP_FLOAT);
 }
 
 static RList * cpfind_long (RCore *core, RBinJavaObj *obj, const char *cmd) {
 	ut64 value = r_cmd_java_get_input_num_value (core, cmd);
-	if ( !r_cmd_java_is_valid_input_num_value (core, cmd) ) return r_list_new ();
+	if (!r_cmd_java_is_valid_input_num_value (core, cmd)) {
+		return r_list_new ();
+	}
 	return r_bin_java_find_cp_const_by_val ( obj, (const ut8 *) &value, 8, R_BIN_JAVA_CP_LONG);
 }
 
 static RList * cpfind_int (RCore *core, RBinJavaObj *obj, const char *cmd) {
 	ut32 value = (ut32) r_cmd_java_get_input_num_value (core, cmd);
-	if ( !r_cmd_java_is_valid_input_num_value (core, cmd) ) return r_list_new ();
+	if (!r_cmd_java_is_valid_input_num_value (core, cmd)) {
+		return r_list_new ();
+	}
 	return r_bin_java_find_cp_const_by_val ( obj, (const ut8 *) &value, 4, R_BIN_JAVA_CP_INTEGER);
 }
 
 static RList * cpfind_str (RCore *core, RBinJavaObj *obj, const char *cmd) {
-	if (!cmd) return r_list_new();
+	if (!cmd) {
+		return r_list_new ();
+	}
 	IFDBG r_cons_printf ("Looking for str: %s (%d)\n", cmd, strlen (cmd));
 	return r_bin_java_find_cp_const_by_val ( obj, (const ut8 *) cmd, strlen (cmd), R_BIN_JAVA_CP_UTF8);
 }
@@ -500,7 +527,9 @@ static int cpfind (RCore *core, const char *cmd) {
 }
 
 static int r_cmd_java_reload_bin_from_buf (RCore *core, RBinJavaObj *obj, ut8* buffer, ut64 len) {
-	if (!buffer || len < 10) return false;
+	if (!buffer || len < 10) {
+		return false;
+	}
 	int res = r_bin_java_load_bin (obj, buffer, len);
 
 	if (res == true) {
@@ -528,7 +557,9 @@ static int r_cmd_java_get_cp_bytes_and_write (RCore *core, RBinJavaObj *obj, ut1
 	ut32 n_sz = 0, c_sz = obj ? r_bin_java_cp_get_size (obj, idx): -1;
 	ut8 * bytes = NULL;
 
-	if (c_sz == -1) return res;
+	if (c_sz == -1) {
+		return res;
+	}
 
 	bytes = r_bin_java_cp_get_bytes (cp_obj->tag, &n_sz, buf, len);
 
@@ -551,8 +582,7 @@ static int r_cmd_java_get_cp_bytes_and_write (RCore *core, RBinJavaObj *obj, ut1
 		return res;
 	}
 
-	free (bytes);
-	bytes = NULL;
+	R_FREE (bytes);
 
 	if (res == true) {
 		ut64 n_file_sz = 0;
@@ -567,7 +597,9 @@ static int r_cmd_java_get_cp_bytes_and_write (RCore *core, RBinJavaObj *obj, ut1
 			if (res == true) {
 				res = r_cmd_java_reload_bin_from_buf (
 					core, obj, bin_buffer, n_file_sz);
-			} else eprintf ("[X] r_cmd_java_get_cp_bytes_and_write: Failed to read the file in aborted, bin reload.\n");
+			} else {
+				eprintf ("[X] r_cmd_java_get_cp_bytes_and_write: Failed to read the file in aborted, bin reload.\n");
+			}
 			free (bin_buffer);
 		}
 	}
@@ -689,7 +721,7 @@ static int r_cmd_is_object_descriptor (const char *name, ut32 name_len) {
 		}
 	}
 
-	for (idx = 0, L_pos = 0; idx < name_len; idx++,p_name++) {
+	for (idx = 0, Semi_pos = 0; idx < name_len; idx++,p_name++) {
 		if (*p_name == ';') {
 			found_Semi = true;
 			Semi_pos = idx;
@@ -730,8 +762,9 @@ static char * r_cmd_replace_name (const char *s_new, ut32 replace_len, const cha
 		}
 		IFDBG r_cons_printf ("Found last occurrence of: \"%s\", remaining: %s\n", s_old, buffer+consumed);
 		IFDBG r_cons_printf ("result is: \"%s\"\n", result);
-		for (; consumed < buf_len; consumed++, p_result++, (*res_len)++)
-			*p_result = *(buffer+consumed);
+		for (; consumed < buf_len; consumed++, p_result++, (*res_len)++) {
+			*p_result = *(buffer + consumed);
+		}
 		IFDBG r_cons_printf ("Old: %s\nNew: %s\n", buffer, result);
 	}
 	return result;
@@ -744,9 +777,13 @@ static int r_cmd_java_get_class_names_from_input (const char *input, char **clas
 	ut32 cmd_sz = input && *input ? strlen (input) : 0;
 	int res = false;
 
-	if (!class_name || *class_name) return res;
-	else if (!new_class_name || *new_class_name) return res;
-	else if (!new_class_name_len || !class_name_len) return res;
+	if (!class_name || *class_name) {
+		return res;
+	} else if (!new_class_name || *new_class_name) {
+		return res;
+	} else if (!new_class_name_len || !class_name_len) {
+		return res;
+	}
 
 	*new_class_name = NULL;
 	*class_name_len = 0;
@@ -767,7 +804,9 @@ static int r_cmd_java_get_class_names_from_input (const char *input, char **clas
 			p = r_cmd_java_consumetok (end+1, ' ', cmd_sz);
 			end = p && *p ? r_cmd_java_strtok (p, ' ', -1) : NULL;
 
-			if (!end && p && *p) end = p + cmd_sz;
+			if (!end && p && *p) {
+				end = p + cmd_sz;
+			}
 
 			if (p && end && p != end) {
 				*new_class_name_len = end - p + 1;
@@ -801,7 +840,7 @@ static int r_cmd_java_handle_replace_classname_value (RCore *core, const char *c
 	res = r_cmd_java_get_class_names_from_input (cmd, &class_name,
 		&class_name_len, &new_class_name, &new_class_name_len);
 
-	if (!class_name || !new_class_name) {
+	if (!res || !class_name || !new_class_name) {
 		r_cmd_java_print_cmd_help (JAVA_CMDS+REPLACE_CLASS_NAME_IDX);
 		free (class_name);
 		free (new_class_name);
@@ -819,7 +858,9 @@ static int r_cmd_java_handle_replace_classname_value (RCore *core, const char *c
 			ut64 addr = cp_obj->file_offset + cp_obj->loadaddr;
 			buffer = r_bin_java_cp_get_idx_bytes (obj, idx, &buffer_sz);
 
-			if (!buffer) continue;
+			if (!buffer) {
+				continue;
+			}
 			len = R_BIN_JAVA_USHORT ( buffer, 1);
 			name = malloc (len+3);
 			memcpy (name, buffer+3, len);
@@ -879,7 +920,9 @@ static int r_cmd_java_handle_reload_bin (RCore *core, const char *cmd) {
 	}
 
 	addr = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
-	if (*cmd == ' ') p = r_cmd_java_consumetok (p, ' ', -1);
+	if (*cmd == ' ') {
+		p = r_cmd_java_consumetok (p, ' ', -1);
+	}
 	buf_size = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
 
 	// XXX this may cause problems cause the file we are looking at may not be the bin we want.
@@ -908,8 +951,11 @@ static int r_cmd_java_handle_find_cp_const (RCore *core, const char *cmd) {
 	ut16 idx = -1;
 	RList *find_list;
 
-	if (p && *p == 'a') idx = -1;
-	else idx = r_cmd_java_get_input_num_value (core, p);
+	if (p && *p == 'a') {
+		idx = -1;
+	} else {
+		idx = r_cmd_java_get_input_num_value (core, p);
+	}
 
 	IFDBG r_cons_printf ("Function call made: %s\n", cmd);
 
@@ -934,19 +980,22 @@ static int r_cmd_java_handle_find_cp_const (RCore *core, const char *cmd) {
 			char op = bb->op_bytes[0];
 			cp_res = NULL;
 			switch (op) {
-				case 0x12:
-					cp_res = (idx == (ut16) -1) || (bb->op_bytes[1] == idx) ?
-								R_NEW0(RCmdJavaCPResult) : NULL;
-					if (cp_res) cp_res->idx = bb->op_bytes[1];
-					break;
-				case 0x13:
-				case 0x14:
-					cp_res = (idx == (ut16) -1) || (R_BIN_JAVA_USHORT (bb->op_bytes, 1) == idx) ?
-								R_NEW0(RCmdJavaCPResult) : NULL;
-					if (cp_res) cp_res->idx = R_BIN_JAVA_USHORT (bb->op_bytes, 1);
-					break;
+			case 0x12:
+				cp_res = (idx == (ut16) -1) || (bb->op_bytes[1] == idx) ?
+							R_NEW0(RCmdJavaCPResult) : NULL;
+				if (cp_res) {
+					cp_res->idx = bb->op_bytes[1];
+				}
+				break;
+			case 0x13:
+			case 0x14:
+				cp_res = (idx == (ut16) -1) || (R_BIN_JAVA_USHORT (bb->op_bytes, 1) == idx) ?
+							R_NEW0(RCmdJavaCPResult) : NULL;
+				if (cp_res) {
+					cp_res->idx = R_BIN_JAVA_USHORT (bb->op_bytes, 1);
+				}
+				break;
 			}
-
 			if (cp_res) {
 				cp_res->addr = bb->addr;
 				cp_res->obj = r_bin_java_get_item_from_cp (obj, cp_res->idx);
@@ -989,9 +1038,9 @@ static int r_cmd_java_handle_field_info (RCore *core, const char *cmd) {
 	}
 
 	switch (*(cmd)) {
-		case 'c': return r_cmd_java_print_field_num_name (obj);
-		case 's': return r_cmd_java_print_field_summary (obj, idx);
-		case 'n': return r_cmd_java_print_field_name (obj, idx);
+	case 'c': return r_cmd_java_print_field_num_name (obj);
+	case 's': return r_cmd_java_print_field_summary (obj, idx);
+	case 'n': return r_cmd_java_print_field_name (obj, idx);
 	}
 	IFDBG r_cons_printf ("Command is (%s)\n", cmd);
 	eprintf ("[-] r_cmd_java: invalid command syntax.\n");
@@ -1019,9 +1068,9 @@ static int r_cmd_java_handle_method_info (RCore *core, const char *cmd) {
 	}
 
 	switch (*(cmd)) {
-		case 'c': return r_cmd_java_print_method_num_name (obj);
-		case 's': return r_cmd_java_print_method_summary (obj, idx);
-		case 'n': return r_cmd_java_print_method_name (obj, idx);
+	case 'c': return r_cmd_java_print_method_num_name (obj);
+	case 's': return r_cmd_java_print_method_summary (obj, idx);
+	case 'n': return r_cmd_java_print_method_name (obj, idx);
 	}
 
 	IFDBG r_cons_printf ("Command is (%s)\n", cmd);
@@ -1035,8 +1084,8 @@ static int r_cmd_java_handle_calc_class_sz (RCore *core, const char *cmd) {
 	ut64 sz = UT64_MAX;
 	ut64 addr = UT64_MAX;
 	ut64 res_size = UT64_MAX,
-		 cur_fsz = r_io_fd_size (core->io, r_core_file_cur (core)->fd);
-	ut8 *buf = NULL;
+	cur_fsz = r_io_fd_size (core->io, r_core_file_cur (core)->fd);
+	ut8 *tbuf, *buf = NULL;
 	ut32 init_size = (1 << 16);
 	const char *p = cmd ? r_cmd_java_consumetok (cmd, ' ', -1): NULL;
 	addr = p && *p && r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : UT64_MAX;
@@ -1048,10 +1097,18 @@ static int r_cmd_java_handle_calc_class_sz (RCore *core, const char *cmd) {
 		IFDBG r_cons_printf ("Attempting to calculate class file size @ : 0x%"PFMT64x".\n", addr);
 		sz = cur_fsz < init_size ? cur_fsz : init_size;
 		while (sz <= cur_fsz) {
-			buf = realloc (buf, sz);
-			ut64 r_sz = r_core_read_at (core, addr, buf, sz) ? sz : 0LL;
+			tbuf = realloc (buf, sz);
+			if (!tbuf) {
+				eprintf ("Memory allocation failed.\n");
+				free (buf);
+				break;
+			}
+			buf = tbuf;
+			ut64 r_sz = r_io_read_at (core->io, addr, buf, sz) ? sz : 0LL;
 			// check the return read on the read
-			if (r_sz == 0) break;
+			if (r_sz == 0) {
+				break;
+			}
 			res_size = r_bin_java_calc_class_size (buf, sz);
 			// if the data buffer contains a class starting
 			// at address, then the res_size will be the size
@@ -1067,8 +1124,11 @@ static int r_cmd_java_handle_calc_class_sz (RCore *core, const char *cmd) {
 				sz += (1 << 16);
 			}
 		}
-		if (res) r_cons_printf ("%"PFMT64d, res_size);
-		else r_cons_printf ("-1\n");
+		if (res) {
+			r_cons_printf ("%" PFMT64d, res_size);
+		} else {
+			r_cons_printf ("-1\n");
+		}
 
 		//snprintf (cmd_buf, 50, fmt, num_acc_flag, addr);
 		//res = r_core_cmd0(core, y);
@@ -1081,7 +1141,7 @@ static int r_cmd_java_handle_calc_class_sz (RCore *core, const char *cmd) {
 static int r_cmd_java_handle_isvalid (RCore *core, const char *cmd) {
 	int res = false;
 	ut64 res_size = UT64_MAX;
-	ut8 *buf = NULL;
+	ut8 *tbuf, *buf = NULL;
 	ut32 cur_fsz =  r_io_fd_size (core->io, r_core_file_cur (core)->fd);
 	ut64 sz = UT64_MAX;
 	const char *p = cmd ? r_cmd_java_consumetok (cmd, ' ', -1): NULL;
@@ -1095,10 +1155,18 @@ static int r_cmd_java_handle_isvalid (RCore *core, const char *cmd) {
 		IFDBG r_cons_printf ("Attempting to calculate class file size @ : 0x%"PFMT64x".\n", addr);
 
 		while (sz <= cur_fsz) {
-			buf = realloc (buf, sz);
-			ut64 r_sz = r_core_read_at (core, addr, buf, sz) ? sz : 0LL;
+			tbuf = realloc (buf, sz);
+			if (!tbuf) {
+				eprintf ("Memory allocation failed.\n");
+				free (buf);
+				break;
+			}
+			buf = tbuf;
+			ut64 r_sz = r_io_read_at (core->io, addr, buf, sz) ? sz : 0LL;
 			// check the return read on the read
-			if (r_sz == 0) break;
+			if (r_sz == 0) {
+				break;
+			}
 			res_size = r_bin_java_calc_class_size (buf, sz);
 			// if the data buffer contains a class starting
 			// at address, then the res_size will be the size
@@ -1110,14 +1178,14 @@ static int r_cmd_java_handle_isvalid (RCore *core, const char *cmd) {
 				res = r_sz < sz ? false : true;
 				free (buf);
 				break;
-			}else {
+			} else {
 				sz <<= 1;
 			}
 		}
-		if (res) r_cons_printf ("True\n");
-		else r_cons_printf ("False\n");
-	} else
-		r_cmd_java_print_cmd_help (JAVA_CMDS+ISVALID_IDX);
+		r_cons_printf ("%s\n", r_str_bool (res));
+	} else {
+		r_cmd_java_print_cmd_help (JAVA_CMDS + ISVALID_IDX);
+	}
 	return true;
 }
 
@@ -1131,12 +1199,12 @@ static int r_cmd_java_handle_resolve_cp (RCore *core, const char *cmd) {
 	int res = false;
 	if (idx > 0 && obj) {
 		switch (c_type) {
-			case 't': return r_cmd_java_resolve_cp_type (obj, idx);
-			case 'c': return r_cmd_java_resolve_cp_idx (obj, idx);
-			case 'e': return r_cmd_java_resolve_cp_idx_b64 (obj, idx);
-			case 'a': return r_cmd_java_resolve_cp_address (obj, idx);
-			case 's': return r_cmd_java_resolve_cp_summary (obj, idx);
-			case 'k': return r_cmd_java_resolve_cp_to_key (obj, idx);
+		case 't': return r_cmd_java_resolve_cp_type (obj, idx);
+		case 'c': return r_cmd_java_resolve_cp_idx (obj, idx);
+		case 'e': return r_cmd_java_resolve_cp_idx_b64 (obj, idx);
+		case 'a': return r_cmd_java_resolve_cp_address (obj, idx);
+		case 's': return r_cmd_java_resolve_cp_summary (obj, idx);
+		case 'k': return r_cmd_java_resolve_cp_to_key (obj, idx);
 		}
 	} else if (obj && c_type == 'g') {
 		for (idx = 1; idx <=obj->cp_count; idx++) {
@@ -1169,9 +1237,9 @@ static int r_cmd_java_get_all_access_flags_value (const char *cmd) {
 	char *str = NULL;
 
 	switch (*(cmd)) {
-		case 'f': the_list = retrieve_all_field_access_string_and_value (); break;
-		case 'm': the_list = retrieve_all_method_access_string_and_value (); break;
-		case 'c': the_list = retrieve_all_class_access_string_and_value (); break;
+	case 'f': the_list = retrieve_all_field_access_string_and_value (); break;
+	case 'm': the_list = retrieve_all_method_access_string_and_value (); break;
+	case 'c': the_list = retrieve_all_class_access_string_and_value (); break;
 	}
 	if (!the_list) {
 		eprintf ("[-] r_cmd_java: incorrect syntax for the flags calculation.\n");
@@ -1179,9 +1247,9 @@ static int r_cmd_java_get_all_access_flags_value (const char *cmd) {
 		return false;
 	}
 	switch (*(cmd)) {
-		case 'f': r_cons_printf ("[=] Fields Access Flags List\n"); break;
-		case 'm': r_cons_printf ("[=] Methods Access Flags List\n"); break;
-		case 'c': r_cons_printf ("[=] Class Access Flags List\n");; break;
+	case 'f': r_cons_printf ("[=] Fields Access Flags List\n"); break;
+	case 'm': r_cons_printf ("[=] Methods Access Flags List\n"); break;
+	case 'c': r_cons_printf ("[=] Class Access Flags List\n");; break;
 	}
 
 	r_list_foreach (the_list, iter, str) {
@@ -1205,9 +1273,9 @@ static int r_cmd_java_handle_calc_flags (RCore *core, const char *cmd) {
 		const char *lcmd = *cmd+1 == ' '? cmd+2 : cmd+1;
 		IFDBG eprintf ("Seeing %s and accepting %s\n", cmd, lcmd);
 		switch (*(lcmd)) {
-			case 'f':
-			case 'm':
-			case 'c': res = r_cmd_java_get_all_access_flags_value (lcmd); break;
+		case 'f':
+		case 'm':
+		case 'c': res = r_cmd_java_get_all_access_flags_value (lcmd); break;
 		}
 		// Just print them all out
 		if (res == false) {
@@ -1233,23 +1301,24 @@ static int r_cmd_java_handle_flags_str (RCore *core, const char *cmd) {
 	char * flags_str = NULL;
 
 	IFDBG r_cons_printf ("r_cmd_java_handle_flags_str: ftype = %c, idx = %s\n", f_type, p);
-	if (p)
-		flag_value = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
+	if (p) {
+		flag_value = r_cmd_java_is_valid_input_num_value (core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
+	}
 
 	if (p && f_type) {
 		switch (f_type) {
-			case 'm': flags_str = retrieve_method_access_string((ut16) flag_value); break;
-			case 'f': flags_str = retrieve_field_access_string((ut16) flag_value); break;
-			case 'c': flags_str = retrieve_class_method_access_string((ut16) flag_value); break;
-			default: flags_str = NULL;
+		case 'm': flags_str = retrieve_method_access_string((ut16) flag_value); break;
+		case 'f': flags_str = retrieve_field_access_string((ut16) flag_value); break;
+		case 'c': flags_str = retrieve_class_method_access_string((ut16) flag_value); break;
+		default: flags_str = NULL;
 		}
 	}
 
 	if (flags_str) {
 		switch (f_type) {
-			case 'm': r_cons_printf ("Method Access Flags String: "); break;
-			case 'f': r_cons_printf ("Field Access Flags String: "); break;
-			case 'c': r_cons_printf ("Class Access Flags String: "); break;
+		case 'm': r_cons_printf ("Method Access Flags String: "); break;
+		case 'f': r_cons_printf ("Field Access Flags String: "); break;
+		case 'c': r_cons_printf ("Class Access Flags String: "); break;
 		}
 		r_cons_println (flags_str);
 		free (flags_str);
@@ -1277,26 +1346,28 @@ static int r_cmd_java_handle_flags_str_at (RCore *core, const char *cmd) {
 		flag_value = 0;
 		ut64 cur_offset = core->offset;
 		flag_value_addr = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
-		r_core_read_at (core, flag_value_addr, (ut8 *) &flag_value, 2);
+		r_io_read_at (core->io, flag_value_addr, (ut8 *) &flag_value, 2);
 		IFDBG r_cons_printf ("r_cmd_java_handle_flags_str_at: read = 0x%04x\n", flag_value);
-		if (cur_offset != core->offset) r_core_seek (core, cur_offset-2, 1);
+		if (cur_offset != core->offset) {
+			r_core_seek (core, cur_offset - 2, 1);
+		}
 		flag_value = R_BIN_JAVA_USHORT (((ut8 *) &flag_value), 0);
 	}
 
 	if (p && f_type) {
 		switch (f_type) {
-			case 'm': flags_str = retrieve_method_access_string((ut16) flag_value); break;
-			case 'f': flags_str = retrieve_field_access_string((ut16) flag_value); break;
-			case 'c': flags_str = retrieve_class_method_access_string((ut16) flag_value); break;
-			default: flags_str = NULL;
+		case 'm': flags_str = retrieve_method_access_string((ut16) flag_value); break;
+		case 'f': flags_str = retrieve_field_access_string((ut16) flag_value); break;
+		case 'c': flags_str = retrieve_class_method_access_string((ut16) flag_value); break;
+		default: flags_str = NULL;
 		}
 	}
 
 	if (flags_str) {
 		switch (f_type) {
-			case 'm': r_cons_printf ("Method Access Flags String: "); break;
-			case 'f': r_cons_printf ("Field Access Flags String: "); break;
-			case 'c': r_cons_printf ("Class Access Flags String: "); break;
+		case 'm': r_cons_printf ("Method Access Flags String: "); break;
+		case 'f': r_cons_printf ("Field Access Flags String: "); break;
+		case 'c': r_cons_printf ("Class Access Flags String: "); break;
 		}
 		r_cons_println (flags_str);
 		free (flags_str);
@@ -1324,60 +1395,55 @@ static char r_cmd_java_is_valid_java_mcf (char b) {
 static int r_cmd_java_handle_set_flags (RCore * core, const char * input) {
 	//#define SET_ACC_FLAGS_ARGS "< c | m | f> <addr> <d | <s <flag value separated by space> >"
 	const char *p = r_cmd_java_consumetok (input, ' ', -1);
-
-	ut64 addr = p && r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
-	ut32 flag_value = -1;
-	char f_type = '?';
-	int res = false;
-
-	p = r_cmd_java_strtok (p+1, ' ', -1);
+	ut64 addr = p && r_cmd_java_is_valid_input_num_value (core, p)
+		? r_cmd_java_get_input_num_value (core, p) : -1;
+	p = r_cmd_java_strtok (p + 1, ' ', -1);
 	if (!p || !*p) {
 		r_cmd_java_print_cmd_help (JAVA_CMDS+SET_ACC_FLAGS_IDX);
 		return true;
 	}
-	f_type = p && *p ? r_cmd_java_is_valid_java_mcf (*(++p)) : 0;
+	const char f_type = p && *p ? r_cmd_java_is_valid_java_mcf (*(++p)) : '?';
 
-	flag_value = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
+	int flag_value = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
 
 	if (flag_value == 16 && f_type == 'f') {
 		flag_value = -1;
 	}
 	IFDBG r_cons_printf ("Converting %s to flags\n",p);
 
-	if (p) p+=2;
-	if (flag_value == -1)
-		flag_value = r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
-
+	if (p) {
+		p += 2;
+	}
+	if (flag_value == -1) {
+		flag_value = r_cmd_java_is_valid_input_num_value (core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
+	}
+	bool res = false;
 	if (!input) {
 		eprintf ("[-] r_cmd_java: no address provided .\n");
 		res = true;
 	} else if (addr == -1) {
 		eprintf ("[-] r_cmd_java: no address provided .\n");
 		res = true;
-	} else if (!f_type && flag_value == -1) {
+	} else if (f_type == '?' && flag_value == -1) {
 		eprintf ("[-] r_cmd_java: no flag type provided .\n");
 		res = true;
 	}
 
 	if (res) {
-		r_cmd_java_print_cmd_help (JAVA_CMDS+SET_ACC_FLAGS_IDX);
+		r_cmd_java_print_cmd_help (JAVA_CMDS + SET_ACC_FLAGS_IDX);
 		return res;
 	}
 
-	IFDBG r_cons_printf ("Writing to %c to 0x%"PFMT64x", %s.\n", f_type, addr, p);
+	IFDBG r_cons_printf ("Writing ftype '%c' to 0x%"PFMT64x", %s.\n", f_type, addr, p);
 
-	//  handling string based access flags (otherwise skip ahead)
+	// handling string based access flags (otherwise skip ahead)
 	IFDBG r_cons_printf ("Converting %s to flags\n",p);
 	if (f_type && flag_value != -1) {
 		switch (f_type) {
-			case 'f': flag_value = r_bin_java_calculate_field_access_value (p); break;
-			case 'm': flag_value = r_bin_java_calculate_method_access_value (p); break;
-			case 'c': flag_value = r_bin_java_calculate_class_access_value (p); break;
-			default: flag_value = -1;
-		}
-		if (flag_value == -1) {
-			eprintf ("[-] r_cmd_java: in valid flag type provided .\n");
-			res = true;
+		case 'f': flag_value = r_bin_java_calculate_field_access_value (p); break;
+		case 'm': flag_value = r_bin_java_calculate_method_access_value (p); break;
+		case 'c': flag_value = r_bin_java_calculate_class_access_value (p); break;
+		default: flag_value = -1;
 		}
 	}
 	IFDBG r_cons_printf ("Current args: (flag_value: 0x%04x addr: 0x%"PFMT64x")\n.", flag_value, addr, res);
@@ -1386,7 +1452,7 @@ static int r_cmd_java_handle_set_flags (RCore * core, const char * input) {
 		IFDBG r_cons_printf ("Writing 0x%04x to 0x%"PFMT64x": %d.", flag_value, addr, res);
 	} else {
 		eprintf ("[-] r_cmd_java: invalid flag value or type provided .\n");
-		r_cmd_java_print_cmd_help (JAVA_CMDS+SET_ACC_FLAGS_IDX);
+		r_cmd_java_print_cmd_help (JAVA_CMDS + SET_ACC_FLAGS_IDX);
 		res = true;
 	}
 	return res;
@@ -1408,14 +1474,16 @@ static int r_cmd_java_call(void *user, const char *input) {
 			strncmp (input+5, JAVA_CMDS[i].name, JAVA_CMDS[i].name_len));
 		if (!strncmp (input + 5, JAVA_CMDS[i].name, JAVA_CMDS[i].name_len)) {
 			const char *cmd = input + 5 + JAVA_CMDS[i].name_len;
-			if (*cmd && *cmd == ' ') cmd++;
+			if (*cmd && *cmd == ' ') {
+				cmd++;
+			}
 			//IFDBG r_cons_printf ("Executing cmd: %s (%s)\n", JAVA_CMDS[i].name, cmd+5+JAVA_CMDS[i].name_len );
 			res =  JAVA_CMDS[i].handler (core, cmd);
 			break;
 		}
 	}
 	if (!res) {
-		res = r_cmd_java_handle_help (core, input);
+		return r_cmd_java_handle_help (core, input);
 	}
 	return true;
 }
@@ -1434,8 +1502,8 @@ static int r_cmd_java_print_method_definitions ( RBinJavaObj *obj ) {
 		idx++;
 	}
 
-	r_list_free(the_list);
-	r_list_free(off_list);
+	r_list_free (the_list);
+	r_list_free (off_list);
 	return true;
 }
 
@@ -1452,8 +1520,8 @@ static int r_cmd_java_print_field_definitions ( RBinJavaObj *obj ) {
 		idx++;
 	}
 
-	r_list_free(the_list);
-	r_list_free(off_list);
+	r_list_free (the_list);
+	r_list_free (off_list);
 	return true;
 }
 
@@ -1464,7 +1532,7 @@ static int r_cmd_java_print_import_definitions ( RBinJavaObj *obj ) {
 	r_list_foreach (the_list, iter, str) {
 		r_cons_printf("import %s;\n", str);
 	}
-	r_list_free(the_list);
+	r_list_free (the_list);
 	return true;
 }
 
@@ -1473,7 +1541,9 @@ static int r_cmd_java_print_all_definitions( RAnal *anal ) {
 	RListIter *iter;
 	RBinJavaObj *obj;
 
-	if (!obj_list) return 1;
+	if (!obj_list) {
+		return 1;
+	}
 	r_list_foreach (obj_list, iter, obj) {
 		r_cmd_java_print_class_definitions (obj);
 	}
@@ -1551,11 +1621,13 @@ static RBinJavaObj * r_cmd_java_get_bin_obj(RAnal *anal) {
 	RBin *b;
 	int is_java;
 	RBinPlugin *plugin;
-	if (!anal || !anal->binb.bin)
+	if (!anal || !anal->binb.bin) {
 		return NULL;
+	}
 	b = anal->binb.bin;
-	if (!b->cur || !b->cur->o)
+	if (!b->cur || !b->cur->o) {
 		return NULL;
+	}
 	plugin = b->cur->o->plugin;
 	is_java = (plugin  && strcmp (plugin->name, "java") == 0) ? 1 : 0;
 	return is_java ? b->cur->o->bin_obj : NULL;
@@ -1591,10 +1663,11 @@ static int r_cmd_java_resolve_cp_idx_b64 (RBinJavaObj *obj, ut16 idx) {
 static int r_cmd_java_resolve_cp_address (RBinJavaObj *obj, ut16 idx) {
 	if (obj && idx){
 		ut64 addr = r_bin_java_resolve_cp_idx_address (obj, idx) ;
-		if (addr == -1)
+		if (addr == -1) {
 			r_cons_printf ("Unable to resolve CP Object @ index: 0x%04x\n", idx);
-		else
-			r_cons_printf ("0x%"PFMT64x"\n", addr);
+		} else {
+			r_cons_printf ("0x%" PFMT64x "\n", addr);
+		}
 	}
 	return true;
 }
@@ -1648,6 +1721,10 @@ static int r_cmd_java_set_acc_flags (RCore *core, ut64 addr, ut16 num_acc_flag) 
 	//ut64 cur_offset = core->offset;
 	num_acc_flag = R_BIN_JAVA_USHORT (((ut8*) &num_acc_flag), 0);
 	res = r_core_write_at(core, addr, (const ut8 *)&num_acc_flag, 2);
+	if (!res) {
+		eprintf ("[X] r_cmd_java_set_acc_flags: Failed to write.\n");
+		return res;
+	}
 	//snprintf (cmd_buf, 50, fmt, num_acc_flag, addr);
 	//res = r_core_cmd0(core, cmd_buf);
 	res = true;
@@ -1758,7 +1835,9 @@ static char * r_cmd_java_get_descriptor (RCore *core, RBinJavaObj *bin, ut16 idx
 		fullname = malloc (fn_len);
 		snprintf (fullname, fn_len, "%s.%s", class_name, name);
 	}
-	if (fullname) prototype = r_bin_java_unmangle_without_flags (fullname, descriptor);
+	if (fullname) {
+		prototype = r_bin_java_unmangle_without_flags (fullname, descriptor);
+	}
 	free (class_name);
 	free (name);
 	free (descriptor);
@@ -1790,14 +1869,18 @@ static int r_cmd_java_handle_list_code_references (RCore *core, const char *inpu
 
 	r_list_foreach (anal->fcns, fcn_iter, fcn) {
 		ut8 do_this_one = func_addr == -1 || r_anal_fcn_is_in_offset (fcn, func_addr);
-		if (!do_this_one) continue;
+		if (!do_this_one) {
+			continue;
+		}
 		r_list_foreach (fcn->bbs, bb_iter, bb) {
 			char *operation = NULL, *type = NULL;
 			ut64 addr = -1;
 			ut16 cp_ref_idx = -1;
 			char *full_bird = NULL;
 			// if bb_type is a call
-			if (bb->op_bytes[0] == 0x01) continue;
+			if (bb->op_bytes[0] == 0x01) {
+				continue;
+			}
 			if (bb->op_bytes[0] == 0x12) {
 				// loading a constant
 				addr = bb->addr;
@@ -1805,10 +1888,9 @@ static int r_cmd_java_handle_list_code_references (RCore *core, const char *inpu
 				operation = strdup ("read constant");
 				type = r_bin_java_resolve_cp_idx_type (bin, bb->op_bytes[1]);
 				r_cons_printf (fmt, addr, fcn->name, operation, type, full_bird);
-				free (full_bird);
-				free (type);
-				free (operation);
-				full_bird = type = operation = NULL;
+				R_FREE (full_bird);
+				R_FREE (type);
+				R_FREE (operation);
 			} else if ( (bb->type2 &  R_ANAL_EX_CODEOP_CALL) == R_ANAL_EX_CODEOP_CALL) {
 				ut8 op_byte = bb->op_bytes[0];
 				// look at the bytes determine if it belongs to this class
@@ -1886,18 +1968,23 @@ static int r_cmd_java_handle_yara_code_extraction_refs (RCore *core, const char 
 	ut64 addr = -1, count = -1;
 	int res = false;
 
-	if (!bin) return res;
-	else if (!anal || !anal->fcns || r_list_length (anal->fcns) == 0) {
+	if (!bin) {
+		return res;
+	} else if (!anal || !anal->fcns || r_list_length (anal->fcns) == 0) {
 		eprintf ("Unable to access the current analysis, perform 'af' for function analysis.\n");
 		return true;
 	}
 
-	if (!p) return res;
+	if (!p) {
+		return res;
+	}
 
 	n = *p ? r_cmd_java_strtok (p, ' ', -1) : NULL;
 	name = n && p && p != n ? malloc (n - p + 2) : NULL;
 
-	if (!name) return res;
+	if (!name) {
+		return res;
+	}
 
 	memset (name, 0, n-p);
 	memcpy (name, p, n-p);
@@ -1940,12 +2027,16 @@ static int r_cmd_java_handle_insert_method_ref (RCore *core, const char *input) 
 		eprintf ("Unable to access the current analysis, perform 'af' for function analysis.\n");
 		return true;
 	}
-	if (!p) return res;
+	if (!p) {
+		return res;
+	}
 
 	n = p && *p ? r_cmd_java_strtok (p, ' ', -1) : NULL;
 	classname = n && p && p != n ? malloc (n-p+1) : NULL;
 	cn_sz = n && p ? n-p +1 : 0;
-	if (!classname) return res;
+	if (!classname) {
+		return res;
+	}
 
 	snprintf (classname, cn_sz, "%s", p);
 	//memset (classname, 0, cn_sz);
@@ -2000,14 +2091,18 @@ static int r_cmd_java_handle_print_exceptions (RCore *core, const char *input) {
 	const char *p = input? r_cmd_java_consumetok (input, ' ', -1): NULL;
 	func_addr = p && *p && r_cmd_java_is_valid_input_num_value(core, p) ? r_cmd_java_get_input_num_value (core, p) : -1;
 
-	if (!bin) return false;
+	if (!bin) {
+		return false;
+	}
 
 	r_list_foreach (bin->methods_list, methods_iter, method) {
 		ut64 start = r_bin_java_get_method_start(bin, method),
 			end = r_bin_java_get_method_end(bin, method);
 		ut8 do_this_one = start <= func_addr && func_addr <= end;	RList * exc_table = NULL;
 		do_this_one = func_addr == -1 ? 1 : do_this_one;
-		if (!do_this_one) continue;
+		if (!do_this_one) {
+			continue;
+		}
 		exc_table = r_bin_java_get_method_exception_table_with_addr (bin, start);
 
 		if (r_list_length (exc_table) == 0){
@@ -2041,8 +2136,8 @@ RCorePlugin r_core_plugin_java = {
 	.call = r_cmd_java_call,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_CORE,
 	.data = &r_core_plugin_java,
 	.version = R2_VERSION

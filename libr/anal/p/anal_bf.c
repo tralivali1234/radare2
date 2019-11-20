@@ -9,8 +9,9 @@
 static int countChar (const ut8 *buf, int len, char ch) {
 	int i;
 	for (i = 0; i < len; i++) {
-		if (buf[i] != ch)
+		if (buf[i] != ch) {
 			break;
+		}
 	}
 	return i;
 }
@@ -22,13 +23,13 @@ static int getid (char ch) {
 }
 
 #define BUFSIZE_INC 32
-static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
+static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len, RAnalOpMask mask) {
 	ut64 dst = 0LL;
 	if (!op) {
 		return 1;
 	}
 	/* Ayeeee! What's inside op? Do we have an initialized RAnalOp? Are we going to have a leak here? :-( */
-	memset (op, 0, sizeof (RAnalOp)); /* We need to refactorize this. Something like r_anal_op_init would be more appropiate */
+	memset (op, 0, sizeof (RAnalOp)); /* We need to refactorize this. Something like r_anal_op_init would be more appropriate */
 	r_strbuf_init (&op->esil);
 	op->size = 1;
 	op->id = getid (buf[0]);
@@ -45,8 +46,9 @@ static int bf_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *buf, int len) {
 			int lev = 0, i = 1;
 			len--;
 			while (i < len && *p) {
-				if (*p == '[')
+				if (*p == '[') {
 					lev++;
+				}
 				if (*p == ']') {
 					lev--;
 					if (lev==-1) {
@@ -154,8 +156,8 @@ RAnalPlugin r_anal_plugin_bf = {
 	.get_reg_profile = get_reg_profile,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_ANAL,
 	.data = &r_anal_plugin_bf,
 	.version = R2_VERSION

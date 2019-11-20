@@ -1,4 +1,4 @@
-files = [
+r_search_sources = [
   'aes-find.c',
   'bytepat.c',
   'keyword.c',
@@ -10,21 +10,25 @@ files = [
   'xrefs.c',
 ]
 
-r_search = library('r_search', files,
+r_search = library('r_search', r_search_sources,
   include_directories: [platform_inc],
-  link_with: [r_util],
+  c_args: library_cflags,
+  dependencies: [r_util_dep],
   install: true,
-  implicit_include_directories: false
+  implicit_include_directories: false,
+  soversion: r2_libversion
 )
 
+r_search_dep = declare_dependency(link_with: r_search,
+                                  include_directories: [platform_inc])
 
-pkg = import('pkgconfig')
-pkg.generate(libraries: [r_search],
-             subdirs: 'libr',
-             version: r2version,
-             name: 'r_search',
-             filebase: 'r_search',
-             requires: [
-               'r_util'
-             ],
-             description: 'radare foundation libraries')
+pkgconfig_mod.generate(r_search,
+  subdirs: 'libr',
+  version: r2_version,
+  name: 'r_search',
+  filebase: 'r_search',
+  requires: [
+    'r_util'
+  ],
+  description: 'radare foundation libraries'
+)

@@ -165,7 +165,20 @@ enum LoadCommandType {
 	LC_LINKER_OPTION        = 0x0000002Du,
 	LC_LINKER_OPTIMIZATION_HINT = 0x0000002Eu,
 	LC_VERSION_MIN_TVOS     = 0x0000002Fu,
-	LC_VERSION_MIN_WATCHOS  = 0x00000030u
+	LC_VERSION_MIN_WATCHOS  = 0x00000030u,
+	LC_NOTE                 = 0x00000031u,
+	LC_BUILD_VERSION        = 0x00000032u
+/*
+Load command 9
+       cmd LC_BUILD_VERSION
+   cmdsize 32
+  platform macos
+       sdk 10.14
+     minos 10.14
+    ntools 1
+      tool ld
+   version 409.11
+*/
 };
 
 enum {
@@ -418,7 +431,7 @@ enum {
 	SELF_LIBRARY_ORDINAL   = 0x0,
 	MAX_LIBRARY_ORDINAL    = 0xfd,
 	DYNAMIC_LOOKUP_ORDINAL = 0xfe,
-	EXECUTABLE_ORDINAL     = 0xff 
+	EXECUTABLE_ORDINAL     = 0xff
 };
 
 enum StabType {
@@ -1050,7 +1063,8 @@ static inline void SET_COMM_ALIGN (uint16_t *n_desc, uint8_t align) {
 enum {
 	// Capability bits used in the definition of cpu_type.
 	CPU_ARCH_MASK  = 0xff000000,   // Mask for architecture bits
-	CPU_ARCH_ABI64 = 0x01000000    // 64 bit ABI
+	CPU_ARCH_ABI64 = 0x01000000,   // 64 bit ABI
+	CPU_ARCH_ABI32 = 0x02000000    // Used for ARM64_32 (new Apple Watch)
 };
 
 // Constants for the cputype field.
@@ -1066,6 +1080,7 @@ enum CPUType {
 	CPU_TYPE_HPPA      = 11,
 	CPU_TYPE_ARM       = 12,
 	CPU_TYPE_ARM64     = CPU_TYPE_ARM | CPU_ARCH_ABI64,
+	CPU_TYPE_ARM64_32  = CPU_TYPE_ARM | CPU_ARCH_ABI32,
 	CPU_TYPE_MC88000   = 13,
 	CPU_TYPE_SPARC     = 14,
 	CPU_TYPE_I860      = 15,
@@ -1142,7 +1157,9 @@ enum CPUSubTypeARM {
 };
 
 enum CPUSubTypeARM64 {
-	CPU_SUBTYPE_ARM64_ALL   = 0
+	CPU_SUBTYPE_ARM64_ALL   = 0,
+	CPU_SUBTYPE_ARM64_V8    = 1,
+	CPU_SUBTYPE_ARM64E      = 2
 };
 
 enum CPUSubTypeSPARC {
@@ -1403,5 +1420,13 @@ sizeof(struct x86_thread_state_t) / sizeof(uint32_t);
 sizeof(struct x86_float_state_t) / sizeof(uint32_t);
 #define x86_EXCEPTION_STATE_COUNT \
 sizeof(struct x86_exception_state_t) / sizeof(uint32_t);
+
+#define EXPORT_SYMBOL_FLAGS_KIND_MASK 0x03
+#define EXPORT_SYMBOL_FLAGS_KIND_REGULAR 0x00
+#define EXPORT_SYMBOL_FLAGS_KIND_THREAD_LOCAL 0x01
+#define EXPORT_SYMBOL_FLAGS_KIND_ABSOLUTE 0x02
+#define EXPORT_SYMBOL_FLAGS_WEAK_DEFINITION 0x04
+#define EXPORT_SYMBOL_FLAGS_REEXPORT 0x08
+#define EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER 0x10
 
 #endif

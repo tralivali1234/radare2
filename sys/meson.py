@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Meson build for radare2"""
 
 import argparse
@@ -10,9 +11,21 @@ import subprocess
 import sys
 
 BUILDDIR = 'build'
-BACKENDS = ['ninja', 'vs2015', 'vs2017']
+BACKENDS = ['ninja', 'vs2015', 'vs2017', 'vs2019']
 
 PATH_FMT = {}
+R2_PATH = {
+    'R2_LIBDIR': r'lib',
+    'R2_INCDIR': r'include',
+    'R2_DATDIR': r'share',
+    'R2_WWWROOT': r'{R2_DATDIR}\www',
+    'R2_SDB': r'{R2_DATDIR}',
+    'R2_ZIGNS': r'{R2_DATDIR}\zigns',
+    'R2_THEMES': r'{R2_DATDIR}\cons',
+    'R2_FORTUNES': r'{R2_DATDIR}\doc',
+    'R2_FLAGS': r'{R2_DATDIR}\flag',
+    'R2_HUD': r'{R2_DATDIR}\hud'
+}
 
 MESON = None
 ROOT = None
@@ -35,8 +48,12 @@ def set_global_variables():
         version = f.readline().split()[1].rstrip()
 
     if os.name == 'nt':
-        meson = os.path.join(os.path.dirname(sys.executable), 'Scripts', 'meson.py')
-        MESON = [sys.executable, meson]
+        meson = os.path.join(os.path.dirname(sys.executable), 'Scripts', 'meson.exe')
+        if os.path.exists(meson):
+            MESON = [meson]
+        else:
+            meson = os.path.join(os.path.dirname(sys.executable), 'Scripts', 'meson.py')
+            MESON = [sys.executable, meson]
     else:
         MESON = ['meson']
 
@@ -94,13 +111,13 @@ def msbuild(project, *params):
 
 def copytree(src, dst, exclude=()):
     src = src.format(**PATH_FMT)
-    dst = dst.format(**PATH_FMT)
+    dst = dst.format(**PATH_FMT).format(**PATH_FMT)
     log.debug('copytree "%s" -> "%s"', src, dst)
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(*exclude) if exclude else None)
 
 def move(src, dst):
     src = src.format(**PATH_FMT)
-    dst = dst.format(**PATH_FMT)
+    dst = dst.format(**PATH_FMT).format(**PATH_FMT)
     term = os.path.sep if os.path.isdir(dst) else ''
     log.debug('move "%s" -> "%s%s"', src, dst, term)
     for file in glob.iglob(src):
@@ -108,14 +125,14 @@ def move(src, dst):
 
 def copy(src, dst):
     src = src.format(**PATH_FMT)
-    dst = dst.format(**PATH_FMT)
+    dst = dst.format(**PATH_FMT).format(**PATH_FMT)
     term = os.path.sep if os.path.isdir(dst) else ''
     log.debug('copy "%s" -> "%s%s"', src, dst, term)
     for file in glob.iglob(src, recursive='**' in src):
         shutil.copy2(file, dst)
 
 def makedirs(path):
-    path = path.format(**PATH_FMT)
+    path = path.format(**PATH_FMT).format(**PATH_FMT)
     log.debug('makedirs "%s"', path)
     os.makedirs(path)
 
@@ -140,27 +157,6 @@ def xp_compat(builddir):
             proj.write(c)
             log.debug("%s .. OK", f)
 
-def vs_dedup(builddir):
-    """Remove duplicated dependency entries from vs project"""
-    start = '<AdditionalDependencies>'
-    end = ';%(AdditionalDependencies)'
-    for f in glob.iglob(os.path.join(builddir, '**', '*.vcxproj'), recursive=True):
-        with open(f) as proj:
-            data = proj.read()
-        idx = data.find(start)
-        if idx < 0:
-            continue
-        idx += len(start)
-        idx2 = data.find(end, idx)
-        if idx2 < 0:
-            continue
-        libs = set(data[idx:idx2].split(';'))
-        with open(f, 'w') as proj:
-            proj.write(data[:idx])
-            proj.write(';'.join(sorted(libs)))
-            proj.write(data[idx2:])
-        log.debug('%s processed', f)
-
 def win_dist(args):
     """Create r2 distribution for Windows"""
     builddir = os.path.join(ROOT, args.dir)
@@ -168,54 +164,72 @@ def win_dist(args):
     PATH_FMT['BUILDDIR'] = builddir
 
     makedirs(r'{DIST}')
-    copy(r'{BUILDDIR}\binr\**\*.exe', r'{DIST}')
-    copy(r'{BUILDDIR}\libr\**\*.dll', r'{DIST}')
-    if args.copylib:
-        copy(r'{BUILDDIR}\libr\**\*.lib', r'{DIST}')
-        copy(r'{BUILDDIR}\libr\**\*.a', r'{DIST}')
-    win_dist_libr2()
+    makedirs(r'{DIST}\bin')
+    copy(r'{BUILDDIR}\binr\*\*.exe', r'{DIST}\bin')
 
-def win_dist_libr2(**path_fmt):
+    r2_bat_fname = args.install + r'\bin\r2.bat'
+    log.debug('create "%s"', r2_bat_fname)
+    with open(r2_bat_fname, 'w') as r2_bat:
+        r2_bat.write('@"%~dp0\\radare2" %*\n')
+
+    copy(r'{BUILDDIR}\libr\*\*.dll', r'{DIST}\bin')
+    makedirs(r'{DIST}\{R2_LIBDIR}')
+    if args.shared:
+        copy(r'{BUILDDIR}\libr\*\*.lib', r'{DIST}\{R2_LIBDIR}')
+    else:
+        copy(r'{BUILDDIR}\libr\*\*.a', r'{DIST}\{R2_LIBDIR}')
+    win_dist_libr2(install_webui=args.webui)
+
+def win_dist_libr2(install_webui=False, **path_fmt):
     """[R_API] Add libr2 data/www/include/doc to dist directory"""
     PATH_FMT.update(path_fmt)
 
-    copytree(r'{ROOT}\shlr\www', r'{DIST}\www')
-    copytree(r'{ROOT}\libr\magic\d\default', r'{DIST}\share\radare2\{R2_VERSION}\magic')
-    makedirs(r'{DIST}\share\radare2\{R2_VERSION}\syscall')
-    copy(r'{BUILDDIR}\libr\syscall\d\*.sdb', r'{DIST}\share\radare2\{R2_VERSION}\syscall')
-    makedirs(r'{DIST}\share\radare2\{R2_VERSION}\fcnsign')
-    copy(r'{BUILDDIR}\libr\anal\d\*.sdb', r'{DIST}\share\radare2\{R2_VERSION}\fcnsign')
-    makedirs(r'{DIST}\share\radare2\{R2_VERSION}\opcodes')
-    copy(r'{BUILDDIR}\libr\asm\d\*.sdb', r'{DIST}\share\radare2\{R2_VERSION}\opcodes')
-    makedirs(r'{DIST}\include\libr\sdb')
-    makedirs(r'{DIST}\include\libr\r_util')
-    copy(r'{ROOT}\libr\include\*.h', r'{DIST}\include\libr')
-    copy(r'{ROOT}\libr\include\sdb\*.h', r'{DIST}\include\libr\sdb')
-    copy(r'{ROOT}\libr\include\r_util\*.h', r'{DIST}\include\libr\r_util')
-    makedirs(r'{DIST}\share\doc\radare2')
-    copy(r'{ROOT}\doc\fortunes.*', r'{DIST}\share\doc\radare2')
-    makedirs(r'{DIST}\share\radare2\{R2_VERSION}\format\dll')
-    copy(r'{ROOT}\libr\bin\d\elf32', r'{DIST}\share\radare2\{R2_VERSION}\format')
-    copy(r'{ROOT}\libr\bin\d\elf64', r'{DIST}\share\radare2\{R2_VERSION}\format')
-    copy(r'{ROOT}\libr\bin\d\elf_enums', r'{DIST}\share\radare2\{R2_VERSION}\format')
-    copy(r'{ROOT}\libr\bin\d\pe32', r'{DIST}\share\radare2\{R2_VERSION}\format')
-    copy(r'{ROOT}\libr\bin\d\trx', r'{DIST}\share\radare2\{R2_VERSION}\format')
-    copy(r'{BUILDDIR}\libr\bin\d\*.sdb', r'{DIST}\share\radare2\{R2_VERSION}\format\dll')
-    copytree(r'{ROOT}\libr\cons\d', r'{DIST}\share\radare2\{R2_VERSION}\cons',
+    if install_webui:
+        copytree(r'{ROOT}\shlr\www', r'{DIST}\{R2_WWWROOT}')
+    copytree(r'{ROOT}\libr\magic\d\default', r'{DIST}\{R2_SDB}\magic')
+    makedirs(r'{DIST}\{R2_SDB}\syscall')
+    copy(r'{BUILDDIR}\libr\syscall\d\*.sdb', r'{DIST}\{R2_SDB}\syscall')
+    makedirs(r'{DIST}\{R2_SDB}\fcnsign')
+    copy(r'{BUILDDIR}\libr\anal\d\*.sdb', r'{DIST}\{R2_SDB}\fcnsign')
+    makedirs(r'{DIST}\{R2_SDB}\opcodes')
+    copy(r'{BUILDDIR}\libr\asm\d\*.sdb', r'{DIST}\{R2_SDB}\opcodes')
+    makedirs(r'{DIST}\{R2_INCDIR}\sdb')
+    makedirs(r'{DIST}\{R2_INCDIR}\r_util')
+    makedirs(r'{DIST}\{R2_INCDIR}\r_crypto')
+    copy(r'{ROOT}\libr\include\*.h', r'{DIST}\{R2_INCDIR}')
+    copy(r'{BUILDDIR}\r_version.h', r'{DIST}\{R2_INCDIR}')
+    copy(r'{BUILDDIR}\r_userconf.h', r'{DIST}\{R2_INCDIR}')
+    copy(r'{ROOT}\libr\include\sdb\*.h', r'{DIST}\{R2_INCDIR}\sdb')
+    copy(r'{ROOT}\libr\include\r_util\*.h', r'{DIST}\{R2_INCDIR}\r_util')
+    copy(r'{ROOT}\libr\include\r_crypto\*.h', r'{DIST}\{R2_INCDIR}\r_crypto')
+    makedirs(r'{DIST}\{R2_FORTUNES}')
+    copy(r'{ROOT}\doc\fortunes.*', r'{DIST}\{R2_FORTUNES}')
+    copytree(r'{ROOT}\libr\bin\d', r'{DIST}\{R2_SDB}\format',
+             exclude=('Makefile', 'meson.build', 'dll'))
+    makedirs(r'{DIST}\{R2_SDB}\format\dll')
+    copy(r'{BUILDDIR}\libr\bin\d\*.sdb', r'{DIST}\{R2_SDB}\format\dll')
+    copytree(r'{ROOT}\libr\cons\d', r'{DIST}\{R2_THEMES}',
              exclude=('Makefile', 'meson.build'))
-    makedirs(r'{DIST}\share\radare2\{R2_VERSION}\hud')
-    copy(r'{ROOT}\doc\hud', r'{DIST}\share\radare2\{R2_VERSION}\hud\main')
+    makedirs(r'{DIST}\{R2_FLAGS}')
+    copy(r'{BUILDDIR}\libr\flag\d\*.r2', r'{DIST}\{R2_FLAGS}')
+    makedirs(r'{DIST}\{R2_HUD}')
+    copy(r'{ROOT}\doc\hud', r'{DIST}\{R2_HUD}\main')
 
 def build(args):
     """ Build radare2 """
     log.info('Building radare2')
     r2_builddir = os.path.join(ROOT, args.dir)
+    options = ['-D%s' % x for x in args.options]
+    if args.webui:
+        options.append('-Duse_webui=true')
+    if args.local:
+        options.append('-Dlocal=true')
     if not os.path.exists(r2_builddir):
         meson(ROOT, r2_builddir, prefix=args.prefix, backend=args.backend,
-              release=args.release, shared=args.shared)
+              release=args.release, shared=args.shared, options=options)
     if args.backend != 'ninja':
-        vs_dedup(r2_builddir)
-        if args.xp:
+        # XP support was dropped in Visual Studio 2019 v142 platform
+        if args.backend != 'vs2019' and args.xp:
             xp_compat(r2_builddir)
         if not args.project:
             project = os.path.join(r2_builddir, 'radare2.sln')
@@ -240,6 +254,10 @@ def main():
 
     # Create parser
     parser = argparse.ArgumentParser(description='Mesonbuild scripts for radare2')
+    # --sanitize=address,signed-integer-overflow for faster build
+    parser.add_argument('--sanitize', nargs='?',
+            const='address,undefined,signed-integer-overflow', metavar='sanitizers',
+            help='Build radare2 with sanitizer support (default: %(const)s)')
     parser.add_argument('--project', action='store_true',
             help='Create a visual studio project and do not build.')
     parser.add_argument('--release', action='store_true',
@@ -248,39 +266,94 @@ def main():
             help='Choose build backend (default: %(default)s)')
     parser.add_argument('--shared', action='store_true',
             help='Link dynamically (shared library) rather than statically')
+    parser.add_argument('--local', action='store_true',
+            help='Adds support for local/side-by-side installation (sets rpath if needed)')
     parser.add_argument('--prefix', default=None,
             help='Set project installation prefix')
     parser.add_argument('--dir', default=BUILDDIR, required=False,
             help='Destination build directory (default: %(default)s)')
+    parser.add_argument('--alias', action='store_true',
+            help='Show the "m" alias shell command')
     parser.add_argument('--xp', action='store_true',
             help='Adds support for Windows XP')
+    parser.add_argument('--pull', action='store_true',
+            help='git pull before building')
+    parser.add_argument('--nosudo', action='store_true',
+            help='Do not use sudo for install/symstall/uninstall')
+    parser.add_argument('--uninstall', action='store_true',
+            help='Uninstall')
+    parser.add_argument('--symstall', action='store_true',
+            help='Install using symlinks')
+    parser.add_argument('--webui', action='store_true',
+            help='Install WebUIs')
     if os.name == 'nt':
         parser.add_argument('--install', help='Installation directory')
-        parser.add_argument('--copylib', action='store_true',
-            help='Copy static libraries to the installation directory')
     else:
         parser.add_argument('--install', action='store_true',
             help='Install radare2 after building')
+    parser.add_argument('--options', nargs='*', default=[])
     args = parser.parse_args()
+    if args.alias:
+        print("alias m=\"" + os.path.abspath(__file__) + "\"")
+        sys.exit(0);
+    if args.sanitize:
+        if os.uname().sysname == 'OpenBSD':
+            log.error("Sanitizers unsupported under OpenBSD")
+            sys.exit(1)
+        cflags = os.environ.get('CFLAGS')
+        if not cflags:
+            cflags = ''
+        os.environ['CFLAGS'] = cflags + ' -fsanitize=' + args.sanitize
+        if os.uname().sysname != 'Darwin':
+          ldflags = os.environ.get('LDFLAGS')
+          if not ldflags:
+              ldflags = ''
+          os.environ['LDFLAGS'] = ldflags + ' -fsanitize=' + args.sanitize
 
     # Check arguments
+    if args.pull:
+        os.system('git pull')
     if args.project and args.backend == 'ninja':
         log.error('--project is not compatible with --backend ninja')
         sys.exit(1)
-    if args.xp and args.backend == 'ninja':
+    if args.xp and args.backend in 'ninja':
         log.error('--xp is not compatible with --backend ninja')
+        sys.exit(1)
+    if args.xp and args.backend in 'vs2019':
+        log.error('--xp is not compatible with --backend vs2019')
         sys.exit(1)
     if os.name == 'nt' and args.install and os.path.exists(args.install):
         log.error('%s already exists', args.install)
         sys.exit(1)
     if os.name == 'nt' and not args.prefix:
         args.prefix = os.path.join(ROOT, args.dir, 'priv_install_dir')
+    for option in args.options:
+        if '=' not in option:
+            log.error('Invalid option: %s', option)
+            sys.exit(1)
+        key, value = option.split('=', 1)
+        key = key.upper()
+        if key not in R2_PATH:
+            continue
+        if os.path.isabs(value):
+            log.error('Relative path is required: %s', option)
+            sys.exit(1)
+        R2_PATH[key] = os.path.normpath(value)
 
+    PATH_FMT.update(R2_PATH)
+
+    sudo = 'sudo '
+    if args.nosudo:
+        sudo = ''
     # Build it!
     log.debug('Arguments: %s', args)
     build(args)
+    if args.uninstall:
+        os.system(sudo + 'make uninstall PWD="$PWD/build" BTOP="$PWD/build/binr"')
     if args.install:
         install(args)
+    if args.symstall:
+        os.system(sudo + 'make symstall PWD="$PWD/build" BTOP="$PWD/build/binr"')
 
 if __name__ == '__main__':
     main()

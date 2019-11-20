@@ -22,6 +22,10 @@ Profile *p_table[] = {
 	&WIN7_SP1_X86,
 	&WIN7_SP0_X64,
 	&WIN7_SP1_X64,
+	&WIN8_SP0_X86,
+	&WIN8_SP1_X86,
+	&WIN8_SP0_X64,
+	&WIN8_SP1_X64,
 	&VISTA_SP0_X86,
 	&VISTA_SP0_X64,
 	&VISTA_SP1_X86,
@@ -33,7 +37,8 @@ Profile *p_table[] = {
 	&WIN2003_SP1_X64,
 	&WIN2003_SP2_X86,
 	&WIN2003_SP2_X64,
-	&WIN10_SP0_X64,
+	&WIN10_RS1_X64, // Windows 10 (Anniversary Update)
+	&WIN10_RS4_X64, // Windows 10 (April 2018 Update)
 	NULL,
 };
 
@@ -72,9 +77,14 @@ struct _WindCtx {
 	int is_x64;
 	Profile *os_profile;
 	RList *plist_cache;
+	RList *tlist_cache;
 	ut64 dbg_addr;
 	WindProc *target;
 };
+
+int windbg_get_bits(WindCtx *ctx) {
+	return ctx->is_x64 ? R_SYS_BITS_64 : R_SYS_BITS_32;
+}
 
 int windbg_get_cpus(WindCtx *ctx) {
 	if (!ctx) {
@@ -151,13 +161,14 @@ WindCtx *windbg_ctx_new(void *io_ptr) {
 	return ctx;
 }
 
-void windbg_ctx_free(WindCtx *ctx) {
-	if (!ctx) {
+void windbg_ctx_free(WindCtx **ctx) {
+	if (!ctx || !*ctx) {
 		return;
 	}
-	r_list_free (ctx->plist_cache);
-	iob_close (ctx->io_ptr);
-	free (ctx);
+	r_list_free ((*ctx)->plist_cache);
+	r_list_free ((*ctx)->tlist_cache);
+	iob_close ((*ctx)->io_ptr);
+	R_FREE (*ctx);
 }
 
 #define PKT_REQ(p) ((kd_req_t *) (((kd_packet_t *) p)->data))
@@ -209,16 +220,18 @@ int windbg_wait_packet(WindCtx *ctx, const uint32_t type, kd_packet_t **p) {
 	int retries = 10;
 
 	do {
-		if (pkt) free (pkt);
+		if (pkt) {
+			R_FREE (pkt);
+		}
 		// Try to read a whole packet
 		ret = kd_read_packet (ctx->io_ptr, &pkt);
-		if (ret != KD_E_OK) {
+		if (ret != KD_E_OK || !pkt) {
 			break;
 		}
 
 		// eprintf ("Received %08x\n", pkt->type);
 		if (pkt->type != type) {
-			eprintf ("We were not waiting for this... %08x\n", type);
+			eprintf ("We were not waiting for this... %08x\n", pkt->type);
 		}
 		if (pkt->leader == KD_PACKET_DATA && pkt->type == KD_PACKET_TYPE_STATE_CHANGE64) {
 			// dump_stc (pkt);
@@ -351,6 +364,7 @@ RList *windbg_list_process(WindCtx *ctx) {
 		WindProc *proc = calloc (1, sizeof(WindProc));
 
 		strcpy (proc->name, (const char *) buf);
+		proc->eprocess = ptr;
 		proc->vadroot = vadroot;
 		proc->uniqueid = uniqueid;
 		proc->dir_base_table = dir_base_table;
@@ -363,6 +377,75 @@ RList *windbg_list_process(WindCtx *ctx) {
 	} while (ptr != base);
 
 	ctx->plist_cache = ret;
+
+	return ret;
+}
+
+RList *windbg_list_threads(WindCtx *ctx) {
+	RList *ret;
+	ut64 ptr, base;
+
+	if (!ctx || !ctx->io_ptr || !ctx->syncd) {
+		return NULL;
+	}
+
+	if (ctx->tlist_cache) {
+		return ctx->tlist_cache;
+	}
+
+	if (!ctx->target) {
+		WIND_DBG eprintf ("No target process\n");
+		return NULL;
+	}
+
+	ptr = ctx->target->eprocess;
+	if (!ptr) {
+		WIND_DBG eprintf ("No _EPROCESS\n");
+		return NULL;
+	}
+
+	// Grab the ThreadListHead from _EPROCESS
+	windbg_read_at (ctx, (uint8_t *) &ptr, ptr + O_(E_ThreadListHead), 4 << ctx->is_x64);
+	if (!ptr) {
+		return NULL;
+	}
+
+	base = ptr;
+
+	ret = r_list_newf (free);
+
+	do {
+		ut64 next = 0;
+
+		windbg_read_at (ctx, (uint8_t *) &next, ptr, 4 << ctx->is_x64);
+		if (!next) {
+			WIND_DBG eprintf ("Corrupted ThreadListEntry found at: 0x%"PFMT64x"\n", ptr);
+			break;
+		}
+
+		// Adjust the ptr so that it points to the ETHREAD base
+		ptr -= O_(ET_ThreadListEntry);
+
+		ut64 entrypoint = 0;
+		windbg_read_at (ctx, (uint8_t *) &entrypoint, ptr + O_(ET_Win32StartAddress), 4 << ctx->is_x64);
+
+		ut64 uniqueid = 0;
+		windbg_read_at (ctx, (uint8_t *) &uniqueid, ptr + O_(ET_Cid) + O_(C_UniqueThread), 4 << ctx->is_x64);
+		if (uniqueid) {
+			WindThread *thread = calloc (1, sizeof(WindThread));
+			thread->uniqueid = uniqueid;
+			thread->status = 's';
+			thread->runnable = true;
+			thread->ethread = ptr;
+			thread->entrypoint = entrypoint;
+
+			r_list_append (ret, thread);
+		}
+
+		ptr = next;
+	} while (ptr != base);
+
+	ctx->tlist_cache = ret;
 
 	return ret;
 }
@@ -567,6 +650,10 @@ int windbg_sync(WindCtx *ctx) {
 		return 0;
 	}
 
+	if (ctx->syncd) {
+		return 1;
+	}
+
 	// Send the breakin packet
 	if (iob_write (ctx->io_ptr, (const uint8_t *) "b", 1) != 1) {
 		return 0;
@@ -594,7 +681,10 @@ int windbg_sync(WindCtx *ctx) {
 	ctx->cpu = stc64->cpu;
 	ctx->cpu_count = stc64->cpu_count;
 	ctx->target = NULL;
+	r_list_free (ctx->plist_cache);
 	ctx->plist_cache = NULL;
+	r_list_free (ctx->tlist_cache);
+	ctx->tlist_cache = NULL;
 	ctx->pae = 0;
 	// We're ready to go
 	ctx->syncd = 1;
@@ -681,7 +771,7 @@ bool windbg_write_reg(WindCtx *ctx, const uint8_t *buf, int size) {
 
 int windbg_read_reg(WindCtx *ctx, uint8_t *buf, int size) {
 	kd_req_t req;
-	kd_packet_t *pkt;
+	kd_packet_t *pkt = NULL;
 	int ret;
 
 	if (!ctx || !ctx->io_ptr || !ctx->syncd) {

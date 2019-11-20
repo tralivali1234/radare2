@@ -5,7 +5,9 @@
 #define MINLEN 1
 static int is_string(const ut8 *buf, int size, int *len) {
 	int i;
-	if (size < 1) return 0;
+	if (size < 1) {
+		return 0;
+	}
 	if (size > 3 && buf[0] && !buf[1] && buf[2] && !buf[3]) {
 		*len = 1; // XXX: TODO: Measure wide string length
 		return 2; // is wide
@@ -42,8 +44,12 @@ static int is_null(const ut8 *buf, int size) {
 }
 
 static int is_invalid(const ut8 *buf, int size) {
-	if (size < 1) return 1;
-	if (size > 8) size = 8;
+	if (size < 1) {
+		return 1;
+	}
+	if (size > 8) {
+		size = 8;
+	}
 	return (!memcmp (buf, "\xff\xff\xff\xff\xff\xff\xff\xff", size))? 1: 0;
 }
 
@@ -52,10 +58,13 @@ static ut64 is_pointer(RAnal *anal, const ut8 *buf, int size) {
 	ut64 n;
 	ut8 buf2[32];
 	RIOBind *iob = &anal->iob;
-	if (size > sizeof (buf2))
+	if (size > sizeof (buf2)) {
 		size = sizeof (buf2);
+	}
 	n = r_mem_get_num (buf, size);
-	if (!n) return 1; // null pointer
+	if (!n) {
+		return 1; // null pointer
+	}
 #if USE_IS_VALID_OFFSET
 	int r = iob->is_valid_offset (iob->io, n, 0);
 	return r? n: 0LL;
@@ -88,122 +97,111 @@ static bool is_bin(const ut8 *buf, int size) {
 
 // TODO: add is_flag, is comment?
 
-// XXX: optimize by removing all strlens here
 R_API char *r_anal_data_to_string(RAnalData *d, RConsPrintablePalette *pal) {
-	int i, len, idx, mallocsz = 1024;
+	int i, len, mallocsz = 1024;
 	ut32 n32;
-	char *line;
 
-	if (!d) return NULL;
+	if (!d) {
+		return NULL;
+	}
 
-	line = malloc (mallocsz);
-	if (!line) {
+	RStrBuf *sb = r_strbuf_new (NULL);
+	if (!sb || !r_strbuf_reserve (sb, mallocsz)) {
 		eprintf ("Cannot allocate %d byte(s)\n", mallocsz);
 		return NULL;
 	}
 	if (pal) {
 		const char *k = pal->offset;
-		snprintf (line, mallocsz, "%s0x%08" PFMT64x Color_RESET"  ", k, d->addr);
+		r_strbuf_appendf (sb, "%s0x%08" PFMT64x Color_RESET"  ", k, d->addr);
 	} else {
-		snprintf (line, mallocsz, "0x%08" PFMT64x "  ", d->addr);
+		r_strbuf_appendf (sb, "0x%08" PFMT64x "  ", d->addr);
 	}
 	n32 = (ut32)d->ptr;
 	len = R_MIN (d->len, 8);
-	for (i = 0, idx = strlen (line); i < len; i++) {
-		int msz = mallocsz - idx;
-		if (msz > 1) {
-			snprintf (line + idx, msz, "%02x", d->buf[i]);
-			idx += 2;
-		}
+	for (i = 0; i < len; i++) {
+		r_strbuf_appendf (sb, "%02x", d->buf[i]);
 	}
 	if (i > 0 && d->len > len) {
-		int msz = mallocsz - idx;
-		snprintf (line + idx, msz, "..");
-		idx += 2;
+		r_strbuf_append (sb, "..");
 	}
-	strcat (line, "  ");
-	idx += 2;
-	if (mallocsz - idx > 12) {
-		switch (d->type) {
-		case R_ANAL_DATA_TYPE_STRING:
-			if (pal) {
-				snprintf (line + idx, mallocsz - idx, "%sstring \"%s\""Color_RESET, pal->comment, d->str);
-			} else {
-				snprintf (line + idx, mallocsz - idx, "string \"%s\"", d->str);
-			}
-			break;
-		case R_ANAL_DATA_TYPE_WIDE_STRING:
-			strcat (line, "wide string");
-			break;
-		case R_ANAL_DATA_TYPE_NUMBER:
-			if (pal) {
-				const char *k = pal->num;
-				if (n32 == d->ptr) {
-					snprintf (line + idx, mallocsz - idx,
-							"%snumber %d (0x%x)"Color_RESET, k, n32, n32);
-				} else {
-					snprintf (line + idx, mallocsz - idx,
-							"%snumber %" PFMT64d " (0x%" PFMT64x ")"Color_RESET,
-							k, d->ptr, d->ptr);
-				}
-			} else {
-				if (n32 == d->ptr) {
-					snprintf (line + idx, mallocsz - idx,
-							"number %d 0x%x", n32, n32);
-				} else {
-					snprintf (line + idx, mallocsz - idx,
-							"number %" PFMT64d " 0x%" PFMT64x,
-							d->ptr, d->ptr);
-				}
-			}
-			break;
-		case R_ANAL_DATA_TYPE_POINTER:
-			strcat (line, "pointer ");
-			if (pal) {
-				const char *k = pal->offset;
-				sprintf (line + strlen (line), " %s0x%08" PFMT64x, k, d->ptr);
-			} else {
-				sprintf (line + strlen (line), " 0x%08" PFMT64x, d->ptr);
-			}
-			break;
-		case R_ANAL_DATA_TYPE_INVALID:
-			if (pal) {
-				snprintf (line + idx, mallocsz - idx, "%sinvalid"Color_RESET, pal->invalid);
-			} else {
-				strcat (line, "invalid");
-			}
-			break;
-		case R_ANAL_DATA_TYPE_HEADER:
-			strcat (line, "header");
-			break;
-		case R_ANAL_DATA_TYPE_SEQUENCE:
-			strcat (line, "sequence");
-			break;
-		case R_ANAL_DATA_TYPE_PATTERN:
-			strcat (line, "pattern");
-			break;
-		case R_ANAL_DATA_TYPE_UNKNOWN:
-			if (pal) {
-				snprintf (line + idx, mallocsz - idx, "%sunknown"Color_RESET, pal->invalid);
-			} else {
-				strcat (line, "unknown");
-			}
-			break;
-		default:
-			if (pal) {
-				snprintf (line + idx, mallocsz - idx, "%s(null)"Color_RESET, pal->b0x00);
-			} else {
-				strcat (line, "(null)");
-			}
-			break;
+	r_strbuf_append (sb, "  ");
+	switch (d->type) {
+	case R_ANAL_DATA_TYPE_STRING:
+		if (pal) {
+			r_strbuf_appendf (sb, "%sstring \"%s\""Color_RESET, pal->comment, d->str);
+		} else {
+			r_strbuf_appendf (sb, "string \"%s\"", d->str);
 		}
+		break;
+	case R_ANAL_DATA_TYPE_WIDE_STRING:
+		r_strbuf_append (sb, "wide string");
+		break;
+	case R_ANAL_DATA_TYPE_NUMBER:
+		if (pal) {
+			const char *k = pal->num;
+			if (n32 == d->ptr) {
+				r_strbuf_appendf (sb, "%snumber %d (0x%x)"Color_RESET, k, n32, n32);
+			} else {
+				r_strbuf_appendf (sb, "%snumber %" PFMT64d " (0x%" PFMT64x ")"Color_RESET,
+						k, d->ptr, d->ptr);
+			}
+		} else {
+			if (n32 == d->ptr) {
+				r_strbuf_appendf (sb, "number %d 0x%x", n32, n32);
+			} else {
+				r_strbuf_appendf (sb, "number %" PFMT64d " 0x%" PFMT64x,
+						d->ptr, d->ptr);
+			}
+		}
+		break;
+	case R_ANAL_DATA_TYPE_POINTER:
+		r_strbuf_append (sb, "pointer ");
+		if (pal) {
+			const char *k = pal->offset;
+			r_strbuf_appendf (sb, " %s0x%08" PFMT64x, k, d->ptr);
+		} else {
+			r_strbuf_appendf (sb, " 0x%08" PFMT64x, d->ptr);
+		}
+		break;
+	case R_ANAL_DATA_TYPE_INVALID:
+		if (pal) {
+			r_strbuf_appendf (sb, "%sinvalid"Color_RESET, pal->invalid);
+		} else {
+			r_strbuf_append (sb, "invalid");
+		}
+		break;
+	case R_ANAL_DATA_TYPE_HEADER:
+		r_strbuf_append (sb, "header");
+		break;
+	case R_ANAL_DATA_TYPE_SEQUENCE:
+		r_strbuf_append (sb, "sequence");
+		break;
+	case R_ANAL_DATA_TYPE_PATTERN:
+		r_strbuf_append (sb, "pattern");
+		break;
+	case R_ANAL_DATA_TYPE_UNKNOWN:
+		if (pal) {
+			r_strbuf_appendf (sb, "%sunknown"Color_RESET, pal->invalid);
+		} else {
+			r_strbuf_append (sb, "unknown");
+		}
+		break;
+	default:
+		if (pal) {
+			r_strbuf_appendf (sb, "%s(null)"Color_RESET, pal->b0x00);
+		} else {
+			r_strbuf_append (sb, "(null)");
+		}
+		break;
 	}
-	return line;
+	return r_strbuf_drain (sb);
 }
 
 R_API RAnalData *r_anal_data_new_string(ut64 addr, const char *p, int len, int type) {
 	RAnalData *ad = R_NEW0 (RAnalData);
-	if (!ad) return NULL;
+	if (!ad) {
+		return NULL;
+	}
 	ad->str = NULL;
 	ad->addr = addr;
 	ad->type = type;
@@ -330,7 +328,9 @@ R_API RAnalData *r_anal_data(RAnal *anal, ut64 addr, const ut8 *buf, int size, i
 	}
 	if (size >= word) {
 		n = is_number (buf, word);
-		if (n) return r_anal_data_new (addr, R_ANAL_DATA_TYPE_NUMBER, n, buf, word);
+		if (n) {
+			return r_anal_data_new (addr, R_ANAL_DATA_TYPE_NUMBER, n, buf, word);
+		}
 	}
 	return r_anal_data_new (addr, R_ANAL_DATA_TYPE_UNKNOWN, dst, buf, R_MIN (word, size));
 }
@@ -344,8 +344,9 @@ R_API const char *r_anal_data_kind(RAnal *a, ut64 addr, const ut8 *buf, int len)
 	RAnalData *data;
 	int word = a->bits / 8;
 	for (i = j = 0; i < len; j++) {
-		if (str && !buf[i])
+		if (str && !buf[i]) {
 			str++;
+		}
 		data = r_anal_data (a, addr + i, buf + i, len - i, 0);
 		if (!data) {
 			i += word;
@@ -357,7 +358,9 @@ R_API const char *r_anal_data_kind(RAnal *a, ut64 addr, const ut8 *buf, int len)
 			i += word;
 			break;
 		case R_ANAL_DATA_TYPE_NUMBER:
-			if (data->ptr > 1000) num++;
+			if (data->ptr > 1000) {
+				num++;
+			}
 			i += word;
 			break;
 		case R_ANAL_DATA_TYPE_UNKNOWN:
@@ -367,7 +370,9 @@ R_API const char *r_anal_data_kind(RAnal *a, ut64 addr, const ut8 *buf, int len)
 		case R_ANAL_DATA_TYPE_STRING:
 			if (data->len > 0) {
 				i += data->len;
-			} else i += word;
+			} else {
+				i += word;
+			}
 			str++;
 			break;
 		default:
@@ -375,10 +380,46 @@ R_API const char *r_anal_data_kind(RAnal *a, ut64 addr, const ut8 *buf, int len)
 		}
 		r_anal_data_free (data);
 	}
-	if (j < 1) return "unknown";
-	if ((inv * 100 / j) > 60) return "invalid";
-	if ((unk * 100 / j) > 60) return "code";
-	if ((num * 100 / j) > 60) return "code";
-	if ((str * 100 / j) > 40) return "text";
+	if (j < 1) {
+		return "unknown";
+	}
+	if ((inv * 100 / j) > 60) {
+		return "invalid";
+	}
+	if ((unk * 100 / j) > 60) {
+		return "code";
+	}
+	if ((num * 100 / j) > 60) {
+		return "code";
+	}
+	if ((str * 100 / j) > 40) {
+		return "text";
+	}
 	return "data";
+}
+
+R_API const char *r_anal_datatype_to_string(RAnalDataType t) {
+	switch (t) {
+	case R_ANAL_DATATYPE_NULL:
+		return NULL;
+	case R_ANAL_DATATYPE_ARRAY:
+		return "array";
+	case R_ANAL_DATATYPE_OBJECT: // instance
+		return "object";
+	case R_ANAL_DATATYPE_STRING:
+		return "string";
+	case R_ANAL_DATATYPE_CLASS:
+		return "class";
+	case R_ANAL_DATATYPE_BOOLEAN:
+		return "boolean";
+	case R_ANAL_DATATYPE_INT16:
+		return "int16";
+	case R_ANAL_DATATYPE_INT32:
+		return "int32";
+	case R_ANAL_DATATYPE_INT64:
+		return "int64";
+	case R_ANAL_DATATYPE_FLOAT:
+		return "float";
+	}
+	return NULL;
 }

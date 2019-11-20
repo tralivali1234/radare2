@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2017 - pancake */
+/* radare - LGPL - Copyright 2007-2018 - pancake */
 
 #include "r_types.h"
 #include "r_util.h"
@@ -9,9 +9,6 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
-#ifdef _MSC_VER
-#define strncasecmp _strnicmp
-#endif
 
 // TODO: simplify this horrible loop
 R_API void r_str_trim_path(char *s) {
@@ -59,33 +56,71 @@ R_API void r_str_trim_path(char *s) {
 	}
 }
 
-R_API char *r_str_trim(char *str) {
-	int len;
-	char *ptr;
+R_API char* r_str_trim_lines(char *str) {
+	RList *list = r_str_split_list (str, "\n", 0);
+	char *s;
+	RListIter *iter;
+	RStrBuf *sb = r_strbuf_new ("");
+	r_list_foreach (list, iter, s) {
+		//r_str_ansi_trim (s, -1, 99999);
+		r_str_ansi_filter (s, NULL, NULL, -1);
+		r_str_trim (s);
+		if (*s) {
+			r_strbuf_appendf (sb, "%s\n", s);
+		}
+	}
+	r_list_free (list);
+	free (str);
+	return r_strbuf_drain (sb);
+}
 
-	if (!str) {
-		return NULL;
+R_API char *r_str_trim_dup(const char *str) {
+	char *a = strdup (str);
+	r_str_trim (a);
+	return a;
+}
+
+R_API void r_str_trim(char *str) {
+	r_return_if_fail (str);
+	char *nonwhite = str;
+	while (*nonwhite && IS_WHITECHAR (*nonwhite)) {
+		nonwhite++;
 	}
-	while (*str && ISWHITECHAR (*str)) {
-		memmove (str, str + 1, strlen (str + 1) + 1);
+	int len = strlen (str);
+	if (str != nonwhite) {
+		int delta = (size_t)(nonwhite - str);
+		len -= delta;
+		memmove (str, nonwhite, len + 1);
 	}
-	len = strlen (str);
 	if (len > 0) {
+		char *ptr;
 		for (ptr = str + len - 1; ptr != str; ptr--) {
-			if (!ISWHITECHAR (*ptr)) {
+			if (!IS_WHITECHAR (*ptr)) {
 				break;
 			}
 			*ptr = '\0';
 		}
 	}
-	return str;
 }
 
 // Returns a pointer to the first non-whitespace character of str.
 // TODO: rename to r_str_trim_head_ro()
 R_API const char *r_str_trim_ro(const char *str) {
 	if (str) {
-		for (; *str && ISWHITECHAR (*str); str++);
+		for (; *str && IS_WHITECHAR (*str); str++) {
+			;
+		}
+	}
+	return str;
+}
+
+// Returns a pointer to the first whitespace character of str.
+// TODO: rename to r_str_trim_head_wp()
+R_API const char *r_str_trim_wp(const char *str) {
+	if (str) {
+		for (; *str && !IS_WHITESPACE (*str); str++) {
+			;
+		}
 	}
 	return str;
 }
@@ -114,7 +149,7 @@ R_API char *r_str_trim_tail(char *str) {
 	}
 
 	while (length--) {
-		if (ISWHITECHAR (str[length])) {
+		if (IS_WHITECHAR (str[length])) {
 			str[length] = '\0';
 		} else {
 			break;
@@ -136,7 +171,7 @@ R_API char *r_str_trim_nc(char *str) {
 	return r_str_trim_tail (s);
 }
 
-/* suposed to chop a string with ansi controls to max length of n. */
+/* supposed to chop a string with ansi controls to max length of n. */
 R_API int r_str_ansi_trim(char *str, int str_len, int n) {
 	char ch, ch2;
 	int back = 0, i = 0, len = 0;
@@ -162,11 +197,10 @@ R_API int r_str_ansi_trim(char *str, int str_len, int n) {
 					i += 18;
 				}
 			} else if (ch2 == '[') {
-				for (++i; (i < str_len) && str[i]
-					&& str[i] != 'J'
-					&& str[i] != 'm'
-					&& str[i] != 'H';
-				     i++);
+				for (++i; (i < str_len) && str[i] && str[i] != 'J' && str[i] != 'm' && str[i] != 'H';
+					i++) {
+					;
+				}
 			}
 		} else if ((str[i] & 0xc0) != 0x80) {
 			len++;
@@ -177,4 +211,3 @@ R_API int r_str_ansi_trim(char *str, int str_len, int n) {
 	str[back] = 0;
 	return back;
 }
-

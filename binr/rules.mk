@@ -2,16 +2,21 @@ BINR_PROGRAM=1
 include ../../libr/config.mk
 include ../../shlr/zip/deps.mk
 
-ifneq ($(OSTYPE),windows)
-# tcc doesn't recognize the -pie option
 ifeq (,$(findstring tcc,${CC}))
 CFLAGS+=-pie
-endif
 endif
 CFLAGS+=-I$(LTOP)/include
 
 ifeq (${COMPILER},emscripten)
-EXT_EXE=.js
+LINK+=$(SHLR)/libr/libr.a
+LINK+=$(SHLR)/sdb/src/libsdb.a
+include $(SHLR)/capstone.mk
+CFLAGS+= -s SIDE_MODULE=1
+#CFLAGS+=-s ERROR_ON_UNDEFINED_SYMBOLS=0
+#EXT_EXE=.js
+#EXT_EXE=.html
+EXT_EXE=.bc
+#EXT_EXE=.wasm
 endif
 
 ifeq ($(USE_RPATH),1)
@@ -21,27 +26,7 @@ endif
 OBJ+=${BIN}.o
 BEXE=${BIN}${EXT_EXE}
 
-ifeq ($(WITHNONPIC),1)
-## LDFLAGS+=$(addsuffix /lib${BINDEPS}.a,$(addprefix ../../libr/,$(subst r_,,$(BINDEPS))))
-LDFLAGS+=$(shell for a in ${BINDEPS} ; do b=`echo $$a |sed -e s,r_,,g`; echo ../../libr/$$b/lib$$a.${EXT_AR} ; done )
-LDFLAGS+=../../shlr/sdb/src/libsdb.a
-ifeq (1,$(WITH_GPL))
-LDFLAGS+=../../shlr/grub/libgrubfs.a
-endif
-LDFLAGS+=../../shlr/gdb/lib/libgdbr.a
-LDFLAGS+=../../shlr/windbg/libr_windbg.a
-LDFLAGS+=../../shlr/capstone/libcapstone.a
-LDFLAGS+=../../shlr/java/libr_java.a
-LDFLAGS+=../../libr/socket/libr_socket.a
-LDFLAGS+=../../libr/util/libr_util.a
-ifneq (${OSTYPE},haiku)
-ifneq ($(CC),cccl)
-LDFLAGS+=-lm
-endif
-endif
-endif
 LDFLAGS+=${DL_LIBS}
-LDFLAGS+=${LINK}
 ifneq (${ANDROID},1)
 ifneq (${OSTYPE},windows)
 ifneq (${OSTYPE},linux)
@@ -62,31 +47,41 @@ endif
 # Rules for programs #
 #--------------------#
 
+LDFLAGS+=-lm
 # For some reason w32 builds contain -shared in LDFLAGS. boo!
 
 ifneq ($(BIN)$(BINS),)
 
+ifeq ($(OSTYPE),linux)
+LDFLAGS+=-static
+endif
+
 all: ${BEXE} ${BINS}
+
+ifeq ($(WITH_LIBR),1)
+${BINS}: ${OBJS}
+	${CC} ${CFLAGS} $@.c ${OBJS} ../../libr/libr.a -o $@ $(LDFLAGS)
+
+${BEXE}: ${OBJ} ${SHARED_OBJ}
+	${CC} ${CFLAGS} $+ -L.. -o $@ ../../libr/libr.a $(LDFLAGS)
+else
 
 ${BINS}: ${OBJS}
 ifneq ($(SILENT),)
 	@echo CC $@
 endif
-	${CC} ${CFLAGS} $@.c ${OBJS} ${REAL_LDFLAGS} -o $@
+	${CC} ${CFLAGS} $@.c ${OBJS} ${REAL_LDFLAGS} $(LINK) -o $@
 
 # -static fails because -ldl -lpthread static-gcc ...
 ${BEXE}: ${OBJ} ${SHARED_OBJ}
-ifeq ($(WITHNONPIC),1)
-	${CC} -pie ${CFLAGS} $+ -L.. -o $@ $(REAL_LDFLAGS)
-else
 ifneq ($(SILENT),)
 	@echo LD $@
 endif
-	${CC} ${CFLAGS} $+ -L.. -o $@ $(REAL_LDFLAGS)
+	${CC} ${CFLAGS} $+ -L.. -o $@ $(REAL_LDFLAGS) $(LINK)
 endif
 endif
 
-# Dummy myclean rule that can be overriden by the t/ Makefile
+# Dummy myclean rule that can be overridden by the t/ Makefile
 # TODO: move to config.mk ? it must be a precondition
 myclean:
 

@@ -1,4 +1,4 @@
-/* libgdbr - LGPL - Copyright 2017 - srimanta.barua1 */
+/* libgdbr - LGPL - Copyright 2017-2018 - srimanta.barua1 */
 
 #include "gdbclient/xml.h"
 #include "gdbclient/core.h"
@@ -7,29 +7,11 @@
 #include "packet.h"
 #include <r_util.h>
 
-static char *gdbr_read_feature(libgdbr_t *g, const char *file, ut64 *tot_len);
-static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len);
-
-// If xml target description is supported, read it
-int gdbr_read_target_xml(libgdbr_t *g) {
-	if (!g->stub_features.qXfer_features_read) {
-		return -1;
-	}
-	char *data;
-	ut64 len;
-	if (!(data = gdbr_read_feature (g, "target.xml", &len))) {
-		return -1;
-	}
-	gdbr_parse_target_xml (g, data, len);
-	free (data);
-	return 0;
-}
-
 static char *gdbr_read_feature(libgdbr_t *g, const char *file, ut64 *tot_len) {
 	ut64 retlen = 0, retmax = 0, off = 0, len = g->stub_features.pkt_sz - 2,
-	     blksz = g->data_max, subret_space = 0, subret_len = 0;
+		blksz = g->data_max, subret_space = 0, subret_len = 0;
 	char *tmp, *tmp2, *tmp3, *ret = NULL, *subret = NULL, msg[128] = { 0 },
-	     status, tmpchar;
+		status, tmpchar;
 	while (1) {
 		snprintf (msg, sizeof (msg), "qXfer:features:read:%s:%"PFMT64x
 			",%"PFMT64x, file, off, len);
@@ -91,6 +73,7 @@ static char *gdbr_read_feature(libgdbr_t *g, const char *file, ut64 *tot_len) {
 				retlen -= subret_space - subret_len;
 				ret[retlen] = '\0';
 				tmp = strstr (tmp3, "<xi:include");
+				free (subret);
 				continue;
 			}
 			if (subret_len > retmax - retlen - 1) {
@@ -179,11 +162,6 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 		if (!tmpreg) {
 			continue;
 		}
-		// regsize > 64 not supported by r2 currently
-		if (tmpreg->size > 8) {
-			regoff += tmpreg->size;
-			continue;
-		}
 		memcpy (arch_regs[regnum].name, tmpreg->name, sizeof (tmpreg->name));
 		arch_regs[regnum].size = tmpreg->size;
 		arch_regs[regnum].offset = regoff;
@@ -227,9 +205,9 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 	case R_SYS_ARCH_ARM:
 		switch (g->target.bits) {
 		case 32:
-			if (!(profile = r_str_prefix (profile,
-							"=PC	r15\n"
-							"=SP	r14\n" // XXX
+			if (!(profile = r_str_prepend (profile,
+							"=PC	pc\n"
+							"=SP	sp\n" // XXX
 							"=A0	r0\n"
 							"=A1	r1\n"
 							"=A2	r2\n"
@@ -239,7 +217,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 			}
 			break;
 		case 64:
-			if (!(profile = r_str_prefix (profile,
+			if (!(profile = r_str_prepend (profile,
 							"=PC	pc\n"
 							"=SP	sp\n"
 							"=BP	x29\n"
@@ -257,11 +235,10 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 			}
 		}
 		break;
-		break;
 	case R_SYS_ARCH_X86:
 		switch (g->target.bits) {
 		case 32:
-			if (!(profile = r_str_prefix (profile,
+			if (!(profile = r_str_prepend (profile,
 						     "=PC	eip\n"
 						     "=SP	esp\n"
 						     "=BP	ebp\n"))) {
@@ -269,7 +246,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 			}
 			break;
 		case 64:
-			if (!(profile = r_str_prefix (profile,
+			if (!(profile = r_str_prepend (profile,
 						     "=PC	rip\n"
 						     "=SP	rsp\n"
 						     "=BP	rbp\n"))) {
@@ -278,7 +255,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 		}
 		break;
 	case R_SYS_ARCH_MIPS:
-		if (!(profile = r_str_prefix (profile,
+		if (!(profile = r_str_prepend (profile,
 						"=PC	pc\n"
 						"=SP	r29\n"))) {
 			goto exit_err;
@@ -287,7 +264,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 	default:
 		// TODO others
 		if (*pc_alias) {
-			if (!(profile = r_str_prefix (profile, pc_alias))) {
+			if (!(profile = r_str_prepend (profile, pc_alias))) {
 				goto exit_err;
 			}
 		}
@@ -315,6 +292,21 @@ exit_err:
 	free (profile);
 	free (arch_regs);
 	return -1;
+}
+
+// If xml target description is supported, read it
+int gdbr_read_target_xml(libgdbr_t *g) {
+	if (!g->stub_features.qXfer_features_read) {
+		return -1;
+	}
+	char *data;
+	ut64 len;
+	if (!(data = gdbr_read_feature (g, "target.xml", &len))) {
+		return -1;
+	}
+	gdbr_parse_target_xml (g, data, len);
+	free (data);
+	return 0;
 }
 
 // sizeof (buf) needs to be atleast flags->num_bits + 1
@@ -376,6 +368,9 @@ static int _resolve_arch(libgdbr_t *g, char *xml_data) {
 			// openocd mips?
 			g->target.arch = R_SYS_ARCH_MIPS;
 			g->target.bits = 32;
+		} else if (strstr(xml_data, "com.apple.debugserver.x86_64")) {
+			g->target.arch = R_SYS_ARCH_X86;
+			g->target.bits = 64;
 		} else {
 			eprintf ("Unknown architecture parsing XML (%s)\n", xml_data);
 		}
@@ -491,7 +486,7 @@ exit_err:
 }
 
 static RList* _extract_regs(char *regstr, RList *flags, char *pc_alias) {
-	char *regstr_end, *regname, *regtype, *tmp1;
+	char *regstr_end, *regname, *regtype, *tmp1, *tmpregstr, *feature_end, *typegroup;
 	ut32 flagnum, regname_len, regsize, regnum;
 	RList *regs;
 	RListIter *iter;
@@ -500,10 +495,37 @@ static RList* _extract_regs(char *regstr, RList *flags, char *pc_alias) {
 	if (!(regs = r_list_new ())) {
 		return NULL;
 	}
-	while ((regstr = strstr (regstr, "<reg"))) {
-		if (!(regstr_end = strchr (regstr, '/'))) {
+	// Set gpr as the default register type for all of the following registers until `feature` is found
+	typegroup = "gpr";
+	while ((tmpregstr = strstr (regstr, "<reg"))) {
+		if (!(regstr_end = strchr (tmpregstr, '/'))) {
 			goto exit_err;
 		}
+		// Most regs don't have group/type params, attempt to get the type from `feature`.
+		// Multiple registers can be wrapped with a certain feature so this typegroup
+		// applies on all of the following registers until </feature>
+		if (r_str_startswith (regstr, "<feature")) {
+			// Verify that we found the feature in the current node
+			feature_end = strstr (regstr, ">");
+			if ((tmp1 = strstr (regstr, "core")) != NULL && tmp1 < feature_end) {
+				typegroup = "gpr";
+			} else if ((tmp1 = strstr (regstr, "segments")) != NULL && tmp1 < feature_end) {
+				typegroup = "seg";
+			} else if ((tmp1 = strstr (regstr, "linux")) != NULL && tmp1 < feature_end) {
+				typegroup = "gpr";
+			} else if ((tmp1 = strstr (regstr, "avx")) != NULL && tmp1 < feature_end) {
+				typegroup = "ymm";
+			} else if ((tmp1 = strstr (regstr, "mpx")) != NULL && tmp1 < feature_end) {
+				typegroup = "flg";
+			} else {
+				typegroup = "gpr";
+			}
+		}
+		// Reset to typegroup in case the previous register had a group/type parameter
+		// that indicated it's specific type which doesn't correspond to type defined by
+		// the parent feature tag
+		regtype = typegroup;
+		regstr = tmpregstr;
 		*regstr_end = '\0';
 		// name
 		if (!(regname = strstr (regstr, "name="))) {
@@ -532,13 +554,19 @@ static RList* _extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			}
 			regnum = strtoul (tmp1, NULL, 10);
 		}
-		// type
-		regtype = "gpr";
 		flagnum = r_list_length (flags);
 		if ((tmp1 = strstr (regstr, "group="))) {
 			tmp1 += 7;
 			if (r_str_startswith (tmp1, "float")) {
 				regtype = "fpu";
+			} else if (r_str_startswith (tmp1, "mmx")) {
+				regtype = "mmx";
+			} else if (r_str_startswith (tmp1, "sse")) {
+				regtype = "xmm";
+			} else if (r_str_startswith (tmp1, "vector")) {
+				regtype = "ymm";
+			} else if (r_str_startswith (tmp1, "system")) {
+				regtype = "seg";
 			}
 			// We need type information in r2 register profiles
 		} else if ((tmp1 = strstr (regstr, "type="))) {
@@ -596,7 +624,12 @@ static RList* _extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			r_list_set_n (regs, regnum, tmpreg);
 		}
 		*regstr_end = '/';
-		regstr = regstr_end + 2;
+		regstr = regstr_end + 3;
+		if (r_str_startswith (regstr, "</feature>")) {
+			regstr += sizeof ("</feature>");
+			// Revert to default
+			typegroup = "gpr";
+		}
 	}
 	regs->free = free;
 	return regs;

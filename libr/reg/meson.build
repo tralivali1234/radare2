@@ -1,4 +1,4 @@
-files = [
+r_reg_sources = [
   'arena.c',
   'cond.c',
   'double.c',
@@ -7,21 +7,25 @@ files = [
   'value.c',
 ]
 
-r_reg = library('r_reg', files,
+r_reg = library('r_reg', r_reg_sources,
   include_directories: [platform_inc],
-  link_with: [r_util],
+  c_args: library_cflags,
+  dependencies: [r_util_dep],
   install: true,
-  implicit_include_directories: false
+  implicit_include_directories: false,
+  soversion: r2_libversion
 )
 
+r_reg_dep = declare_dependency(link_with: r_reg,
+                               include_directories: [platform_inc])
 
-pkg = import('pkgconfig')
-pkg.generate(libraries: [r_reg],
-             subdirs: 'libr',
-             version: r2version,
-             name: 'r_reg',
-             filebase: 'r_reg',
-             requires: [
-               'r_util'
-             ],
-             description: 'radare foundation libraries')
+pkgconfig_mod.generate(r_reg,
+  subdirs: 'libr',
+  version: r2_version,
+  name: 'r_reg',
+  filebase: 'r_reg',
+  requires: [
+    'r_util'
+  ],
+  description: 'radare foundation libraries'
+)

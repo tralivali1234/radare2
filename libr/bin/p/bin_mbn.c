@@ -1,4 +1,7 @@
-/* radare2 - LGPL - Copyright 2015-2017 - pancake */
+/* radare2 - LGPL - Copyright 2015-2019 - pancake */
+
+// XXX: this plugin have 0 tests and no binaries
+//
 
 #include <r_types.h>
 #include <r_util.h>
@@ -16,38 +19,24 @@ typedef struct sbl_header {
 	ut32 sign_sz;
 	ut32 cert_va;    // Max of 3 certs?
 	ut32 cert_sz;
-} SBLHDR;
+} SblHeader;
 
 // TODO avoid globals
-static SBLHDR sb = {0};
+static SblHeader sb = {0};
 
-static bool check_bytes(const ut8 *buf, ut64 bufsz) {
-	if (buf && bufsz >= sizeof (SBLHDR)) {
-		RBuffer *b = r_buf_new_with_pointers (buf, bufsz);
+static bool check_buffer(RBuffer *b) {
+	r_return_val_if_fail (b, false);
+	ut64 bufsz = r_buf_size (b);
+	if (sizeof (SblHeader) < bufsz) {
 		int ret = r_buf_fread_at (b, 0, (ut8*)&sb, "10i", 1);
-		r_buf_free (b);
 		if (!ret) {
 			return false;
 		}
-		if (sb.version != 3) { // NAND
-			return false;
-		}
-		if (sb.paddr + sizeof (SBLHDR) > bufsz) { // NAND
-			return false;
-		}
-		if (sb.vaddr < 0x100 || sb.psize > bufsz) { // NAND
-			return false;
-		}
-		if (sb.cert_va < sb.vaddr) return false;
-		if (sb.cert_sz >= 0xf0000) return false;
-		if (sb.sign_va < sb.vaddr) return false;
-		if (sb.sign_sz >= 0xf0000) return false;
-		if (sb.load_index < 1 || sb.load_index > 0x40) return false; // should be 0x19 ?
 #if 0
 		eprintf ("V=%d\n", sb.version);
 		eprintf ("PA=0x%08x sz=0x%x\n", sb.paddr, sb.psize);
 		eprintf ("VA=0x%08x sz=0x%x\n", sb.vaddr, sb.psize);
-		eprintf ("CODE=0x%08x\n", sb.code_pa + sb.vaddr+40);
+		eprintf ("CODE=0x%08x\n", sb.code_pa + sb.vaddr + 40);
 		eprintf ("SIGN=0x%08x sz=0x%x\n", sb.sign_va, sb.sign_sz);
 		if (sb.cert_sz > 0) {
 			eprintf ("CERT=0x%08x sz=0x%x\n", sb.cert_va, sb.cert_sz);
@@ -55,27 +44,38 @@ static bool check_bytes(const ut8 *buf, ut64 bufsz) {
 			eprintf ("No certificate found.\n");
 		}
 #endif
+		if (sb.version != 3) { // NAND
+			return false;
+		}
+		if (sb.paddr + sizeof (SblHeader) > bufsz) { // NAND
+			return false;
+		}
+		if (sb.vaddr < 0x100 || sb.psize > bufsz) { // NAND
+			return false;
+		}
+		if (sb.cert_va < sb.vaddr) {
+			return false;
+		}
+		if (sb.cert_sz >= 0xf0000) {
+			return false;
+		}
+		if (sb.sign_va < sb.vaddr) {
+			return false;
+		}
+		if (sb.sign_sz >= 0xf0000) {
+			return false;
+		}
+		if (sb.load_index < 1 || sb.load_index > 0x40) {
+			return false; // should be 0x19 ?
+		}
 // TODO: Add more checks here
 		return true;
 	}
 	return false;
 }
 
-static void * load_bytes(RBinFile *bf, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb){
-	return (void*)(size_t)check_bytes (buf, sz);
-}
-
-static bool load(RBinFile *bf) {
-	if (bf && bf->buf) {
-		const ut8 *bytes = r_buf_buffer (bf->buf);
-		ut64 sz = r_buf_size (bf->buf);
-		return load_bytes (bf, bytes, sz, bf->o->loadaddr, bf->sdb) != NULL;
-	}
-	return false;
-}
-
-static int destroy (RBinFile *bf) {
-	return true;
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb){
+	return check_buffer (b);
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -83,17 +83,14 @@ static ut64 baddr(RBinFile *bf) {
 }
 
 static RList* entries(RBinFile *bf) {
-	RList* ret;
-	RBinAddr *ptr = NULL;
-
-	if (!(ret = r_list_new ())) {
-		return NULL;
-	}
-	ret->free = free;
-	if ((ptr = R_NEW0 (RBinAddr))) {
-		ptr->paddr = 40 + sb.code_pa;
-		ptr->vaddr = 40 + sb.code_pa + sb.vaddr;
-		r_list_append (ret, ptr);
+	RList* ret = r_list_newf (free);;
+	if (ret) {
+		RBinAddr *ptr = R_NEW0 (RBinAddr);
+		if (ptr) {
+			ptr->paddr = 40 + sb.code_pa;
+			ptr->vaddr = 40 + sb.code_pa + sb.vaddr;
+			r_list_append (ret, ptr);
+		}
 	}
 	return ret;
 }
@@ -117,12 +114,12 @@ static RList* sections(RBinFile *bf) {
 	if (!(ptr = R_NEW0 (RBinSection))) {
 		return ret;
 	}
-	strncpy (ptr->name, "text", R_BIN_SIZEOF_STRINGS);
+	ptr->name = strdup ("text");
 	ptr->size = sb.psize;
 	ptr->vsize = sb.psize;
 	ptr->paddr = sb.paddr + 40;
 	ptr->vaddr = sb.vaddr;
-	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	ptr->perm = R_PERM_RX; // r-x
 	ptr->add = true;
 	ptr->has_strings = true;
 	r_list_append (ret, ptr);
@@ -130,12 +127,12 @@ static RList* sections(RBinFile *bf) {
 	if (!(ptr = R_NEW0 (RBinSection))) {
 		return ret;
 	}
-	strncpy (ptr->name, "sign", R_BIN_SIZEOF_STRINGS);
+	ptr->name = strdup ("sign");
 	ptr->size = sb.sign_sz;
 	ptr->vsize = sb.sign_sz;
 	ptr->paddr = sb.sign_va - sb.vaddr;
 	ptr->vaddr = sb.sign_va;
-	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+	ptr->perm = R_PERM_R; // r--
 	ptr->has_strings = true;
 	ptr->add = true;
 	r_list_append (ret, ptr);
@@ -144,12 +141,12 @@ static RList* sections(RBinFile *bf) {
 		if (!(ptr = R_NEW0 (RBinSection))) {
 			return ret;
 		}
-		strncpy (ptr->name, "cert", R_BIN_SIZEOF_STRINGS);
+		ptr->name = strdup ("cert");
 		ptr->size = sb.cert_sz;
 		ptr->vsize = sb.cert_sz;
 		ptr->paddr = sb.cert_va - sb.vaddr;
 		ptr->vaddr = sb.cert_va;
-		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->perm = R_PERM_R; // r--
 		ptr->has_strings = true;
 		ptr->add = true;
 		r_list_append (ret, ptr);
@@ -182,7 +179,7 @@ static RBinInfo* info(RBinFile *bf) {
 }
 
 static ut64 size(RBinFile *bf) {
-	return sizeof (SBLHDR) + sb.psize;
+	return sizeof (SblHeader) + sb.psize;
 }
 
 RBinPlugin r_bin_plugin_mbn = {
@@ -190,19 +187,17 @@ RBinPlugin r_bin_plugin_mbn = {
 	.desc = "MBN/SBL bootloader things",
 	.license = "LGPL3",
 	.minstrlen = 10,
-	.load = &load,
-	.load_bytes = &load_bytes,
+	.load_buffer = &load_buffer,
 	.size = &size,
-	.destroy = &destroy,
-	.check_bytes = &check_bytes,
+	.check_buffer = &check_buffer,
 	.baddr = &baddr,
 	.entries = &entries,
 	.sections = &sections,
 	.info = &info,
 };
 
-#ifndef CORELIB
-RLibStruct radare_plugin = {
+#ifndef R2_PLUGIN_INCORE
+R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN,
 	.data = &r_bin_plugin_mbn,
 	.version = R2_VERSION

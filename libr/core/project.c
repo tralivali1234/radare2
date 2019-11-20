@@ -1,34 +1,11 @@
-/* radare - LGPL - Copyright 2010-2018 - pancake, maijin */
+/* radare - LGPL - Copyright 2010-2019 - pancake, maijin */
 
 #include <r_types.h>
 #include <r_list.h>
 #include <r_flag.h>
 #include <r_core.h>
+#define USE_R2 1
 #include <spp/spp.h>
-
-#if 0
-static void __section_list_for_projects (RIO *io, RPrint *print) {
-	int i = 0;
-	SdbListIter *iter;
-	RIOSection *s;
-
-	if (!io || !io->sections || !print || !print->cb_printf) {
-		return;
-	}
-	ls_foreach (io->sections, iter, s) {
-		print->cb_printf ("[%02d] 0x%08"PFMT64x" %s va=0x%08"PFMT64x
-			" sz=0x%04"PFMT64x" vsz=0x%04"PFMT64x" %s",
-			i, s->paddr, r_str_rwx_i (s->flags), s->vaddr,
-			s->size, s->vsize, s->name);
-		if (s->arch && s->bits) {
-			print->cb_printf ("  ; %s %d", r_sys_arch_str (s->arch),
-				s->bits);
-		}
-		print->cb_printf ("\n");
-		i++;
-	}
-}
-#endif
 
 static bool is_valid_project_name(const char *name) {
 	int i;
@@ -128,9 +105,9 @@ R_API int r_core_project_cat(RCore *core, const char *name) {
 }
 
 R_API int r_core_project_list(RCore *core, int mode) {
+	PJ *pj = NULL;
 	RListIter *iter;
 	RList *list;
-	bool isfirst = true;
 
 	char *foo, *path = r_file_abspath (r_config_get (core->config, "dir.projects"));
 	if (!path) {
@@ -139,16 +116,20 @@ R_API int r_core_project_list(RCore *core, int mode) {
 	list = r_sys_dir (path);
 	switch (mode) {
 	case 'j':
-		r_cons_printf ("[");
+		pj = pj_new ();
+		if (!pj) {
+			break;
+		}
+		pj_a (pj);
 		r_list_foreach (list, iter, foo) {
 			// todo. escape string
 			if (r_core_is_project (core, foo)) {
-				r_cons_printf ("%s\"%s\"",
-					isfirst? "": ",", foo);
-				isfirst = false;
+				pj_s (pj, foo);
 			}
 		}
-		r_cons_printf ("]\n");
+		pj_end (pj);
+		r_cons_printf ("%s\n", pj_string (pj));
+		pj_free (pj);
 		break;
 	default:
 		r_list_foreach (list, iter, foo) {
@@ -164,20 +145,20 @@ R_API int r_core_project_list(RCore *core, int mode) {
 }
 
 R_API int r_core_project_delete(RCore *core, const char *prjfile) {
-	char *path, *prjDir = NULL;
 	if (r_sandbox_enable (0)) {
 		eprintf ("Cannot delete project in sandbox mode\n");
 		return 0;
 	}
-	path = projectScriptPath (core, prjfile);
+	char *path = projectScriptPath (core, prjfile);
 	if (!path) {
 		eprintf ("Invalid project name '%s'\n", prjfile);
 		return false;
 	}
 	if (r_core_is_project (core, prjfile)) {
-		prjDir = r_file_dirname (path);
+		char *prjDir = r_file_dirname (path);
 		if (!prjDir) {
 			eprintf ("Cannot resolve directory\n");
+			free (path);
 			return false;
 		}
 		// rm project file
@@ -186,15 +167,13 @@ R_API int r_core_project_delete(RCore *core, const char *prjfile) {
 			eprintf ("rm %s\n", path);
 		}
 
-		free (path);
-
-		//rm xrefs.sdb file
-		char *xrefs_sdb = r_str_newf ("%s%s%s", prjDir, R_SYS_DIR, "xrefs.sdb");
-		if (r_file_exists (xrefs_sdb)) {
-			r_file_rm (xrefs_sdb);
-			eprintf ("rm %s\n", xrefs_sdb);
+		//rm notes.txt file
+		char *notes_txt = r_str_newf ("%s%s%s", prjDir, R_SYS_DIR, "notes.txt");
+		if (r_file_exists (notes_txt)) {
+			r_file_rm (notes_txt);
+			eprintf ("rm %s\n", notes_txt);
 		}
-		free (xrefs_sdb);
+		free(notes_txt);
 
 		char *rop_d = r_str_newf ("%s%s%s", prjDir, R_SYS_DIR, "rop.d");
 
@@ -218,8 +197,9 @@ R_API int r_core_project_delete(RCore *core, const char *prjfile) {
 		free (rop_d);
 		// remove directory only if it's empty
 		r_file_rm (prjDir);
+		free (prjDir);
 	}
-	free (prjDir);
+	free (path);
 	return 0;
 }
 
@@ -359,13 +339,13 @@ typedef struct {
 	char *rcPath;
 } ProjectState;
 
-static int projectLoadBackground(RThread *th) {
+static RThreadFunctionRet projectLoadBackground(RThread *th) {
 	ProjectState *ps = th->user;
 	r_core_project_load (ps->core, ps->prjName, ps->rcPath);
 	free (ps->prjName);
 	free (ps->rcPath);
 	free (ps);
-	return 0;
+	return R_TH_STOP;
 }
 
 R_API RThread *r_core_project_load_bg(RCore *core, const char *prjName, const char *rcPath) {
@@ -375,18 +355,42 @@ R_API RThread *r_core_project_load_bg(RCore *core, const char *prjName, const ch
 	ps->rcPath = strdup (rcPath);
 	RThread *th = r_th_new (projectLoadBackground, ps, false);
 	r_th_start (th, true);
+	if (th) {
+		char thname[16] = {0};
+		size_t thlen = R_MIN (strlen(prjName), sizeof(thname) - 1);
+		strncpy (thname, prjName, thlen);
+		thname[15] = 0;
+		r_th_setname (th, thname);
+	}
 	return th;
 }
 
 /*** ^^^ thready ***/
 
+static ut64 getProjectLaddr(RCore *core, const char *prjfile) {
+	ut64 laddr = 0;
+	char *buf = r_file_slurp (prjfile, NULL);
+	char *pos;
+	if (buf) {
+		if ((pos = strstr(buf, "\"e bin.laddr = "))) {
+			laddr = r_num_math (NULL, pos + 15);
+		}
+		free (buf);
+	}
+	return laddr;
+}
+
 R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
-	int askuser = 1;
+	bool askuser = true;
 	int ret, close_current_session = 1;
 	char *oldbin;
 	const char *newbin;
 	ut64 mapaddr = 0;
 	if (!prjfile || !*prjfile) {
+		return false;
+	}
+	if (thready) {
+		eprintf ("Loading projects in a thread has been deprecated. Use tasks\n");
 		return false;
 	}
 	char *prj = projectScriptPath (core, prjfile);
@@ -424,7 +428,7 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 	oldbin = strdup (file_path);
 	if (!strcmp (prjfile, r_config_get (core->config, "prj.name"))) {
 		// eprintf ("Reloading project\n");
-		askuser = 0;
+		askuser = false;
 #if 0
 		free (prj);
 		free (filepath);
@@ -432,7 +436,7 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 #endif
 	}
 	if (askuser) {
-		if (r_config_get_i (core->config, "scr.interactive")) {
+		if (r_cons_is_interactive ()) {
 			close_current_session = r_cons_yesno ('y', "Close current session? (Y/n)");
 		}
 	}
@@ -445,28 +449,25 @@ R_API bool r_core_project_open(RCore *core, const char *prjfile, bool thready) {
 		r_bin_file_delete_all (core->bin);
 		// open new file
 		// TODO: handle read/read-write mode
-		r_io_desc_init (core->io);
 		if (filepath[0]) {
 			/* Old-style project without embedded on commands to open all files.  */
-			if (!r_core_file_open (core, filepath, 0, 0)) {
+			if (!r_core_file_open (core, filepath, 0, UT64_MAX)) {
 				eprintf ("Cannot open file '%s'\n", filepath);
 				ret = false;
 				goto beach;
 			}
 		}
 	}
-
+	mapaddr = getProjectLaddr (core, prj);
+	if (mapaddr) {
+		r_config_set_i (core->config, "bin.laddr", mapaddr);
+	}
 	if (filepath[0] && close_current_session && r_config_get_i (core->config, "file.info")) {
 		mapaddr = r_config_get_i (core->config, "file.offset");
 		(void)r_core_bin_load (core, filepath, mapaddr? mapaddr: UT64_MAX);
 	}
-	if (thready) {
-		(void) r_core_project_load_bg (core, prjfile, prj);
-		ret = true;
-	} else {
-		/* load sdb stuff in here */
-		ret = r_core_project_load (core, prjfile, prj);
-	}
+	/* load sdb stuff in here */
+	ret = r_core_project_load (core, prjfile, prj);
 	if (filepath[0]) {
 		newbin = r_config_get (core->config, "file.path");
 		if (!newbin || !*newbin) {
@@ -494,7 +495,9 @@ R_API char *r_core_project_info(RCore *core, const char *prjfile) {
 	fd = r_sandbox_fopen (prj, "r");
 	if (fd) {
 		for (;;) {
-			fgets (buf, sizeof (buf), fd);
+			if (!fgets (buf, sizeof (buf), fd)) {
+				break;
+			}
 			if (feof (fd)) {
 				break;
 			}
@@ -536,11 +539,13 @@ static bool store_files_and_maps (RCore *core, RIODesc *desc, ut32 id) {
 	RListIter *iter;
 	RIOMap *map;
 	if (desc) {
-		r_cons_printf ("ofs %s %s\n", desc->uri, r_str_rwx_i (desc->flags));
+		// reload bin info
+		r_cons_printf ("\"obf %s\"\n", desc->uri);
+		r_cons_printf ("\"ofs \\\"%s\\\" %s\"\n", desc->uri, r_str_rwx_i (desc->perm));
 		if ((maps = r_io_map_get_for_fd (core->io, id))) {
 			r_list_foreach (maps, iter, map) {
 				r_cons_printf ("om %d 0x%"PFMT64x" 0x%"PFMT64x" 0x%"PFMT64x" %s%s%s\n", fdc,
-					map->itv.addr, map->itv.size, map->delta, r_str_rwx_i(map->flags),
+					map->itv.addr, map->itv.size, map->delta, r_str_rwx_i (map->perm),
 					map->name ? " " : "", map->name ? map->name : "");
 			}
 			r_list_free (maps);
@@ -573,27 +578,13 @@ static bool simpleProjectSaveScript(RCore *core, const char *file, int opts) {
 
 	fdold = r_cons_singleton ()->fdout;
 	r_cons_singleton ()->fdout = fd;
-	r_cons_singleton ()->is_interactive = false;
+	r_cons_singleton ()->context->is_interactive = false; // NOES must use api
 
 	r_str_write (fd, "# r2 rdb project file\n");
 
 	if (opts & R_CORE_PRJ_EVAL) {
 		r_str_write (fd, "# eval\n");
 		r_config_list (core->config, NULL, true);
-		r_cons_flush ();
-	}
-
-	if (opts & R_CORE_PRJ_META) {
-		r_str_write (fd, "# meta\n");
-		r_meta_list (core->anal, R_META_TYPE_ANY, 1);
-		r_cons_flush ();
-		r_core_cmd (core, "fV*", 0);
-		r_cons_flush ();
-	}
-
-	if (opts & R_CORE_PRJ_XREFS) {
-		r_str_write (fd, "# xrefs\n");
-		r_core_cmd (core, "ax*", 0);
 		r_cons_flush ();
 	}
 
@@ -608,9 +599,22 @@ static bool simpleProjectSaveScript(RCore *core, const char *file, int opts) {
 		r_core_cmd (core, "f.**", 0);
 		r_cons_flush ();
 	}
+	if (opts & R_CORE_PRJ_META) {
+		r_str_write (fd, "# meta\n");
+		r_meta_list (core->anal, R_META_TYPE_ANY, 1);
+		r_cons_flush ();
+		r_core_cmd (core, "fV*", 0);
+		r_cons_flush ();
+	}
+	if (opts & R_CORE_PRJ_XREFS) {
+		r_str_write (fd, "# xrefs\n");
+		r_core_cmd (core, "ax*", 0);
+		r_cons_flush ();
+	}
+
 
 	r_cons_singleton ()->fdout = fdold;
-	r_cons_singleton ()->is_interactive = true;
+	r_cons_singleton ()->context->is_interactive = true;
 
 	if (ohl) {
 		r_cons_highlight (ohl);
@@ -625,7 +629,7 @@ static bool simpleProjectSaveScript(RCore *core, const char *file, int opts) {
 
 static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	char *filename, *hl, *ohl = NULL;
-	int fd, fdold, tmp;
+	int fd, fdold;
 
 	if (!file || *file == '\0') {
 		return false;
@@ -646,18 +650,8 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 
 	fdold = r_cons_singleton ()->fdout;
 	r_cons_singleton ()->fdout = fd;
-	r_cons_singleton ()->is_interactive = false;
-
+	r_cons_singleton ()->context->is_interactive = false;
 	r_str_write (fd, "# r2 rdb project file\n");
-
-	if (opts & R_CORE_PRJ_FLAGS) {
-		r_str_write (fd, "# flags\n");
-		tmp = core->flags->space_idx;
-		core->flags->space_idx = -1;
-		r_flag_list (core->flags, true, NULL);
-		core->flags->space_idx = tmp;
-		r_cons_flush ();
-	}
 	// Set file.path and file.lastpath to empty string to signal
 	// new behaviour to project load routine (see io maps below).
 	r_config_set (core->config, "file.path", "");
@@ -665,6 +659,19 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	if (opts & R_CORE_PRJ_EVAL) {
 		r_str_write (fd, "# eval\n");
 		r_config_list (core->config, NULL, true);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_FCNS) {
+		r_core_cmd (core, "afl*", 0);
+		r_cons_flush ();
+	}
+
+	if (opts & R_CORE_PRJ_FLAGS) {
+		r_str_write (fd, "# flags\n");
+		r_flag_space_push (core->flags, NULL);
+		r_flag_list (core->flags, true, NULL);
+		r_flag_space_pop (core->flags);
 		r_cons_flush ();
 	}
 	if (opts & R_CORE_PRJ_IO_MAPS && core->io && core->io->files) {
@@ -676,12 +683,6 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 		r_core_cmd (core, "fz*", 0);
 		r_cons_flush ();
 	}
-	if (opts & R_CORE_PRJ_SECTIONS) {
-		r_str_write (fd, "# sections\n");
-		r_core_cmd (core, "S*", 0);
-		// __section_list_for_projects (core->io, core->print);
-		// r_cons_flush ();
-	}
 	if (opts & R_CORE_PRJ_META) {
 		r_str_write (fd, "# meta\n");
 		r_meta_list (core->anal, R_META_TYPE_ANY, 1);
@@ -691,10 +692,6 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	}
 	if (opts & R_CORE_PRJ_XREFS) {
 		r_core_cmd (core, "ax*", 0);
-		r_cons_flush ();
-	}
-	if (opts & R_CORE_PRJ_FCNS) {
-		r_core_cmd (core, "afl*", 0);
 		r_cons_flush ();
 	}
 	if (opts & R_CORE_PRJ_FLAGS) {
@@ -717,6 +714,8 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	if (opts & R_CORE_PRJ_ANAL_MACROS) {
 		r_str_write (fd, "# macros\n");
 		r_core_cmd (core, "(*", 0);
+		r_str_write (fd, "# aliases\n");
+		r_core_cmd (core, "$*", 0);
 		r_cons_flush ();
 	}
 	if (opts & R_CORE_PRJ_ANAL_SEEK) {
@@ -726,7 +725,7 @@ static bool projectSaveScript(RCore *core, const char *file, int opts) {
 	}
 
 	r_cons_singleton ()->fdout = fdold;
-	r_cons_singleton ()->is_interactive = true;
+	r_cons_singleton ()->context->is_interactive = true;
 
 	if (ohl) {
 		r_cons_highlight (ohl);
@@ -803,8 +802,6 @@ R_API bool r_core_project_save(RCore *core, const char *prjName) {
 	}
 	projectInit (core);
 
-	r_anal_project_save (core->anal, prjDir);
-
 	Sdb *rop_db = sdb_ns (core->sdb, "rop", false);
 	if (rop_db) {
 		/* set filepath for all the rop sub-dbs */
@@ -822,12 +819,12 @@ R_API bool r_core_project_save(RCore *core, const char *prjName) {
 	}
 	r_config_set (core->config, "prj.name", prjName);
 	if (r_config_get_i (core->config, "prj.simple")) {
-		if (!simpleProjectSaveScript (core, scriptPath, R_CORE_PRJ_ALL ^ R_CORE_PRJ_XREFS)) {
+		if (!simpleProjectSaveScript (core, scriptPath, R_CORE_PRJ_ALL)) {
 			eprintf ("Cannot open '%s' for writing\n", prjName);
 			ret = false;
 		}
 	} else {
-		if (!projectSaveScript (core, scriptPath, R_CORE_PRJ_ALL ^ R_CORE_PRJ_XREFS)) {
+		if (!projectSaveScript (core, scriptPath, R_CORE_PRJ_ALL)) {
 			eprintf ("Cannot open '%s' for writing\n", prjName);
 			ret = false;
 		}
@@ -884,7 +881,7 @@ R_API bool r_core_project_save(RCore *core, const char *prjName) {
 	if (scr_null) {
 		r_config_set_i (core->config, "scr.null", true);
 	}
-	if (!ret) {
+	if (!ret && oldPrjName) {
 		// reset prj.name on fail
 		r_config_set (core->config, "prj.name", oldPrjName);
 	}
@@ -902,62 +899,11 @@ R_API char *r_core_project_notes_file(RCore *core, const char *prjName) {
 	return notes_txt;
 }
 
-#define DB core->anal->sdb_xrefs
-
-static bool projectLoadXrefs(RCore *core, const char *prjName) {
-	char *path, *db;
-
-	if (!prjName || !*prjName) {
-		return false;
-	}
-	const char *prjdir = r_config_get (core->config, "dir.projects");
-
-	if (prjName[0] == R_SYS_DIR[0]) {
-		db = r_str_newf ("%s", prjName);
-		if (!db) {
-			return false;
-		}
-		path = strdup (db);
-	} else {
-		db = r_str_newf ("%s" R_SYS_DIR "%s", prjdir, prjName);
-		if (!db) {
-			return false;
-		}
-		path = r_file_abspath (db);
-	}
-
-	if (!path) {
-		free (db);
-		return false;
-	}
-	if (!r_file_is_directory (db)) {
-		db = r_str_append (db, ".d");
-	}
-
-	if (!sdb_ns_unset (core->anal->sdb, NULL, DB)) {
-		sdb_free (DB);
-	}
-	const char *xrefs_path = r_file_fexists ("%s" R_SYS_DIR "xrefs.sdb", path)
-	                         ? "xrefs.sdb": "xrefs";
-	DB = sdb_new (path, xrefs_path, 0);
-	if (!DB) {
-		free (db);
-		free (path);
-		return false;
-	}
-	sdb_ns_set (core->anal->sdb, "xrefs", DB);
-	free (path);
-
-	free (db);
-	return true;
-}
-
 R_API bool r_core_project_load(RCore *core, const char *prjName, const char *rcpath) {
 	const bool cfg_fortunes = r_config_get_i (core->config, "cfg.fortunes");
-	const bool scr_interactive = r_config_get_i (core->config, "scr.interactive");
+	const bool scr_interactive = r_cons_is_interactive ();
 	const bool scr_prompt = r_config_get_i (core->config, "scr.prompt");
 	(void) projectLoadRop (core, prjName);
-	(void) projectLoadXrefs (core, prjName);
 	bool ret = r_core_cmd_file (core, rcpath);
 	r_config_set_i (core->config, "cfg.fortunes", cfg_fortunes);
 	r_config_set_i (core->config, "scr.interactive", scr_interactive);
