@@ -29,7 +29,7 @@ R_PACKED (struct winedbg_x86_32 {
 });
 
 // TODO: make it vargarg...
-static char *runcmd (const char *cmd) {
+static char *runcmd(const char *cmd) {
 	char buf[4096] = {0};
 	if (cmd) {
 		r_socket_printf (gs, "%s\n", cmd);
@@ -39,7 +39,10 @@ static char *runcmd (const char *cmd) {
 	r_socket_block_time (gs, 1, timeout, 0);
 	while (true) {
 		memset (buf, 0, sizeof (buf));
-		r_socket_read (gs, (ut8*)buf, sizeof (buf) - 1); // NULL-terminate the string always
+		int rc = r_socket_read (gs, (ut8*)buf, sizeof (buf) - 1); // NULL-terminate the string always
+		if (rc == -1) {
+			break;
+		}
 		char *promptFound = strstr (buf, "Wine-dbg>");
 		if (promptFound) {
 			*promptFound = 0;
@@ -141,13 +144,14 @@ static int __close(RIODesc *fd) {
 
 static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	switch (whence) {
-	case SEEK_SET:
+	case R_IO_SEEK_SET:
 		io->off = offset;
-		return offset;
-	case SEEK_CUR:
-		return io->off + offset;
-	case SEEK_END:
-		return UT64_MAX;
+		break;
+	case R_IO_SEEK_CUR:
+		io->off += offset;
+		break;
+	case R_IO_SEEK_END:
+		io->off = ST64_MAX;
 	}
 	io->off = offset;
 	return offset;
@@ -290,7 +294,7 @@ const char *msg =
 "flg	rf	.1	.202	0\n"\
 "flg	vm	.1	.203	0\n";
 		return strdup (msg);
-	} else if (!strncmp (cmd, "dr*", 2)) {
+	} else if (!strncmp (cmd, "dr*", 3)) {
 		struct winedbg_x86_32 r = regState ();
 		io->cb_printf ("f eip = 0x%08x\n", r.eip);
 		io->cb_printf ("f esp = 0x%08x\n", r.esp);
@@ -311,7 +315,7 @@ const char *msg =
 	} else if (!strncmp (cmd, "dr", 2)) {
 		printcmd (io, "info reg");
 	} else if (!strncmp (cmd, "db ", 3)) {
-		free (runcmd (sdb_fmt ("break *%"PFMT64x, r_num_get (NULL, cmd + 3) || io->off)));
+		free (runcmd (sdb_fmt ("break *%x", r_num_get (NULL, cmd + 3) || io->off)));
 	} else if (!strncmp (cmd, "ds", 2)) {
 		free (runcmd ("stepi"));
 	} else if (!strncmp (cmd, "dc", 2)) {

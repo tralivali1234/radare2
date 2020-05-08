@@ -23,8 +23,8 @@ CFLAGS+=-DXNU_USE_PTRACE=$(XNU_USE_PTRACE)
 
 STATIC_OBJS=$(subst ..,p/..,$(subst debug_,p/debug_,$(STATIC_OBJ)))
 
-OBJS=signal.o map.o trace.o arg.o debug.o plugin.o snap.o session.o
-OBJS+=pid.o dreg.o ddesc.o esil.o ${STATIC_OBJS}
+OBJS=dsignal.o dmap.o trace.o arg.o debug.o plugin.o snap.o dsession.o
+OBJS+=pid.o dreg.o ddesc.o desil.o ${STATIC_OBJS}
 
 ifeq (${OSTYPE},darwin)
 ifneq (${NATIVE_OBJS},)
@@ -40,6 +40,12 @@ endif
 ifneq (${COREDUMP_OBJS},)
 ifeq ($(OSTYPE),$(filter $(OSTYPE),gnulinux))
 OBJS+= p/${COREDUMP_OBJS}
+endif
+endif
+
+ifneq (,$(findstring bsd,$(OSTYPE))$(findstring dragonfly,$(OSTYPE)))
+ifneq (${NATIVE_OBJS},)
+OBJS+=$(addprefix p/,$(NATIVE_OBJS))
 endif
 endif
 

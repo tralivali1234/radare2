@@ -40,6 +40,9 @@ extern "C" {
 # ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
 # define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
 # endif
+# ifndef ENABLE_VIRTUAL_TERMINAL_INPUT
+# define ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200
+# endif
 #else
 #include <unistd.h>
 #endif
@@ -64,12 +67,16 @@ R_LIB_VERSION_HEADER(r_cons);
 typedef int (*RConsGetSize)(int *rows);
 typedef int (*RConsGetCursor)(int *rows);
 typedef bool (*RConsIsBreaked)(void);
+typedef void (*RConsFlush)(void);
+typedef void (*RConsGrepCallback)(const char *grep);
 
 typedef struct r_cons_bind_t {
 	RConsGetSize get_size;
 	RConsGetCursor get_cursor;
 	PrintfCallback cb_printf;
 	RConsIsBreaked is_breaked;
+	RConsFlush cb_flush;
+	RConsGrepCallback cb_grep;
 } RConsBind;
 
 typedef struct r_cons_grep_t {
@@ -420,6 +427,7 @@ typedef void (*RConsBreakCallback)(void *core);
 typedef void *(*RConsSleepBeginCallback)(void *core);
 typedef void (*RConsSleepEndCallback)(void *core, void *user);
 typedef void (*RConsQueueTaskOneshot)(void *core, void *task, void *user);
+typedef void (*RConsFunctionKey)(void *core, int fkey);
 
 typedef enum { COLOR_MODE_DISABLED = 0, COLOR_MODE_16, COLOR_MODE_256, COLOR_MODE_16M } RConsColorMode;
 
@@ -483,12 +491,13 @@ typedef struct r_cons_t {
 	RConsSleepEndCallback cb_sleep_end;
 	RConsClickCallback cb_click;
 	RConsQueueTaskOneshot cb_task_oneshot;
+	RConsFunctionKey cb_fkey;
 
 	void *user; // Used by <RCore*>
 #if __UNIX__
 	struct termios term_raw, term_buf;
 #elif __WINDOWS__
-	DWORD term_raw, term_buf;
+	DWORD term_raw, term_buf, term_xterm;
 #endif
 	RNum *num;
 	/* Pager (like more or less) to use if the output doesn't fit on the
@@ -503,10 +512,8 @@ typedef struct r_cons_t {
 	struct r_line_t *line;
 	const char **vline;
 	int refcnt;
-	bool newline;
-#if __WINDOWS__
-	int ansicon;
-#endif
+	R_DEPRECATE bool newline;
+	int vtmode;
 	bool flush;
 	bool use_utf8; // use utf8 features
 	bool use_utf8_curvy; // use utf8 curved corners
@@ -556,7 +563,6 @@ typedef struct r_cons_t {
 
 #define R_CONS_CLEAR_LINE "\x1b[2K\r"
 #define R_CONS_CLEAR_SCREEN "\x1b[2J\r"
-#define R_CONS_ADD_NEWLINES "\x1b[2J"
 #define R_CONS_CLEAR_FROM_CURSOR_TO_END "\x1b[0J\r"
 
 #define R_CONS_CURSOR_SAVE "\x1b[s"
@@ -803,24 +809,29 @@ R_API void r_cons_set_click(int x, int y);
 R_API bool r_cons_get_click(int *x, int *y);
 
 typedef void (*RConsBreak)(void *);
-R_API void r_cons_break_end(void);
 R_API bool r_cons_is_breaked(void);
 R_API bool r_cons_is_interactive(void);
 R_API bool r_cons_default_context_is_interactive(void);
-R_API void r_cons_break_timeout(int timeout);
-R_API void r_cons_breakword(const char *s);
 R_API void *r_cons_sleep_begin(void);
 R_API void r_cons_sleep_end(void *user);
+
+/* ^C */
+R_API void r_cons_break_push(RConsBreak cb, void *user);
+R_API void r_cons_break_pop(void);
+R_API void r_cons_break_clear(void);
+R_API void r_cons_breakword(const char *s);
+R_API void r_cons_break_end(void);
+R_API void r_cons_break_timeout(int timeout);
 
 /* pipe */
 R_API int r_cons_pipe_open(const char *file, int fdn, int append);
 R_API void r_cons_pipe_close(int fd);
 
 #if __WINDOWS__
-R_API bool r_cons_is_ansicon(void);
+R_API int r_cons_is_vtcompat(void);
 R_API void r_cons_w32_clear(void);
 R_API void r_cons_w32_gotoxy(int fd, int x, int y);
-R_API int r_cons_w32_print(const ut8 *ptr, int len, bool vmode);
+R_API int r_cons_w32_print(const char *ptr, int len, bool vmode);
 R_API int r_cons_win_printf(bool vmode, const char *fmt, ...);
 R_API int r_cons_win_eprintf(bool vmode, const char *fmt, ...);
 R_API int r_cons_win_vhprintf(DWORD hdl, bool vmode, const char *fmt, va_list ap);
@@ -836,9 +847,6 @@ R_API bool r_cons_context_is_main(void);
 R_API void r_cons_context_break(RConsContext *context);
 R_API void r_cons_context_break_push(RConsContext *context, RConsBreak cb, void *user, bool sig);
 R_API void r_cons_context_break_pop(RConsContext *context, bool sig);
-R_API void r_cons_break_push(RConsBreak cb, void *user);
-R_API void r_cons_break_pop(void);
-R_API void r_cons_break_clear(void);
 
 /* control */
 R_API char *r_cons_editor(const char *file, const char *str);
@@ -865,6 +873,7 @@ R_API void r_cons_set_raw(bool b);
 R_API void r_cons_set_interactive(bool b);
 R_API void r_cons_set_last_interactive(void);
 R_API void r_cons_set_utf8(bool b);
+R_API void r_cons_grep(const char *grep);
 
 /* output */
 R_API int r_cons_printf(const char *format, ...);
@@ -1038,6 +1047,8 @@ struct r_line_t {
 	RLineHistoryUpCb cb_history_up;
 	RLineHistoryDownCb cb_history_down;
 	RLineEditorCb cb_editor;
+	// RLineFunctionKeyCb cb_fkey;
+	RConsFunctionKey cb_fkey;
 	/* state , TODO: use more bool */
 	int echo;
 	int has_echo;
@@ -1060,9 +1071,7 @@ struct r_line_t {
 	RLineHud *hud;
 	RList *sdbshell_hist;
 	RListIter *sdbshell_hist_iter;
-#if __WINDOWS__
-	int ansicon;
-#endif
+	int vtmode;
 }; /* RLine */
 
 #ifdef R_API
@@ -1158,7 +1167,6 @@ typedef struct r_panels_t {
 	int curnode;
 	int mouse_orig_x;
 	int mouse_orig_y;
-	bool isResizing;
 	bool autoUpdate;
 	bool mouse_on_edge_x;
 	bool mouse_on_edge_y;
@@ -1173,7 +1181,6 @@ typedef struct r_panels_t {
 	RPanelsLayout layout;
 	RList *snows;
 	char *name;
-	ut64 addr;
 } RPanels;
 
 typedef enum {

@@ -563,7 +563,7 @@ R_API RFlagItem *r_flag_get_by_spaces(RFlag *f, ut64 off, ...) {
 	r_list_foreach (list, iter, flg) {
 		// get the "priority" of the flag flagspace and
 		// check if better than what we found so far
-		for (i = 0; i < n_spaces; ++i) {
+		for (i = 0; i < n_spaces; i++) {
 			if (flg->space == spaces[i]) {
 				break;
 			}
@@ -600,13 +600,14 @@ static bool isFunctionFlag(const char *n) {
 R_API RFlagItem *r_flag_get_at(RFlag *f, ut64 off, bool closest) {
 	r_return_val_if_fail (f, NULL);
 
-	RFlagItem *item, *nice = NULL;
+	RFlagItem *nice = NULL;
 	RListIter *iter;
 	const RFlagsAtOffset *flags_at = r_flag_get_nearest_list (f, off, -1);
 	if (!flags_at) {
 		return NULL;
 	}
 	if (flags_at->off == off) {
+		RFlagItem *item;
 		r_list_foreach (flags_at->flags, iter, item) {
 			if (IS_FI_NOTIN_SPACE (f, item)) {
 				continue;
@@ -619,13 +620,16 @@ R_API RFlagItem *r_flag_get_at(RFlag *f, ut64 off, bool closest) {
 				nice = item;
 			}
 		}
-		return nice;
+		if (nice) {
+			return evalFlag (f, nice);
+		}
 	}
 
 	if (!closest) {
 		return NULL;
 	}
 	while (!nice && flags_at) {
+		RFlagItem *item;
 		r_list_foreach (flags_at->flags, iter, item) {
 			if (IS_FI_NOTIN_SPACE (f, item)) {
 				continue;
@@ -637,7 +641,7 @@ R_API RFlagItem *r_flag_get_at(RFlag *f, ut64 off, bool closest) {
 			nice = item;
 			break;
 		}
-		if (flags_at->off) {
+		if (!nice && flags_at->off) {
 			flags_at = r_flag_get_nearest_list (f, flags_at->off - 1, -1);
 		} else {
 			flags_at = NULL;
@@ -901,6 +905,7 @@ R_API void r_flag_bind(RFlag *f, RFlagBind *fb) {
 	fb->exist_at = r_flag_exist_at;
 	fb->get = r_flag_get;
 	fb->get_at = r_flag_get_at;
+	fb->get_list = r_flag_get_list;
 	fb->set = r_flag_set;
 	fb->unset = r_flag_unset;
 	fb->unset_name = r_flag_unset_name;

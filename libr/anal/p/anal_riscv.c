@@ -353,14 +353,43 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		// math
 		else if (!strncmp (name, "addi16sp", 8)) {
 			esilprintf (op, "%s,sp,+,%s,=", ARG (1), ARG (0));
+			if (!strcmp (ARG (0), riscv_gpr_names[X_SP])) {
+				op->stackop = R_ANAL_STACK_INC;
+				op->stackptr = r_num_math (NULL, ARG (1));
+			}
+		} else if (!strncmp (name, "addw", 4)) {
+			esilprintf (op, "0xffffffff,%s,&,", ARG (2));
+			r_strbuf_appendf (&op->esil, "0xffffffff,%s,&,", ARG (1));
+			r_strbuf_appendf (&op->esil, "+,%s,=,", ARG (0));
+			r_strbuf_appendf (&op->esil, "31,%s,>>,?{,0xffffffff00000000,%s,|=,}", ARG (0), ARG (0));
 		} else if (!strncmp (name, "add", 3)) {
 			esilprintf (op, "%s,%s,+,%s,=", ARG (2), ARG (1), ARG (0));
+			if (name[3] == 'i' && !strcmp (ARG (0), riscv_gpr_names[X_SP]) &&
+				!strcmp (ARG (1), riscv_gpr_names[X_SP])) {
+				op->stackop = R_ANAL_STACK_INC;
+				op->stackptr = -(signed)r_num_math (NULL, ARG (2));
+			}
+		} else if (!strncmp (name, "subw", 4)) {
+			esilprintf (op, "0xffffffff,%s,&,", ARG (2));
+			r_strbuf_appendf (&op->esil, "0xffffffff,%s,&,", ARG (1));
+			r_strbuf_appendf (&op->esil, "-,%s,=,", ARG (0));
+			r_strbuf_appendf (&op->esil, "31,%s,>>,?{,0xffffffff00000000,%s,|=,}", ARG (0), ARG (0));
 		} else if (!strncmp (name, "sub", 3)) {
 			esilprintf (op, "%s,%s,-,%s,=", ARG (2), ARG (1), ARG (0));
+			if (name[3] == 'i' && !strcmp (ARG (0), riscv_gpr_names[X_SP]) &&
+				!strcmp (ARG (1), riscv_gpr_names[X_SP])) {
+				op->stackop = R_ANAL_STACK_INC;
+				op->stackptr = r_num_math (NULL, ARG (2));
+			}
+		} else if (!strncmp (name, "mulw", 4)) {
+			esilprintf (op, "0xffffffff,%s,&,", ARG (2));
+			r_strbuf_appendf (&op->esil, "0xffffffff,%s,&,", ARG (1));
+			r_strbuf_appendf (&op->esil, "*,%s,=,", ARG (0));
+			r_strbuf_appendf (&op->esil, "31,%s,>>,?{,0xffffffff00000000,%s,|=,}", ARG (0), ARG (0));
 		} else if (!strncmp (name, "mul", 3)) {
 			esilprintf (op, "%s,%s,*,%s,=", ARG (2), ARG (1), ARG (0));
 		} else if (!strncmp (name, "div", 3)) {
-			esilprintf (op, "%s,%s,*,%s,=", ARG (2), ARG (1), ARG (0));
+			esilprintf (op, "%s,%s,/,%s,=", ARG (2), ARG (1), ARG (0));
 		} else if (!strncmp (name, "rem", 3)) {
 			esilprintf (op, "%s,%s,%%,%s,=", ARG (2), ARG (1), ARG (0));
 		} else if (!strncmp (name, "xor", 3)) {
@@ -490,7 +519,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		//else if (strcmp (name, "unimp") != 0 && name[0] != 'f' && name[1] != 'm') {
 		//	int i;
 		//	eprintf("[esil] missing risc v esil: %s", name);
-		//	for (i = 0; i < args.num; ++i) {
+		//	for (i = 0; i < args.num; i++) {
 		//		eprintf(" %s", ARG(i));
 		//	}
 		//	eprintf("\n");
@@ -500,7 +529,7 @@ static int riscv_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 
 // branch/jumps/calls/rets
 	if (is_any ("jal")) {
-		// decide wether it's ret or call
+		// decide whether it's ret or call
 		int rd = (word >> OP_SH_RD) & OP_MASK_RD;
 		op->type = (rd == 0) ? R_ANAL_OP_TYPE_RET: R_ANAL_OP_TYPE_CALL;
 		op->jump = EXTRACT_UJTYPE_IMM (word) + addr;

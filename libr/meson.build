@@ -27,6 +27,7 @@ anal_plugins = [
   'msp430',
   'nios2',
   'null',
+  'or1k',
   'pic',
   'ppc_cs',
   'ppc_gnu',
@@ -40,6 +41,7 @@ anal_plugins = [
   'sysz',
   'tms320',
   #'tms320c64x',
+  'tricore',
   'v810',
   'v850',
   'vax',
@@ -89,6 +91,7 @@ asm_plugins = [
   'mips_gnu',
   'msp430',
   'nios2',
+  'or1k',
   'pic',
   'ppc_cs',
   'ppc_gnu',
@@ -130,12 +133,14 @@ bin_plugins = [
   'cgc',
   'coff',
   'dex',
+  'dmp64',
   'dol',
   'dyldcache',
   'elf',
   'elf64',
   'fs',
   'java',
+  'le',
   'mach0',
   'mach064',
   'mbn',
@@ -178,6 +183,7 @@ bin_ldr_plugins = [
 bin_xtr_plugins = [
   'xtr_dyldcache',
   'xtr_fatmach0',
+  'xtr_sep64',
 ]
 
 bp_plugins = [
@@ -322,7 +328,6 @@ parse_plugins = [
 include_files =[
   'include/r2naked.h',
   'include/r_agraph.h',
-  'include/r_anal_ex.h',
   'include/r_anal.h',
   'include/r_asm.h',
   'include/r_bind.h',
@@ -406,6 +411,7 @@ r_util_files = [
   'include/r_util/r_queue.h',
   'include/r_util/r_range.h',
   'include/r_util/r_rbtree.h',
+  'include/r_util/r_intervaltree.h',
   'include/r_util/r_sandbox.h',
   'include/r_util/r_signal.h',
   'include/r_util/r_spaces.h',

@@ -26,7 +26,7 @@ static int reloc_cmp(const void *a, const RBNode *b, void *user) {
 	return 0;
 }
 
-static void reloc_free(RBNode *rbn) {
+static void reloc_free(RBNode *rbn, void *user) {
 	free (container_of (rbn, RBinReloc, vrb));
 }
 
@@ -38,7 +38,7 @@ static void object_delete_items(RBinObject *o) {
 	r_list_free (o->fields);
 	r_list_free (o->imports);
 	r_list_free (o->libs);
-	r_rbtree_free (o->relocs, reloc_free);
+	r_rbtree_free (o->relocs, reloc_free, NULL);
 	r_list_free (o->sections);
 	r_list_free (o->strings);
 	ht_up_free (o->strings_db);
@@ -246,6 +246,27 @@ static RBNode *list2rbtree(RList *relocs) {
 	return res;
 }
 
+static void r_bin_object_rebuild_classes_ht(RBinObject *o) {
+	ht_pp_free (o->classes_ht);
+	ht_pp_free (o->methods_ht);
+	o->classes_ht = ht_pp_new0 ();
+	o->methods_ht = ht_pp_new0 ();
+
+	RListIter *it, *it2;
+	RBinClass *klass;
+	RBinSymbol *method;
+	r_list_foreach (o->classes, it, klass) {
+		if (klass->name) {
+			ht_pp_insert (o->classes_ht, klass->name, klass);
+
+			r_list_foreach (klass->methods, it2, method) {
+				const char *name = sdb_fmt ("%s::%s", klass->name, method->name);
+				ht_pp_insert (o->methods_ht, name, method);
+			}
+		}
+	}
+}
+
 R_API int r_bin_object_set_items(RBinFile *bf, RBinObject *o) {
 	r_return_val_if_fail (bf && o && o->plugin, false);
 
@@ -355,6 +376,7 @@ R_API int r_bin_object_set_items(RBinFile *bf, RBinObject *o) {
 				// XXX we should probably merge them instead
 				r_list_free (o->classes);
 				o->classes = classes;
+				r_bin_object_rebuild_classes_ht (o);
 			}
 			isSwift = r_bin_lang_swift (bf);
 			if (isSwift) {
@@ -420,7 +442,7 @@ R_IPI RBNode *r_bin_object_patch_relocs(RBin *bin, RBinObject *o) {
 		if (!tmp) {
 			return o->relocs;
 		}
-		r_rbtree_free (o->relocs, reloc_free);
+		r_rbtree_free (o->relocs, reloc_free, NULL);
 		REBASE_PADDR (o, tmp, RBinReloc);
 		o->relocs = list2rbtree (tmp);
 		first = false;

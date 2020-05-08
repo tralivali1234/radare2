@@ -814,6 +814,11 @@ static inline int isnum(int c)
     return c >= '0' && c <= '9';
 }
 
+static inline int isdot(int c)
+{
+	return c == '.';
+}
+
 static inline int isoct(int c)
 {
     return c >= '0' && c <= '7';
@@ -1054,7 +1059,9 @@ ST_FUNC int classify_x86_64_va_arg(CType *ty);
 #define ST_DATA
 #endif
 /********************************************************/
-PUB_FUNC void tcc_appendf (const char *fmt, ...);
+PUB_FUNC void tcc_appendf(const char *fmt, ...);
+PUB_FUNC void tcc_typedef_appendf(const char *fmt, ...);
+PUB_FUNC void tcc_typedef_alias_fields(const char *alias);
 
 extern void (*tcc_cb)(const char *, char **);
 

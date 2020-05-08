@@ -131,7 +131,7 @@ R_API bool r_file_is_regular(const char *str) {
 	if (!str || !*str || file_stat (str, &buf) == -1) {
 		return false;
 	}
-	return ((S_IFREG & buf.st_mode) == S_IFREG)? true: false;
+	return ((S_IFREG & buf.st_mode) == S_IFREG);
 }
 
 R_API bool r_file_is_directory(const char *str) {
@@ -147,7 +147,7 @@ R_API bool r_file_is_directory(const char *str) {
 		return false;
 	}
 #endif
-	return (S_IFDIR == (S_IFDIR & buf.st_mode))? true: false;
+	return S_IFDIR == (S_IFDIR & buf.st_mode);
 }
 
 R_API bool r_file_fexists(const char *fmt, ...) {
@@ -178,7 +178,7 @@ R_API bool r_file_exists(const char *str) {
 	if (file_stat (str, &buf) == -1) {
 		return false;
 	}
-	return S_IFREG == (S_IFREG & buf.st_mode)? true: false;
+	return S_IFREG == (S_IFREG & buf.st_mode);
 }
 
 R_API long r_file_proc_size(FILE *fd) {
@@ -197,19 +197,18 @@ R_API ut64 r_file_size(const char *str) {
 	return (ut64)buf.st_size;
 }
 
-R_API int r_file_is_abspath(const char *file) {
+R_API bool r_file_is_abspath(const char *file) {
 	return ((*file && file[1]==':') || *file == '/');
 }
 
-R_API char *r_file_abspath(const char *file) {
-	char *cwd, *ret = NULL;
+R_API char *r_file_abspath_rel(const char *cwd, const char *file) {
+	char *ret = NULL;
 	if (!file || !strcmp (file, ".") || !strcmp (file, "./")) {
 		return r_sys_getdir ();
 	}
 	if (strstr (file, "://")) {
 		return strdup (file);
 	}
-	cwd = r_sys_getdir ();
 	if (!strncmp (file, "~/", 2) || !strncmp (file, "~\\", 2)) {
 		ret = r_str_home (file + 2);
 	} else {
@@ -240,7 +239,6 @@ R_API char *r_file_abspath(const char *file) {
 		}
 #endif
 	}
-	free (cwd);
 	if (!ret) {
 		ret = strdup (file);
 	}
@@ -251,6 +249,13 @@ R_API char *r_file_abspath(const char *file) {
 		ret = abspath;
 	}
 #endif
+	return ret;
+}
+
+R_API char *r_file_abspath(const char *file) {
+	char *cwd = r_sys_getdir ();
+	char *ret = r_file_abspath_rel (cwd, file);
+	free (cwd);
 	return ret;
 }
 
@@ -309,7 +314,7 @@ R_API char *r_stdin_slurp (int *sz) {
 		close (newfd);
 		return NULL;
 	}
-	for (i = ret = 0; ; i += ret) {
+	for (i = ret = 0; i >= 0; i += ret) {
 		char *new = realloc (buf, i + BS);
 		if (!new) {
 			eprintf ("Cannot realloc to %d\n", i+BS);
@@ -321,9 +326,14 @@ R_API char *r_stdin_slurp (int *sz) {
 			break;
 		}
 	}
-	buf[i] = 0;
-	dup2 (newfd, 0);
-	close (newfd);
+	if (i < 1) {
+		i = 0;
+		R_FREE (buf);
+	} else {
+		buf[i] = 0;
+		dup2 (newfd, 0);
+		close (newfd);
+	}
 	if (sz) {
 		*sz = i;
 	}
@@ -337,7 +347,7 @@ R_API char *r_stdin_slurp (int *sz) {
 #endif
 }
 
-R_API char *r_file_slurp(const char *str, int *usz) {
+R_API char *r_file_slurp(const char *str, R_NULLABLE size_t *usz) {
 	size_t rsz;
 	char *ret;
 	FILE *fd;
@@ -385,26 +395,26 @@ R_API char *r_file_slurp(const char *str, int *usz) {
 	fclose (fd);
 	ret[sz] = '\0';
 	if (usz) {
-		*usz = (int)sz;
+		*usz = sz;
 	}
 	return ret;
 }
 
 R_API ut8 *r_file_gzslurp(const char *str, int *outlen, int origonfail) {
-	int sz;
 	ut8 *in, *out;
 	if (outlen) {
 		*outlen = 0;
 	}
+	size_t sz;
 	in = (ut8*)r_file_slurp (str, &sz);
 	if (!in) {
 		return NULL;
 	}
-	out = r_inflate (in, sz, NULL, outlen);
+	out = r_inflate (in, (int)sz, NULL, outlen);
 	if (!out && origonfail) {
 		// if uncompression fails, return orig buffer ?
 		if (outlen) {
-			*outlen = sz;
+			*outlen = (int)sz;
 		}
 		in[sz] = 0;
 		return in;
@@ -489,9 +499,9 @@ R_API char *r_file_slurp_random_line(const char *file) {
 R_API char *r_file_slurp_random_line_count(const char *file, int *line) {
 	/* Reservoir Sampling */
 	char *ptr = NULL, *str;
-	int sz, i, lines, selection = -1;
+	size_t i, lines, selection = -1;
 	int start = *line;
-	if ((str = r_file_slurp (file, &sz))) {
+	if ((str = r_file_slurp (file, NULL))) {
 		r_num_irand ();
 		for (i = 0; str[i]; i++) {
 			if (str[i] == '\n') {
@@ -530,7 +540,7 @@ R_API char *r_file_slurp_random_line_count(const char *file, int *line) {
 
 R_API char *r_file_slurp_line(const char *file, int line, int context) {
 	int i, lines = 0;
-	int sz;
+	size_t sz;
 	char *ptr = NULL, *str = r_file_slurp (file, &sz);
 	// TODO: Implement context
 	if (str) {
@@ -564,7 +574,7 @@ R_API char *r_file_slurp_line(const char *file, int line, int context) {
 
 R_API char *r_file_slurp_lines_from_bottom(const char *file, int line) {
 	int i, lines = 0;
-	int sz;
+	size_t sz;
 	char *ptr = NULL, *str = r_file_slurp (file, &sz);
 	// TODO: Implement context
 	if (str) {
@@ -591,7 +601,7 @@ R_API char *r_file_slurp_lines_from_bottom(const char *file, int line) {
 
 R_API char *r_file_slurp_lines(const char *file, int line, int count) {
 	int i, lines = 0;
-	int sz;
+	size_t sz;
 	char *ptr = NULL, *str = r_file_slurp (file, &sz);
 	// TODO: Implement context
 	if (str) {
@@ -685,7 +695,7 @@ R_API bool r_file_hexdump(const char *file, const ut8 *buf, int len, int append)
 }
 
 R_API bool r_file_touch(const char *file) {
-	return r_file_dump(file, NULL, 0, true);
+	return r_file_dump (file, NULL, 0, true);
 }
 
 R_API bool r_file_dump(const char *file, const ut8 *buf, int len, bool append) {
@@ -811,6 +821,7 @@ err_r_file_mmap_write:
 		return -1;
 	}
 	memcpy (mmap_buf+rest, buf, len);
+	msync (mmap_buf+rest, len, MS_INVALIDATE);
 	munmap (mmap_buf, mmlen*2);
 	close (fd);
 	return len;

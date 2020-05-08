@@ -4,14 +4,6 @@
 #include <r_util.h>
 #include <r_list.h>
 
-#define SDB_VARUSED_FMT "qzdq"
-struct VarUsedType {
-	ut64 fcn_addr;
-	char *type;
-	ut32 scope;
-	st64 delta;
-};
-
 R_API RAnalOp *r_anal_op_new() {
 	RAnalOp *op = R_NEW (RAnalOp);
 	r_anal_op_init (op);
@@ -43,8 +35,6 @@ R_API bool r_anal_op_fini(RAnalOp *op) {
 	if (!op) {
 		return false;
 	}
-	r_anal_var_free (op->var);
-	op->var = NULL;
 	r_anal_value_free (op->src[0]);
 	r_anal_value_free (op->src[1]);
 	r_anal_value_free (op->src[2]);
@@ -68,43 +58,6 @@ R_API void r_anal_op_free(void *_op) {
 	r_anal_op_fini (_op);
 	memset (_op, 0, sizeof (RAnalOp));
 	free (_op);
-}
-
-R_API RAnalVar *get_link_var(RAnal *anal, ut64 faddr, RAnalVar *var) {
-	const char *var_local = sdb_fmt ("var.0x%"PFMT64x".%d.%d.%s",
-			faddr, 1, var->delta, "reads");
-	const char *xss = sdb_const_get (anal->sdb_fcns, var_local, 0);
-	ut64 addr = r_num_math (NULL, xss);
-	char *inst_key = r_str_newf ("inst.0x%"PFMT64x".lvar", addr);
-	char *var_def = sdb_get (anal->sdb_fcns, inst_key, 0);
-
-	if (!var_def) {
-		free (inst_key);
-		return NULL;
-	}
-	struct VarUsedType vut;
-	RAnalVar *res = NULL;
-	if (sdb_fmt_tobin (var_def, SDB_VARUSED_FMT, &vut) == 4) {
-		res = r_anal_var_get (anal, vut.fcn_addr, vut.type[0], vut.scope, vut.delta);
-		sdb_fmt_free (&vut, SDB_VARUSED_FMT);
-	}
-	free (inst_key);
-	free (var_def);
-	return res;
-}
-
-static RAnalVar *get_used_var(RAnal *anal, RAnalOp *op) {
-	char *inst_key = r_str_newf ("inst.0x%"PFMT64x".vars", op->addr);
-	char *var_def = sdb_get (anal->sdb_fcns, inst_key, 0);
-	struct VarUsedType vut;
-	RAnalVar *res = NULL;
-	if (sdb_fmt_tobin (var_def, SDB_VARUSED_FMT, &vut) == 4) {
-		res = r_anal_var_get (anal, vut.fcn_addr, vut.type[0], vut.scope, vut.delta);
-		sdb_fmt_free (&vut, SDB_VARUSED_FMT);
-	}
-	free (inst_key);
-	free (var_def);
-	return res;
 }
 
 static int defaultCycles(RAnalOp *op) {
@@ -137,19 +90,19 @@ R_API int r_anal_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 	r_anal_op_init (op);
 	r_return_val_if_fail (anal && op && len > 0, -1);
 
-	if (anal->pcalign && addr % anal->pcalign) {
-		op->type = R_ANAL_OP_TYPE_ILL;
-		op->addr = addr;
-		// eprintf ("Unaligned instruction for %d bits at 0x%"PFMT64x"\n", anal->bits, addr);
-		op->size = 1;
-		return -1;
-	}
 	int ret = R_MIN (2, len);
 	if (len > 0 && anal->cur && anal->cur->op) {
 		//use core binding to set asm.bits correctly based on the addr
 		//this is because of the hassle of arm/thumb
 		if (anal && anal->coreb.archbits) {
 			anal->coreb.archbits (anal->coreb.core, addr);
+		}
+		if (anal->pcalign && addr % anal->pcalign) {
+			op->type = R_ANAL_OP_TYPE_ILL;
+			op->addr = addr;
+			// eprintf ("Unaligned instruction for %d bits at 0x%"PFMT64x"\n", anal->bits, addr);
+			op->size = 1;
+			return -1;
 		}
 		ret = anal->cur->op (anal, op, addr, data, len, mask);
 		if (ret < 1) {
@@ -159,14 +112,6 @@ R_API int r_anal_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		/* consider at least 1 byte to be part of the opcode */
 		if (op->nopcode < 1) {
 			op->nopcode = 1;
-		}
-		if (mask & R_ANAL_OP_MASK_VAL) {
-			//free the previous var in op->var
-			RAnalVar *tmp = get_used_var (anal, op);
-			if (tmp) {
-				r_anal_var_free (op->var);
-				op->var = tmp;
-			}
 		}
 	} else if (!memcmp (data, "\xff\xff\xff\xff", R_MIN (4, len))) {
 		op->type = R_ANAL_OP_TYPE_ILL;
@@ -339,23 +284,8 @@ R_API int r_anal_optype_from_string(const char *type) {
 }
 
 R_API const char *r_anal_optype_to_string(int t) {
-	switch (t) {
-	case R_ANAL_OP_TYPE_RPUSH:
-		return "rpush";
-	default:
-		/* nothing */
-		break;
-	}
-	// t &= R_ANAL_OP_TYPE_MASK; // ignore the modifier bits... we don't want this!
-#if 0
-	int i;
-	// this is slower than a switch table :(
-	for  (i = 0; optypes[i].name;i++) {
-		if (optypes[i].type == t) {
-			return optypes[i].name;
-		}
-	}
-#endif
+	bool once = true;
+repeat:
 	// TODO: delete
 	switch (t) {
 	case R_ANAL_OP_TYPE_IO    : return "io";
@@ -387,6 +317,7 @@ R_API const char *r_anal_optype_to_string(int t) {
 	case R_ANAL_OP_TYPE_OR    : return "or";
 	case R_ANAL_OP_TYPE_POP   : return "pop";
 	case R_ANAL_OP_TYPE_PUSH  : return "push";
+	case R_ANAL_OP_TYPE_RPUSH : return "rpush";
 	case R_ANAL_OP_TYPE_REP   : return "rep";
 	case R_ANAL_OP_TYPE_RET   : return "ret";
 	case R_ANAL_OP_TYPE_ROL   : return "rol";
@@ -418,6 +349,11 @@ R_API const char *r_anal_optype_to_string(int t) {
 	case R_ANAL_OP_TYPE_CASE  : return "case";
 	case R_ANAL_OP_TYPE_CPL   : return "cpl";
 	case R_ANAL_OP_TYPE_CRYPTO: return "crypto";
+	}
+	if (once) {
+		once = false;
+		t &= R_ANAL_OP_TYPE_MASK; // ignore the modifier bits... we don't want this!
+		goto repeat;
 	}
 	return "undefined";
 }

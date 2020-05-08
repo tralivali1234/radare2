@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2019 - condret, pancake, alvaro */
+/* radare2 - LGPL - Copyright 2017-2020 - condret, pancake, alvaro */
 
 #ifndef R2_IO_H
 #define R2_IO_H
@@ -81,7 +81,7 @@ typedef struct r_io_t {
 	int va;		//all of this config stuff must be in 1 int
 	int ff;
 	int Oxff;
-	int addrbytes;
+	size_t addrbytes;
 	int aslr;
 	int autofd;
 	int cached;
@@ -90,7 +90,7 @@ typedef struct r_io_t {
 	int debug;
 //#warning remove debug from RIO
 	RIDPool *map_ids;
-	SdbList *maps; //from tail backwards maps with higher priority are found
+	RPVector maps; //from tail backwards maps with higher priority are found
 	RPVector map_skyline; // map parts that are not covered by others
 	RPVector map_skyline_shadow; // map parts that are not covered by others
 	RIDStorage *files;
@@ -109,11 +109,8 @@ typedef struct r_io_t {
 	struct w32dbg_wrap_instance_t *w32dbg_wrap;
 #endif
 	char *args;
-	void *user;
 	PrintfCallback cb_printf;
-	int (*cb_core_cmd)(void *user, const char *str);
-	char* (*cb_core_cmdstr)(void *user, const char *str);
-	void (*cb_core_post_write)(void *user, ut64 maddr, ut8 *orig_bytes, int orig_len);
+	RCoreBind corebind;
 } RIO;
 
 typedef struct r_io_desc_t {
@@ -136,29 +133,19 @@ typedef struct {
 	void *data;
 } RIODescData;
 
-// #warning move RIORap somewhere else
+// Move somewhere else?
 typedef struct {
 	RSocket *fd;
 	RSocket *client;
-	int listener;
+	bool listener;
 } RIORap;
 
-#define RMT_MAX    4096
-#define RMT_OPEN   0x01
-#define RMT_READ   0x02
-#define RMT_WRITE  0x03
-#define RMT_SEEK   0x04
-#define RMT_CLOSE  0x05
-#define RMT_SYSTEM 0x06
-#define RMT_CMD    0x07
-#define RMT_REPLY  0x80
-
 typedef struct r_io_plugin_t {
-	char *name;
-	char *desc;
-	char *version;
-	char *author;
-	char *license;
+	const char *name;
+	const char *desc;
+	const char *version;
+	const char *author;
+	const char *license;
 	void *widget;
 	const char *uris;
 	int (*listener)(RIODesc *io);
@@ -288,7 +275,6 @@ typedef struct r_io_bind_t {
 
 //map.c
 R_API RIOMap *r_io_map_new(RIO *io, int fd, int flags, ut64 delta, ut64 addr, ut64 size);
-R_API ut64 r_io_map_next_address(RIO* io, ut64 addr);
 R_API void r_io_map_init (RIO *io);
 R_API bool r_io_map_remap (RIO *io, ut32 id, ut64 addr);
 R_API bool r_io_map_remap_fd (RIO *io, int fd, ut64 addr);
@@ -315,9 +301,12 @@ R_API void r_io_map_fini (RIO *io);
 R_API bool r_io_map_is_in_range (RIOMap *map, ut64 from, ut64 to);
 R_API void r_io_map_set_name (RIOMap *map, const char *name);
 R_API void r_io_map_del_name (RIOMap *map);
-R_API RIOMap *r_io_map_add_next_available(RIO *io, int fd, int flags, ut64 delta, ut64 addr, ut64 size, ut64 load_align);
 R_API RList* r_io_map_get_for_fd(RIO *io, int fd);
 R_API bool r_io_map_resize(RIO *io, ut32 id, ut64 newsize);
+
+// next free address to place a map.. maybe just unify
+R_API ut64 r_io_map_next_available(RIO* io, ut64 addr, ut64 size, ut64 load_align);
+R_API ut64 r_io_map_next_address(RIO* io, ut64 addr);
 
 // p2v/v2p
 
@@ -352,7 +341,7 @@ R_API bool r_io_resize (RIO *io, ut64 newsize);
 R_API int r_io_extend_at (RIO *io, ut64 addr, ut64 size);
 R_API bool r_io_set_write_mask (RIO *io, const ut8 *mask, int len);
 R_API void r_io_bind(RIO *io, RIOBind *bnd);
-R_API int r_io_shift (RIO *io, ut64 start, ut64 end, st64 move);
+R_API bool r_io_shift (RIO *io, ut64 start, ut64 end, st64 move);
 R_API ut64 r_io_seek (RIO *io, ut64 offset, int whence);
 R_API int r_io_fini (RIO *io);
 R_API void r_io_free (RIO *io);

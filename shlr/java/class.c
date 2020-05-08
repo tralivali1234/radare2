@@ -955,7 +955,8 @@ R_API char *get_type_value_str(const char *arg_str, ut8 array_cnt) {
 	char *str = malloc (str_len + 1);
 	ut32 bytes_written = snprintf (str, str_len + 1, "%s", arg_str);
 	while (array_cnt > 0) {
-		bytes_written = snprintf (str + bytes_written, str_len - bytes_written, "[]");
+		strcpy (str + bytes_written, "[]");
+		bytes_written += 2;
 		array_cnt--;
 	}
 	return str;
@@ -3059,7 +3060,8 @@ R_API RList *r_bin_java_get_symbols(RBinJavaObj *bin) {
 		if (imp->classname && !strncmp (imp->classname, "kotlin/jvm", 10)) {
 			bin->lang = "kotlin";
 		}
-		sym->name = r_str_newf ("imp.%s", imp->name);
+		sym->name = strdup (imp->name);
+		sym->is_imported = true;
 		if (!sym->name) {
 			free (sym);
 			break;
@@ -4371,8 +4373,8 @@ R_API RBinJavaStackMapFrame *r_bin_java_stack_map_frame_new(ut8 *buffer, ut64 sz
 		IFDBG eprintf("r_bin_java_stack_map_frame_new: Parsing R_BIN_JAVA_STACK_FRAME_APPEND.\n");
 		// 1. Calculate the max index we want to copy from the list of the
 		// previous frames locals
-		ut16 k = stack_frame->tag - 251,
-		i = 0;
+		ut16 k = stack_frame->tag - 251;
+		ut32 i = 0;
 		// 2. Read the uoffset
 		stack_frame->offset_delta = R_BIN_JAVA_USHORT (buffer, offset);
 		offset += 2;
@@ -8064,13 +8066,15 @@ R_API ut64 r_bin_java_get_main(RBinJavaObj *bin) {
 }
 
 R_API RBinJavaObj *r_bin_java_new(const char *file, ut64 loadaddr, Sdb *kv) {
-	ut8 *buf;
 	RBinJavaObj *bin = R_NEW0 (RBinJavaObj);
 	if (!bin) {
 		return NULL;
 	}
 	bin->file = strdup (file);
-	if (!(buf = (ut8 *) r_file_slurp (file, &bin->size))) {
+	size_t sz;
+	ut8 *buf = (ut8 *)r_file_slurp (file, &sz);
+	bin->size = sz;
+	if (!buf) {
 		return r_bin_java_free (bin);
 	}
 	if (!r_bin_java_new_bin (bin, loadaddr, kv, buf, bin->size)) {

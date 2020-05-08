@@ -1,14 +1,8 @@
-/* radare - LGPL - Copyright 2007-2019 - pancake */
+/* radare - LGPL - Copyright 2007-2020 - pancake */
 
-#include "r_anal.h"
-#include "r_cons.h"
-#include "r_util.h"
-#include "r_util/r_print.h"
-#include "r_core.h"
+#include <r_core.h>
 
 #define DFLT_ROWS 16
-
-#define IS_ALPHA(C) (((C) >= 'a' && (C) <= 'z') || ((C) >= 'A' && (C) <= 'Z'))
 
 static const char hex[16] = "0123456789ABCDEF";
 
@@ -70,7 +64,7 @@ R_API void r_print_portionbar(RPrint *p, const ut64 *portions, int n_portions) {
 	p->cb_printf ("]\n");
 }
 
-R_API void r_print_columns (RPrint *p, const ut8 *buf, int len, int height) {
+R_API void r_print_columns(RPrint *p, const ut8 *buf, int len, int height) {
 	int i, j, cols = 78;
 	int rows = height > 0 ? height : 10;
 	// int realrows = rows * 2;
@@ -105,7 +99,7 @@ R_API void r_print_columns (RPrint *p, const ut8 *buf, int len, int height) {
 		return;
 	}
 
-	for (i = 0; i<rows; i++) {
+	for (i = 0; i < rows; i++) {
 		int threshold = i * (0xff / rows);
 		for (j = 0; j < cols; j++) {
 			int realJ = j * len / cols;
@@ -239,16 +233,14 @@ static int r_print_stereogram_private(const char *bump, int w, int h, char *out,
 }
 
 R_API char* r_print_stereogram(const char *bump, int w, int h) {
-	ut64 size;
-	char *out;
 	if (w < 1 || h < 1) {
 		return NULL;
 	}
-	size = w * (ut64) h * 2;
+	ut64 size = w * (ut64) h * 2;
 	if (size > UT32_MAX) {
 		return NULL;
 	}
-	out = calloc (1, size * 2);
+	char *out = calloc (1, size * 2);
 	if (!out) {
 		return NULL;
 	}
@@ -741,6 +733,7 @@ R_API void r_print_hexii(RPrint *rp, ut64 addr, const ut8 *buf, int len, int ste
 	const char *color_other = c? (Pal (rp, other): Color_WHITE): "";
 	const char *color_reset = c? Color_RESET: "";
 	int i, j;
+	bool show_offset = rp->show_offset;
 
 	if (rp->flags & R_PRINT_FLAGS_HEADER) {
 		p ("         ");
@@ -755,7 +748,9 @@ R_API void r_print_hexii(RPrint *rp, ut64 addr, const ut8 *buf, int len, int ste
 		if (isAllZeros (buf + i, inc)) {
 			continue;
 		}
-		p ("%8X:", addr + i);
+		if (show_offset) {
+			p ("%8X:", addr + i);
+		}
 		for (j = 0; j < inc; j++) {
 			ut8 ch = buf[i + j];
 			if (ch == 0x00) {
@@ -813,11 +808,12 @@ R_API void r_print_section(RPrint *p, ut64 at) {
 	}
 }
 
-R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int base, int step, int zoomsz) {
-	PrintfCallback printfmt = (PrintfCallback) printf;
+R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int base, int step, size_t zoomsz) {
+	PrintfCallback printfmt = (PrintfCallback)printf;
 	bool c = p? (p->flags & R_PRINT_FLAGS_COLOR): false;
 	const char *color_title = c? (Pal (p, offset): Color_MAGENTA): "";
-	int i, j, k, inc = p? p->cols : 16;
+	int inc = p? p->cols : 16;
+	size_t i, j, k;
 	int sparse_char = 0;
 	int stride = 0;
 	int col = 0; // selected column (0=none, 1=hex, 2=ascii)
@@ -1070,7 +1066,7 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 			}
 			for (j = i; j < i + inc; j++) {
 				if (j!=i && use_align && rowbytes == inc) {
-					int sz = p->offsize (p->user, addr + j);
+					int sz = (p && p->offsize)? p->offsize (p->user, addr + j): -1;
 					if (sz >= 0) {
 						rowbytes = bytes;
 					}
@@ -1390,11 +1386,10 @@ static const char* getchardiff(RPrint *p, char *fmt, ut8 a, ut8 b) {
 
 static ut8* M(const ut8 *b, int len) {
 	ut8 *r = malloc (len + 16);
-	if (!r) {
-		return NULL;
+	if (r) {
+		memset (r, 0xff, len + 16);
+		memcpy (r, b, len);
 	}
-	memset (r, 0xff, len + 16);
-	memcpy (r, b, len);
 	return r;
 }
 
@@ -1705,7 +1700,6 @@ R_API void r_print_fill(RPrint *p, const ut8 *arr, int size, ut64 addr, int step
 	const char *v_line = useUtf8 ? RUNE_LINE_VERT : "|";
 	int i = 0, j;
 
-
 #define INC 5
 #if TOPLINE
 	if (arr[0] > 1) {
@@ -1959,7 +1953,7 @@ static bool issymbol(char c) {
 static bool check_arg_name (RPrint *print, char *p, ut64 func_addr) {
 	if (func_addr && print->exists_var) {
 		int z;
-		for (z = 0; p[z] && (IS_ALPHA (p[z]) || IS_DIGIT (p[z]) || p[z] == '_'); z++) {
+		for (z = 0; p[z] && (isalpha (p[z]) || isdigit (p[z]) || p[z] == '_'); z++) {
 			;
 		}
 		char tmp = p[z];
@@ -1990,7 +1984,7 @@ R_API char* r_print_colorize_opcode(RPrint *print, char *p, const char *reg, con
 	if (is_jmp) {
 		return strdup (p);
 	}
-	r_str_trim_head_tail (p);
+	r_str_trim (p);
 	if (opcode_sz > COLORIZE_BUFSIZE) {
 		/* return same string in case of error */
 		return strdup (p);

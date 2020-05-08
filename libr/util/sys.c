@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake */
+/* radare - LGPL - Copyright 2009-2020 - pancake */
 
 #if __linux__
 #include <time.h>
@@ -236,7 +236,7 @@ R_API int r_sys_truncate(const char *file, int sz) {
 	if (r_sandbox_enable (0)) {
 		return false;
 	}
-	return truncate (file, sz)? false: true;
+	return truncate (file, sz) == 0;
 #endif
 }
 
@@ -569,9 +569,8 @@ R_API bool r_sys_aslr(int val) {
 R_API int r_sys_thp_mode(void) {
 #if __linux__
 	const char *thp = "/sys/kernel/mm/transparent_hugepage/enabled";
-	int sz;
 	int ret = 0;
-	char *val = r_file_slurp (thp, &sz);
+	char *val = r_file_slurp (thp, NULL);
 	if (val) {
 		if (strstr (val, "[madvise]")) {
 			ret = 1;
@@ -786,30 +785,7 @@ R_API int r_sys_cmd(const char *str) {
 	if (r_sandbox_enable (0)) {
 		return false;
 	}
-#if __FreeBSD__
-	/* freebsd system() is broken */
-	int st, pid, fds[2];
-	if (pipe (fds)) {
-		return -1;
-	}
-	pid = vfork ();
-	if (pid == -1) {
-		return -1;
-	}
-	if (!pid) {
-		dup2 (1, fds[1]);
-		// char *argv[] = { "/bin/sh", "-c", str, NULL};
-		// execv (argv[0], argv);
-		r_sandbox_system (str, 0);
-		_exit (127); /* error */
-	} else {
-		dup2 (1, fds[0]);
-		waitpid (pid, &st, 0);
-	}
-	return WEXITSTATUS (st);
-#else
 	return r_sandbox_system (str, 1);
-#endif
 }
 
 R_API char *r_sys_cmd_str(const char *cmd, const char *input, int *len) {
@@ -1075,7 +1051,7 @@ R_API char *r_sys_pid_to_path(int pid) {
 	HANDLE processHandle;
 	const DWORD maxlength = MAX_PATH;
 	TCHAR filename[MAX_PATH];
-	const char *result;
+	char *result = NULL;
 
 	processHandle = OpenProcess (PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
 	if (!processHandle) {

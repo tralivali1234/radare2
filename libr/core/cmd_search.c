@@ -12,7 +12,7 @@ static int cmd_search(void *data, const char *input);
 #define USE_EMULATION 0
 
 static const char *help_msg_slash_m[] = {
-	"/m", "", "search for known magic patters",
+	"/m", "", "search for known magic patterns",
 	"/m", " [file]", "same as above but using the given magic file",
 	"/me", " ", "like ?e similar to IRC's /me",
 	"/mm", " ", "search for known filesystems and mount them automatically",
@@ -91,11 +91,11 @@ static const char *help_msg_slash_a[] = {
 };
 
 static const char *help_msg_slash_c[] = {
-	"Usage: /c", "[acdr] [algorithm] [digest]", "Search for crypto materials",
+	"Usage: /c", "", "Search for crypto materials",
 	"/ca", "", "Search for AES keys expanded in memory",
 	"/cc", "[algo] [digest]", "Find collisions (bruteforce block length values until given checksum is found)",
 	"/cd", "", "Search for ASN1/DER certificates",
-	"/cr", "", "Search for private RSA keys",
+	"/cr", "", "Search for ASN1/DER private keys (RSA and ECC)",
 	NULL
 };
 
@@ -152,7 +152,7 @@ struct search_parameters {
 	bool inverse;
 	bool crypto_search;
 	bool aes_search;
-	bool rsa_search;
+	bool privkey_search;
 };
 
 struct endlist_pair {
@@ -647,9 +647,9 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 			RIOMap *m = r_io_map_get (core->io, from);
 			int rwx = m? m->perm: part->map->perm;
 #else
-		RIOMap *map;
-		SdbListIter *iter;
-		ls_foreach  (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			ut64 from = r_itv_begin (map->itv);
 			ut64 to = r_itv_end (map->itv);
 			int rwx = map->perm;
@@ -679,9 +679,9 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 		int mask = (mode[len - 1] == '.')? r_str_rwx (mode + len): 0;
 		// bool only = (bool)(size_t)strstr (mode, ".only");
 
-		SdbListIter *iter;
-		RIOMap *map;
-		ls_foreach  (core->io->maps, iter, map) {
+		void **it;
+		r_pvector_foreach (&core->io->maps, it) {
+			RIOMap *map = *it;
 			ut64 from = r_itv_begin (map->itv);
 			//ut64 to = r_itv_end (map->itv);
 			int rwx = map->perm;
@@ -766,10 +766,10 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 				to = R_MAX (to, addr + size);
 			}
 			if (from == UT64_MAX) {
-				SdbListIter *iter;
-				RIOMap *map;
 				int mask = 1;
-				ls_foreach  (core->io->maps, iter, map) {
+				void **it;
+				r_pvector_foreach (&core->io->maps, it) {
+					RIOMap *map = *it;
 					ut64 from = r_itv_begin (map->itv);
 					ut64 size = r_itv_size (map->itv);
 					int rwx = map->perm;
@@ -837,7 +837,7 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 		RAnalFunction *f = r_anal_get_fcn_in (core->anal, core->offset,
 			R_ANAL_FCN_TYPE_FCN | R_ANAL_FCN_TYPE_SYM);
 		if (f) {
-			ut64 from = f->addr, size = r_anal_fcn_size (f);
+			ut64 from = f->addr, size = r_anal_function_size_from_entry (f);
 
 			/* Search only inside the basic block */
 			if (!strcmp (mode, "anal.bb")) {
@@ -1031,7 +1031,7 @@ static RList *construct_rop_gadget(RCore *core, ut64 addr, ut8 *buf, int buflen,
 
 	if (grep) {
 		start = grep;
-		end = strstr (grep, ";");
+		end = strchr (grep, ';');
 		if (!end) { // We filter on a single opcode, so no ";"
 			end = start + strlen (grep);
 		}
@@ -1100,7 +1100,7 @@ static RList *construct_rop_gadget(RCore *core, ut64 addr, ut8 *buf, int buflen,
 		if (search_hit) {
 			if (end[0] == ';') { // fields are semicolon-separated
 				start = end + 1; // skip the ;
-				end = strstr (start, ";");
+				end = strchr (start, ';');
 				end = end? end: start + strlen (start); // latest field?
 				free (grep_str);
 				grep_str = calloc (1, end - start + 1);
@@ -1895,7 +1895,7 @@ static void do_syscall_search(RCore *core, struct search_parameters *param) {
 		}
 	}
 beach:
-	r_core_seek (core, oldoff, 1);
+	r_core_seek (core, oldoff, true);
 	r_anal_esil_free (esil);
 	r_cons_break_pop ();
 	free (buf);
@@ -2017,7 +2017,7 @@ static bool do_anal_search(RCore *core, struct search_parameters *param, const c
 	if (mode == 'j') {
 		r_cons_printf ("[");
 	}
-	input = r_str_trim_ro (input);
+	input = r_str_trim_head_ro (input);
 	r_cons_break_push (NULL, NULL);
 	RIOMap* map;
 	RListIter *iter;
@@ -2204,7 +2204,7 @@ static void do_asm_search(RCore *core, struct search_parameters *param, const ch
 	RIOMap *map;
 	bool regexp = input[1] == '/'; // "/c/"
 	bool everyByte = regexp && input[2] == 'a';
-	char *end_cmd = strstr (input, " ");
+	char *end_cmd = strchr (input, ' ');
 	switch ((end_cmd ? *(end_cmd - 1) : input[1])) {
 	case 'j':
 		param->outmode = R_MODE_JSON;
@@ -2318,11 +2318,6 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 		core->search->maxhits = 1;
 	}
 	if (core->search->n_kws > 0 || param->crypto_search) {
-		RSearchKeyword aeskw;
-		if (param->crypto_search) {
-			memset (&aeskw, 0, sizeof (aeskw));
-			aeskw.keyword_length = 31;
-		}
 		/* set callback */
 		/* TODO: handle last block of data */
 		/* TODO: handle ^C */
@@ -2391,17 +2386,14 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 				}
 				if (param->crypto_search) {
 					// TODO support backward search
-					int delta = 0;
+					int t = 0;
 					if (param->aes_search) {
-						delta = r_search_aes_update (core->search, at, buf, len);
-					} else if (param->rsa_search) {
-						delta = r_search_rsa_update (core->search, at, buf, len);
+						t = r_search_aes_update (core->search, at, buf, len);
+					} else if (param->privkey_search) {
+						t = r_search_privkey_update (core->search, at, buf, len);
 					}
-					if (delta != -1) {
-						int t = r_search_hit_new (core->search, &aeskw, at + delta);
-						if (!t || t > 1) {
-							break;
-						}
+					if (!t || t > 1) {
+						break;
 					}
 				} else {
 					(void)r_search_update (core->search, at, buf, len);
@@ -2612,9 +2604,9 @@ void _CbInRangeSearchV(RCore *core, ut64 from, ut64 to, int vsize, int count, vo
 	const char *cmdHit = r_config_get (core->config, "cmd.hit");
 	if (cmdHit && *cmdHit) {
 		ut64 addr = core->offset;
-		r_core_seek (core, from, 1);
+		r_core_seek (core, from, true);
 		r_core_cmd (core, cmdHit, 0);
-		r_core_seek (core, addr, 1);
+		r_core_seek (core, addr, true);
 	}
 }
 
@@ -2901,7 +2893,7 @@ static int cmd_search(void *data, const char *input) {
 		.inverse = false,
 		.crypto_search = false,
 		.aes_search = false,
-		.rsa_search = false,
+		.privkey_search = false,
 	};
 	if (!param.cmd_hit) {
 		param.cmd_hit = "";
@@ -2942,6 +2934,11 @@ static int cmd_search(void *data, const char *input) {
 	// {.addr = UT64_MAX, .size = 0} means search range is unspecified
 	RInterval search_itv = {search_from, search_to - search_from};
 	bool empty_search_itv = search_from == search_to && search_from != UT64_MAX;
+	if (empty_search_itv) {
+		eprintf ("WARNING from == to?\n");
+		ret = false;
+		goto beach;
+	}
 	// TODO full address cannot be represented, shrink 1 byte to [0, UT64_MAX)
 	if (search_from == UT64_MAX && search_to == UT64_MAX) {
 		search_itv.addr = 0;
@@ -2971,21 +2968,8 @@ static int cmd_search(void *data, const char *input) {
 	core->search->maxhits = r_config_get_i (core->config, "search.maxhits");
 	searchprefix = r_config_get (core->config, "search.prefix");
 	core->search->overlap = r_config_get_i (core->config, "search.overlap");
-	if (!core->io->va) {
-		RInterval itv = {0, r_io_size (core->io)};
-		if (!r_itv_overlap (search_itv, itv)) {
-			empty_search_itv = true;
-		} else {
-			search_itv = r_itv_intersect (search_itv, itv);
-		}
-	}
 	core->search->bckwrds = false;
 
-	if (empty_search_itv) {
-		eprintf ("WARNING from == to?\n");
-		ret = false;
-		goto beach;
-	}
 	/* Quick & dirty check for json output */
 	if (input[0] && (input[1] == 'j') && (input[0] != ' ')) {
 		param.outmode = R_MODE_JSON;
@@ -3139,13 +3123,13 @@ reread:
 					eprintf ("-- 0x%"PFMT64x" 0x%"PFMT64x"\n", map->itv.addr, r_itv_end (map->itv));
 					ut64 refptr = r_num_math (core->num, input + 2);
 					ut64 curseek = core->offset;
-					r_core_seek (core, map->itv.addr, 1);
+					r_core_seek (core, map->itv.addr, true);
 					char *arg = r_str_newf (" %"PFMT64d, r_itv_end (map->itv) - map->itv.addr);
 					char *trg = refptr? r_str_newf (" %"PFMT64d, refptr): strdup ("");
 					r_core_anal_esil (core, arg, trg);
 					free (arg);
 					free (trg);
-					r_core_seek (core, curseek, 1);
+					r_core_seek (core, curseek, true);
 				}
 			}
 			break;
@@ -3220,7 +3204,7 @@ reread:
 		} else if (input[1] == '1') { // "a1"
 			__core_cmd_search_asm_byteswap (core, (int)r_num_math (core->num, input + 2));
 		} else if (input[1] == 'I') { // "/aI" - infinite
-			__core_cmd_search_asm_infinite (core, r_str_trim_ro (input + 1));
+			__core_cmd_search_asm_infinite (core, r_str_trim_head_ro (input + 1));
 		} else if (input[1] == ' ') {
 			if (input[param_offset - 1]) {
 				char *kwd = r_core_asm_search (core, input + param_offset);
@@ -3255,7 +3239,7 @@ reread:
 			{
 				ret = false;
 				char *space = strchr (input, ' ');
-				const char *arg = space? r_str_trim_ro (space + 1): NULL;
+				const char *arg = space? r_str_trim_head_ro (space + 1): NULL;
 				if (!arg || input[2] == '?') {
 					eprintf ("Usage: /cc[aAdlpb] [hashname] [hexpairhashvalue]\n");
 					eprintf (" /cca - lowercase alphabet chars only\n");
@@ -3294,17 +3278,15 @@ reread:
 						eprintf ("Cannot allocate memory.\n");
 					}
 					ret = true;
-					goto beach;
 				} else {
 					eprintf ("Usage: /cc [hashname] [hexpairhashvalue]\n");
 					eprintf ("Usage: /CC to search ascii collisions\n");
-					goto beach;
 				}
 				free (s);
 				goto beach;
 			}
 			break;
-		case 'd': // "Cd"
+		case 'd': // "cd"
 			{
 				param.crypto_search = false;
 				RSearchKeyword *kw;
@@ -3319,12 +3301,24 @@ reread:
 				}
 			}
 			break;
-		case 'a':
-			param.aes_search = true;
-			break;
-		case 'r':
-			param.rsa_search = true;
-			break;
+		case 'a': // "ca"
+			{
+				RSearchKeyword *kw;
+				kw = r_search_keyword_new_hexmask ("00", NULL);
+				r_search_kw_add (search, kw);
+				r_search_begin (core->search);
+				param.aes_search = true;
+				break;
+			}
+		case 'r': // "cr"
+			{
+				RSearchKeyword *kw;
+				kw = r_search_keyword_new_hexmask ("00", NULL);
+				r_search_kw_add (search, kw);
+				r_search_begin (core->search);
+				param.privkey_search = true;
+				break;
+			}
 		default: {
 			dosearch = false;
 			param.crypto_search = false;
@@ -3495,7 +3489,7 @@ reread:
 		r_search_reset (core->search, R_SEARCH_KEYWORD);
 		r_search_set_distance (core->search, (int)
 			r_config_get_i (core->config, "search.distance"));
-		char *v_str = (char *)r_str_trim_ro (input + param_offset);
+		char *v_str = (char *)r_str_trim_head_ro (input + param_offset);
 		RList *nums = r_num_str_split_list (v_str);
 		int len = r_list_length (nums);
 		int bsize = 0;
@@ -3546,53 +3540,50 @@ reread:
 		dosearch = true;
 		break;
 	case 'w': // "/w" search wide string, includes ignorecase search functionality (/wi cmd)!
-		if (input[1]) {
-			if (input[2]) {
-				if (input[1] == 'j' || input[2] == 'j') {
-					param.outmode = R_MODE_JSON;
-				}
-				if (input[1] == 'i' || input[2] == 'i') {
-					ignorecase = true;
-				}
+		if (input[2] ) {
+			if (input[1] == 'j' || input[2] == 'j') {
+				param.outmode = R_MODE_JSON;
 			}
-
-			size_t shift = 1 + ignorecase;
-			if (param.outmode == R_MODE_JSON) {
-				shift++;
+			if (input[1] == 'i' || input[2] == 'i') {
+				ignorecase = true;
 			}
-			if (input[shift] == ' ') {
-				size_t strstart, len;
-				const char *p2;
-				char *p, *str;
-				strstart = shift + 1;
-				len = strlen (input + strstart);
-				str = calloc ((len + 1), 2);
-				for (p2 = input + strstart, p = str; *p2; p += 2, p2++) {
-					if (ignorecase) {
-						p[0] = tolower ((const ut8) *p2);
-					} else {
-						p[0] = *p2;
-					}
-					p[1] = 0;
-				}
-				r_search_reset (core->search, R_SEARCH_KEYWORD);
-				r_search_set_distance (core->search, (int)
-					r_config_get_i (core->config, "search.distance"));
-				RSearchKeyword *skw;
-				skw = r_search_keyword_new ((const ut8 *) str, len * 2, NULL, 0, NULL);
-				free (str);
-				if (skw) {
-					skw->icase = ignorecase;
-					r_search_kw_add (core->search, skw);
-					r_search_begin (core->search);
-					dosearch = true;
-				} else {
-					eprintf ("Invalid keyword\n");
-					break;
-				}
-			}
+		} else {
+			param.outmode = R_MODE_RADARE;
 		}
-		break;
+
+		size_t shift = 1 + ignorecase;
+		if (param.outmode == R_MODE_JSON) {
+			shift++;
+		}
+		size_t strstart;
+		const char *p2;
+		char *p;
+		strstart = shift + 1;
+		len = strlen (input + strstart);
+		inp = calloc ((len + 1), 2);
+		for (p2 = input + strstart, p = inp; *p2; p += 2, p2++) {
+			if (ignorecase) {
+				p[0] = tolower ((const ut8) *p2);
+			} else {
+				p[0] = *p2;
+			}
+			p[1] = 0;
+		}
+		r_search_reset (core->search, R_SEARCH_KEYWORD);
+		r_search_set_distance (core->search, (int)
+				r_config_get_i (core->config, "search.distance"));
+		RSearchKeyword *skw;
+		skw = r_search_keyword_new ((const ut8 *) inp, len * 2, NULL, 0, NULL);
+		free (inp);
+		if (skw) {
+			skw->icase = ignorecase;
+			r_search_kw_add (core->search, skw);
+			r_search_begin (core->search);
+			dosearch = true;
+		} else {
+			eprintf ("Invalid keyword\n");
+			break;
+		}
 	case 'i': // "/i"
 		if (input[param_offset - 1] != ' ') {
 			eprintf ("Missing ' ' after /i\n");
@@ -3601,7 +3592,7 @@ reread:
 		}
 		ignorecase = true;
 	case 'j': // "/j"
-		if (input[0] == 'j') {
+		if (input[0] == 'j' && input[1] == ' ') {
 			param.outmode = R_MODE_JSON;
 		}
 		// fallthrough
@@ -3724,7 +3715,7 @@ reread:
 			if (input[1]) {
 				addr = r_num_math (core->num, input + 2);
 			} else {
-				RAnalFunction *fcn = r_anal_get_fcn_at (core->anal, addr, 0);
+				RAnalFunction *fcn = r_anal_get_function_at (core->anal, addr);
 				if (fcn) {
 					addr = fcn->addr;
 				} else {
@@ -3744,7 +3735,7 @@ reread:
 			char **args = r_str_argv (input + param_offset, &n_args);
 			ut8 *buf = NULL;
 			ut64 offset = 0;
-			int size;
+			size_t size;
 			buf = (ut8 *)r_file_slurp (args[0], &size);
 			if (!buf) {
 				eprintf ("Cannot open '%s'\n", args[0]);

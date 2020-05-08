@@ -59,7 +59,7 @@ static int __parseMouseEvent() {
 	if (ch2 == ';') {
 		int i;
 		// read until next ;
-		for (i = 0; i < sizeof (xpos); i++) {
+		for (i = 0; i < sizeof (xpos) - 1; i++) {
 			char ch = r_cons_readchar ();
 			if (ch == ';' || ch == 'M') {
 				break;
@@ -67,7 +67,7 @@ static int __parseMouseEvent() {
 			xpos[i] = ch;
 		}
 		xpos[i] = 0;
-		for (i = 0; i < sizeof (ypos); i++) {
+		for (i = 0; i < sizeof (ypos) - 1; i++) {
 			char ch = r_cons_readchar ();
 			if (ch == ';' || ch == 'M') {
 				break;
@@ -98,29 +98,31 @@ static bool is_arrow;
 
 R_API int r_cons_arrow_to_hjkl(int ch) {
 #if __WINDOWS__
-	if (is_arrow) {
-		switch (ch) {
-		case VK_DOWN: // key down
-			ch = bCtrl ? 'J' : 'j';
-			break;
-		case VK_RIGHT: // key right
-			ch = bCtrl ? 'L' : 'l';
-			break;
-		case VK_UP: // key up
-			ch = bCtrl ? 'K' : 'k';
-			break;
-		case VK_LEFT: // key left
-			ch = bCtrl ? 'H' : 'h';
-			break;
-		case VK_PRIOR: // key home
-			ch = 'K';
-			break;
-		case VK_NEXT: // key end
-			ch = 'J';
-			break;
+	if (I->vtmode != 2) {
+		if (is_arrow) {
+			switch (ch) {
+			case VK_DOWN: // key down
+				ch = bCtrl ? 'J' : 'j';
+				break;
+			case VK_RIGHT: // key right
+				ch = bCtrl ? 'L' : 'l';
+				break;
+			case VK_UP: // key up
+				ch = bCtrl ? 'K' : 'k';
+				break;
+			case VK_LEFT: // key left
+				ch = bCtrl ? 'H' : 'h';
+				break;
+			case VK_PRIOR: // key home
+				ch = 'K';
+				break;
+			case VK_NEXT: // key end
+				ch = 'J';
+				break;
+			}
 		}
+		return I->mouse_event && (ut8)ch == UT8_MAX ? 0 : ch;
 	}
-	return I->mouse_event && (ut8)ch == UT8_MAX ? 0 : ch;
 #endif
 	I->mouse_event = 0;
 	/* emacs */
@@ -192,7 +194,7 @@ R_API int r_cons_arrow_to_hjkl(int ch) {
 						}
 						sc++;
 						p = 0;
-					}	
+					}
 				} while (ch != 'M' && ch != 'm');
 				int nvel = atoi (vel);
 				switch (nvel) {
@@ -208,13 +210,7 @@ R_API int r_cons_arrow_to_hjkl(int ch) {
 				}
 				pos[p++] = 0;
 				y = atoi (pos);
-				// M is mouse down , m is mouse up
-				if (ch == 'M' || ch == 'm') {
-					r_cons_set_click (x, y);
-					if (ch == 'm') {
-						return INT8_MAX - 1;
-					}
-				}
+				r_cons_set_click (x, y);
 			}
 			return 0;
 		case '[':
@@ -373,11 +369,10 @@ R_API int r_cons_fgets(char *buf, int len, int argc, const char **argv) {
 	*buf = '\0';
 	if (color) {
 		const char *p = cons->context->pal.input;
-		int len = p? strlen (p): 0;
-		if (len > 0) {
-			fwrite (p, len, 1, stdout);
+		if (R_STR_ISNOTEMPTY (p)) {
+			fwrite (p, strlen (p), 1, stdout);
+			fflush (stdout);
 		}
-		fflush (stdout);
 	}
 	if (!fgets (buf, len, cons->fdin)) {
 		if (color) {
@@ -392,7 +387,7 @@ R_API int r_cons_fgets(char *buf, int len, int argc, const char **argv) {
 		}
 		RETURN (-2);
 	}
-	buf[strlen (buf)-1] = '\0';
+	r_str_trim_tail (buf);
 	if (color) {
 		printf (Color_RESET);
 	}
@@ -423,15 +418,18 @@ static int __cons_readchar_w32(ut32 usec) {
 	is_arrow = false;
 	DWORD mode, out;
 	HANDLE h;
-	INPUT_RECORD irInBuf;
-	int i, o;
+	INPUT_RECORD irInBuf = { { 0 } };
+	CONSOLE_SCREEN_BUFFER_INFO info = { { 0 } };
 	bool resize = false;
 	bool click_n_drag = false;
 	void *bed;
 	I->mouse_event = 0;
 	h = GetStdHandle (STD_INPUT_HANDLE);
 	GetConsoleMode (h, &mode);
-	SetConsoleMode (h, ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS);
+	DWORD newmode = I->vtmode == 2 
+			? ENABLE_VIRTUAL_TERMINAL_INPUT
+			: ENABLE_WINDOW_INPUT | ENABLE_MOUSE_INPUT | ENABLE_EXTENDED_FLAGS;
+	SetConsoleMode (h, newmode);
 	do {
 		bed = r_cons_sleep_begin ();
 		if (usec) {
@@ -440,8 +438,12 @@ static int __cons_readchar_w32(ut32 usec) {
 				return -1;
 			}
 		}
-		ret = ReadConsoleInput (h, &irInBuf, 1, &out);
 		r_cons_enable_mouse (true);
+		if (I->term_xterm) {
+			ret = ReadFile (h, &ch, 1, &out, NULL);
+		} else {
+			ret = ReadConsoleInput (h, &irInBuf, 1, &out);
+		}
 		r_cons_sleep_end (bed);
 		if (ret) {
 			if (irInBuf.EventType == MOUSE_EVENT) {
@@ -449,7 +451,7 @@ static int __cons_readchar_w32(ut32 usec) {
 					if (irInBuf.Event.MouseEvent.dwButtonState == FROM_LEFT_1ST_BUTTON_PRESSED) {
 						click_n_drag = true;
 					}
-					continue;			
+					continue;
 				}
 				if (irInBuf.Event.MouseEvent.dwEventFlags == MOUSE_WHEELED) {
 					if (irInBuf.Event.MouseEvent.dwButtonState & 0xFF000000) {
@@ -461,7 +463,9 @@ static int __cons_readchar_w32(ut32 usec) {
 				}
 				switch (irInBuf.Event.MouseEvent.dwButtonState) {
 				case FROM_LEFT_1ST_BUTTON_PRESSED:
-					r_cons_set_click (irInBuf.Event.MouseEvent.dwMousePosition.X + 1, irInBuf.Event.MouseEvent.dwMousePosition.Y + 1);
+					GetConsoleScreenBufferInfo (GetStdHandle (STD_OUTPUT_HANDLE), &info);
+					int rel_y = irInBuf.Event.MouseEvent.dwMousePosition.Y - info.srWindow.Top;
+					r_cons_set_click (irInBuf.Event.MouseEvent.dwMousePosition.X + 1, rel_y + 1);
 					ch = UT8_MAX;
 					break;
 				case RIGHTMOST_BUTTON_PRESSED:
@@ -540,7 +544,9 @@ static int __cons_readchar_w32(ut32 usec) {
 				resize = false;
 			}
 		}
-		FlushConsoleInputBuffer (h);
+		if (I->vtmode != 2 && !I->term_xterm) {
+			FlushConsoleInputBuffer (h);
+		}
 	} while (ch == 0);
 	SetConsoleMode (h, mode);
 	return ch;
@@ -593,7 +599,6 @@ extern volatile sig_atomic_t sigwinchFlag;
 #endif
 
 R_API int r_cons_readchar() {
-	void *bed;
 	char buf[2];
 	buf[0] = -1;
 	if (readbuffer_length > 0) {
@@ -602,11 +607,11 @@ R_API int r_cons_readchar() {
 		memmove (readbuffer, readbuffer + 1, readbuffer_length);
 		return ch;
 	}
+	r_cons_set_raw (1);
 #if __WINDOWS__
 	return __cons_readchar_w32 (0);
 #else
-	r_cons_set_raw (1);
-	bed = r_cons_sleep_begin ();
+	void *bed = r_cons_sleep_begin ();
 
 	// Blocks until either stdin has something to read or a signal happens.
 	// This serves to check if the terminal window was resized. It avoids the race

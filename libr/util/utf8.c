@@ -490,7 +490,7 @@ R_API int r_utf8_decode(const ut8 *ptr, int ptrlen, RRune *ch) {
 	if (ptrlen < 1) {
 		return 0;
 	}
-	if (ptrlen > 0 && ptr[0] < 0x80) {
+	if (ptr[0] < 0x80) {
 		if (ch) {
 			*ch = (ut32)ptr[0];
 		}
@@ -655,7 +655,7 @@ R_API wchar_t *r_utf8_to_utf16_l(const char *cstring, int len) {
 	return rutf16;
 }
 
-R_API char *r_utf8_to_acp_l(const ut8 *str, int len) {
+R_API char *r_utf8_to_acp_l(const char *str, int len) {
 	if (!str || !len || len < -1) {
 		return NULL;
 	}
@@ -684,7 +684,7 @@ R_API char *r_utf8_to_acp_l(const ut8 *str, int len) {
 	return acp;
 }
 
-R_API const char *r_acp_to_utf8_l(const ut8 *str, int len) {
+R_API char *r_acp_to_utf8_l(const char *str, int len) {
 	if (!str || !len || len < -1) {
 		return NULL;
 	}
@@ -697,7 +697,7 @@ R_API const char *r_acp_to_utf8_l(const ut8 *str, int len) {
 			if (len != -1) {
 				rutf16[wcsize - 1] = L'\0';
 			}
-			const char *ret = r_utf16_to_utf8_l (rutf16, wcsize);
+			char *ret = r_utf16_to_utf8_l (rutf16, wcsize);
 			free (rutf16);
 			return ret;
 		}

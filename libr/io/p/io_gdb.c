@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2018 pancake */
+/* radare - LGPL - Copyright 2010-2020 pancake */
 
 #include <r_io.h>
 #include <r_lib.h>
@@ -8,6 +8,7 @@
 #define IRAPI static inline
 #include <libgdbr.h>
 #include <gdbclient/commands.h>
+#include <gdbclient/responses.h>
 
 typedef struct {
 	libgdbr_t desc;
@@ -17,7 +18,6 @@ typedef struct {
 
 static int __close(RIODesc *fd);
 static libgdbr_t *desc = NULL;
-static RIODesc *riogdb = NULL;
 
 static bool __plugin_open(RIO *io, const char *file, bool many) {
 	return (!strncmp (file, "gdb://", 6));
@@ -40,18 +40,18 @@ static int debug_gdb_write_at(const ut8 *buf, int sz, ut64 addr) {
 	size_max = desc->read_max;
 	packets = sz / size_max;
 	last = sz % size_max;
-	for (x = 0; x < packets; x++) {
-		gdbr_write_memory (desc, addr + x * size_max,
-			(const uint8_t*)(buf + x * size_max), size_max);
+	ut64 offset = 0;
+	for (x = 0; x < packets; x++, offset += size_max) {
+		gdbr_write_memory (desc, addr + offset, buf + offset, size_max);
 	}
 	if (last) {
-		gdbr_write_memory (desc, addr + x * size_max,
-			(buf + x * size_max), last);
+		gdbr_write_memory (desc, addr + offset, buf + offset, last);
 	}
 	return sz;
 }
 
 static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
+	RIODesc *riogdb = NULL;
 	RIOGdb *riog;
 	char host[128], *port, *pid;
 	int i_port = -1;
@@ -59,10 +59,6 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 
 	if (!__plugin_open (io, file, 0)) {
 		return NULL;
-	}
-	if (riogdb) {
-		// FIX: Don't allocate more than one gdb RIODesc
-		return riogdb;
 	}
 	strncpy (host, file + 6, sizeof (host) - 1);
 	host [sizeof (host) - 1] = '\0';
@@ -156,7 +152,7 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 		io->off += offset;
 		break;
 	case R_IO_SEEK_END:
-		io->off = UT64_MAX;
+		io->off = ST64_MAX;
 	}
 	return io->off;
 }
@@ -179,9 +175,6 @@ static int __close(RIODesc *fd) {
 	}
 	gdbr_disconnect (desc);
 	gdbr_cleanup (desc);
-	if (riogdb) {	//TODO is there a less band-aid fix to do this?
-		riogdb->data = NULL;
-	}
 	R_FREE (desc);
 	return -1;
 }
@@ -223,6 +216,9 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 		eprintf ("Usage: =!cmd args\n"
 			 " =!pid             - show targeted pid\n"
 			 " =!pkt s           - send packet 's'\n"
+			 " =!rd              - show reverse debugging availability\n"
+			 " =!dsb             - step backwards\n"
+			 " =!dcb             - continue backwards\n"
 			 " =!monitor cmd     - hex-encode monitor command and pass"
 			                     " to target interpreter\n"
 			 " =!detach [pid]    - detach from remote/detach specific pid\n"
@@ -234,7 +230,7 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 		return NULL;
 	}
 	if (r_str_startswith (cmd, "pktsz")) {
-		const char *ptr = r_str_trim_ro (cmd + 5);
+		const char *ptr = r_str_trim_head_ro (cmd + 5);
 		if (!isdigit ((ut8)*ptr)) {
 			io->cb_printf ("packet size: %u bytes\n",
 				       desc->stub_features.pkt_sz);
@@ -254,7 +250,7 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 			res = gdbr_detach (desc) >= 0;
 		} else {
 			int pid = 0;
-			cmd = r_str_trim_ro (cmd + 6);
+			cmd = r_str_trim_head_ro (cmd + 6);
 			if (!*cmd || !(pid = strtoul (cmd, NULL, 10))) {
 				res = gdbr_detach (desc) >= 0;
 			} else {
@@ -273,6 +269,62 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 			if (!desc->no_ack) {
 				eprintf ("[waiting for ack]\n");
 			}
+		}
+		gdbr_lock_leave (desc);
+		return NULL;
+	}
+	if (r_str_startswith (cmd, "rd")) {
+		PJ *pj = pj_new ();
+		pj_o (pj);
+		pj_kb (pj, "reverse-continue", desc->stub_features.ReverseStep);
+		pj_kb (pj, "reverse-step", desc->stub_features.ReverseContinue);
+		pj_end (pj);
+		io->cb_printf ("%s\n", pj_string (pj));
+		pj_free (pj);
+		return NULL;
+	}
+	if (r_str_startswith (cmd, "dsb")) {
+		if (!desc->stub_features.ReverseStep) {
+			eprintf ("Stepping backwards is not supported in this gdbserver implementation\n");
+			return NULL;
+		}
+		gdbr_lock_enter (desc);
+		if (send_msg (desc, "bs") >= 0) {
+			(void)read_packet (desc);
+			desc->data[desc->data_len] = '\0';
+			if (!desc->no_ack) {
+				eprintf ("[waiting for ack]\n");
+			} else {
+				handle_stop_reason (desc);
+				if (desc->stop_reason.is_valid == false) {
+					eprintf("Thread (%d) stopped for an invalid reason: %d\n",
+						desc->stop_reason.thread.tid, desc->stop_reason.reason);
+				}
+			}
+			gdbr_invalidate_reg_cache ();
+		}
+		gdbr_lock_leave (desc);
+		return NULL;
+	}
+	if (r_str_startswith (cmd, "dcb")) {
+		if (!desc->stub_features.ReverseContinue) {
+			eprintf ("Continue backwards is not supported in this gdbserver implementation\n");
+			return NULL;
+		}
+		gdbr_lock_enter (desc);
+		if (send_msg (desc, "bc") >= 0) {
+			(void)read_packet (desc);
+			desc->data[desc->data_len] = '\0';
+			if (!desc->no_ack) {
+				eprintf ("[waiting for ack]\n");
+			} else {
+				handle_stop_reason (desc);
+				if (desc->stop_reason.is_valid == false) {
+					eprintf("Thread (%d) stopped for an invalid reason: %d\n",
+						desc->stop_reason.thread.tid, desc->stop_reason.reason);
+				}
+			}
+			gdbr_invalidate_reg_cache ();
 		}
 		gdbr_lock_leave (desc);
 		return NULL;

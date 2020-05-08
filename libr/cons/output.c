@@ -24,6 +24,10 @@ R_API void r_cons_w32_clear(void) {
 	static CONSOLE_SCREEN_BUFFER_INFO csbi;
 	COORD startCoords;
 	DWORD dummy;
+	if (I->vtmode) {
+		r_cons_strcat (Color_RESET R_CONS_CLEAR_SCREEN);
+		return;
+	}
 	if (I->is_wine == 1) {
 		write (1, "\033[0;0H\033[0m\033[2J", 6 + 4 + 4);
 	}
@@ -50,6 +54,10 @@ R_API void r_cons_w32_gotoxy(int fd, int x, int y) {
 	COORD coord;
 	coord.X = x;
 	coord.Y = y;
+	if (I->vtmode) {
+		r_cons_printf ("\x1b[%d;%dH", y, x);
+		return;
+	}
 	if (I->is_wine == 1) {
 		write (fd, "\x1b[0;0H", 6);
 	}
@@ -69,7 +77,7 @@ static int wrapline(const char *s, int len) {
 		l = r_str_len_utf8char (s+n, (len-n));
 		n += l;
 	}
-	return n - (n > len)? l: 1;
+	return n - ((n > len) ? l : 1);
 }
 
 // Dupe from canvas.c
@@ -99,19 +107,19 @@ static int bytes_utf8len(const char *s, int n) {
 	return ret;
 }
 
-static int r_cons_w32_hprint(DWORD hdl, const ut8 *ptr, int len, bool vmode) {
+static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 	HANDLE hConsole = GetStdHandle (hdl);
 	int fd = hdl == STD_OUTPUT_HANDLE ? 1 : 2;
 	int esc = 0;
 	int bg = 0, fg = 1|2|4|8;
-	const ut8 *ptr_end, *str = ptr;
+	const char *ptr_end, *str = ptr;
 	int ret = 0;
 	int inv = 0;
 	int linelen = 0;
 	int ll = 0;
 	int raw_ll = 0;
 	int lines, cols = r_cons_get_size (&lines);
-	if (I->is_wine==-1) {
+	if (I->is_wine == -1) {
 		I->is_wine = r_file_is_directory ("/proc")? 1: 0;
 	}
 	if (len < 0) {
@@ -393,7 +401,7 @@ static int r_cons_w32_hprint(DWORD hdl, const ut8 *ptr, int len, bool vmode) {
 	return ret;
 }
 
-R_API int r_cons_w32_print(const ut8 *ptr, int len, bool vmode) {
+R_API int r_cons_w32_print(const char *ptr, int len, bool vmode) {
 	return r_cons_w32_hprint (STD_OUTPUT_HANDLE, ptr, len, vmode);
 }
 
@@ -403,7 +411,7 @@ R_API int r_cons_win_vhprintf(DWORD hdl, bool vmode, const char *fmt, va_list ap
 	FILE *con = hdl == STD_OUTPUT_HANDLE ? stdout : stderr;
 	if (!strchr (fmt, '%')) {
 		size_t len = strlen (fmt);
-		if (I->ansicon) {
+		if (I->vtmode) {
 			return fwrite (fmt, 1, len, con);
 		}
 		return r_cons_w32_hprint (hdl, fmt, len, vmode);
@@ -414,7 +422,7 @@ R_API int r_cons_win_vhprintf(DWORD hdl, bool vmode, const char *fmt, va_list ap
 	char *buf = calloc (1, num_chars);
 	if (buf) {
 		(void)vsnprintf (buf, num_chars, fmt, ap);
-		if (I->ansicon) {
+		if (I->vtmode) {
 			ret = fwrite (buf, 1, num_chars - 1, con);
 		} else {
 			ret = r_cons_w32_hprint (hdl, buf, num_chars - 1, vmode);

@@ -63,11 +63,60 @@ struct Getarg {
 	int bits;
 };
 
-static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
+static csh handle = 0;
+
+static void hidden_op(cs_insn *insn, cs_x86 *x, int mode) {
+	unsigned int id = insn->id;
+	int regsz = 4;
+	switch (mode) {
+	case CS_MODE_64:
+		regsz = 8;
+		break;
+	case CS_MODE_16:
+		regsz = 2;
+		break;
+	default:
+		regsz = 4; //32 bit
+		break;
+	}
+
+	switch (id) {
+	case X86_INS_PUSHF:
+	case X86_INS_POPF:
+	case X86_INS_PUSHFD:
+	case X86_INS_POPFD:
+	case X86_INS_PUSHFQ:
+	case X86_INS_POPFQ:
+		x->op_count = 1;
+		cs_x86_op *op = &x->operands[0];
+		op->type = X86_OP_REG;
+		op->reg = X86_REG_EFLAGS;
+		op->size = regsz;
+#if CS_API_MAJOR >=4
+		if (id == X86_INS_PUSHF || id == X86_INS_PUSHFD || id == X86_INS_PUSHFQ) {
+			op->access = 1;
+		} else {
+			op->access = 2;
+		}
+#endif
+		break;
+	case X86_INS_PUSHAW:
+	case X86_INS_PUSHAL:
+	case X86_INS_POPAW:
+	case X86_INS_POPAL:
+	default:
+		break;
+	}
+}
+
+static void opex(RStrBuf *buf, cs_insn *insn, int mode) {
 	int i;
 	r_strbuf_init (buf);
 	r_strbuf_append (buf, "{");
 	cs_x86 *x = &insn->detail->x86;
+	if (x->op_count == 0) {
+		hidden_op (insn, x, mode);
+	}
 	r_strbuf_appendf (buf, "\"operands\":[", x->op_count);
 	for (i = 0; i < x->op_count; i++) {
 		cs_x86_op *op = &x->operands[i];
@@ -288,8 +337,6 @@ static char *getarg(struct Getarg* gop, int n, int set, char *setop, int sel, ut
 	}
 	return NULL;
 }
-
-static csh handle = 0;
 
 static int cond_x862r2(int id) {
 	switch (id) {
@@ -2098,6 +2145,12 @@ static void anop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, csh 
 		op->family = R_ANAL_OP_FAMILY_FPU;
 		op->type = R_ANAL_OP_TYPE_CMP;
 		break;
+	case X86_INS_BT:
+	case X86_INS_BTC:
+	case X86_INS_BTR:
+	case X86_INS_BTS:
+		op->type = R_ANAL_OP_TYPE_CMP;
+		break;
 	case X86_INS_FABS:
 		op->type = R_ANAL_OP_TYPE_ABS;
 		op->family = R_ANAL_OP_FAMILY_FPU;
@@ -3041,7 +3094,7 @@ static int analop(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf, int len, RAn
 			anop_esil (a, op, addr, buf, len, &handle, insn);
 		}
 		if (mask & R_ANAL_OP_MASK_OPEX) {
-			opex (&op->opex, handle, insn);
+			opex (&op->opex, insn, mode);
 		}
 		if (mask & R_ANAL_OP_MASK_VAL) {
 			op_fillval (a, op, &handle, insn);
@@ -3257,7 +3310,10 @@ static char *get_reg_profile(RAnal *anal) {
 		"drx	dr7	.32	28	0\n";
 		 break;
 	case 64:
-		 p =
+	{
+		const char *cc = r_anal_cc_default (anal);
+		const char *args_prof = cc && !strcmp (cc, "ms")
+		? // Microsoft x64 CC
 		"# RAX     return value\n"
 		"# RCX     argument 1\n"
 		"# RDX     argument 2\n"
@@ -3271,6 +3327,15 @@ static char *get_reg_profile(RAnal *anal) {
 		 "=PC	rip\n"
 		 "=SP	rsp\n"
 		 "=BP	rbp\n"
+		 "=A0	rcx\n"
+		 "=A1	rdx\n"
+		 "=A2	r8\n"
+		 "=A3	r9\n"
+		 "=SN	rax\n"
+		 : // System V AMD64 ABI
+		 "=PC	rip\n"
+		 "=SP	rsp\n"
+		 "=BP	rbp\n"
 		 "=A0	rdi\n"
 		 "=A1	rsi\n"
 		 "=A2	rdx\n"
@@ -3279,7 +3344,8 @@ static char *get_reg_profile(RAnal *anal) {
 		 "=A5	r9\n"
 		 "=A6	r10\n"
 		 "=A7	r11\n"
-		 "=SN	rax\n"
+		 "=SN	rax\n";
+		char *prof = r_str_newf ("%s%s", args_prof,
 		 "gpr	rax	.64	80	0\n"
 		 "gpr	eax	.32	80	0\n"
 		 "gpr	ax	.16	80	0\n"
@@ -3413,39 +3479,40 @@ static char *get_reg_profile(RAnal *anal) {
 		 "fpu    st6 .64 128  0\n"
 		 "fpu    st7 .64 144  0\n"
 
-		 "fpu    xmm0  .64 160  4\n"
+		 "xmm@fpu    xmm0  .128 160  4\n"
 		 "fpu    xmm0h .64 160  0\n"
 		 "fpu    xmm0l .64 168  0\n"
 
-		 "fpu    xmm1  .64 176  4\n"
+		 "xmm@fpu    xmm1  .128 176  4\n"
 		 "fpu    xmm1h .64 176  0\n"
 		 "fpu    xmm1l .64 184  0\n"
 
-		 "fpu    xmm2  .64 192  4\n"
+		 "xmm@fpu    xmm2  .128 192  4\n"
 		 "fpu    xmm2h .64 192  0\n"
 		 "fpu    xmm2l .64 200  0\n"
 
-		 "fpu    xmm3  .64 208  4\n"
+		 "xmm@fpu    xmm3  .128 208  4\n"
 		 "fpu    xmm3h .64 208  0\n"
 		 "fpu    xmm3l .64 216  0\n"
 
-		 "fpu    xmm4  .64 224  4\n"
+		 "xmm@fpu    xmm4  .128 224  4\n"
 		 "fpu    xmm4h .64 224  0\n"
 		 "fpu    xmm4l .64 232  0\n"
 
-		 "fpu    xmm5  .64 240  4\n"
+		 "xmm@fpu    xmm5  .128 240  4\n"
 		 "fpu    xmm5h .64 240  0\n"
 		 "fpu    xmm5l .64 248  0\n"
 
-		 "fpu    xmm6  .64 256  4\n"
+		 "xmm@fpu    xmm6  .128 256  4\n"
 		 "fpu    xmm6h .64 256  0\n"
 		 "fpu    xmm6l .64 264  0\n"
 
-		 "fpu    xmm7  .64 272  4\n"
+		 "xmm@fpu    xmm7  .128 272  4\n"
 		 "fpu    xmm7h .64 272  0\n"
 		 "fpu    xmm7l .64 280  0\n"
-		 "fpu    x64   .64 288  0\n";
-		 break;
+		 "fpu    x64   .64 288  0\n");
+		return prof;
+	}
 #if 0
 	default: p= /* XXX */
 		 "=PC	rip\n"
@@ -3530,7 +3597,6 @@ static int archinfo(RAnal *anal, int q) {
 
 static RList *anal_preludes(RAnal *anal) {
 #define KW(d,ds,m,ms) r_list_append (l, r_search_keyword_new((const ut8*)d,ds,(const ut8*)m, ms, NULL))
-	RSearchKeyword* kw;
 	RList *l = r_list_newf ((RListFree)r_search_keyword_free);
 	switch (anal->bits) {
 	case 32:

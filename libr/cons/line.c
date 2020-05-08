@@ -20,7 +20,9 @@ R_API RLine *r_line_new(void) {
 	I.kill_ring = r_list_newf (NULL);
 	I.kill_ring_ptr = -1;
 #if __WINDOWS__
-	I.ansicon = r_cons_is_ansicon ();
+	I.vtmode = r_cons_is_vtcompat ();
+#else
+	I.vtmode = 2;
 #endif
 	if (!r_line_dietline_init ()) {
 		eprintf ("error: r_line_dietline_init\n");
@@ -46,6 +48,8 @@ R_API void r_line_clipboard_push (const char *str) {
 R_API void r_line_set_prompt(const char *prompt) {
 	free (I.prompt);
 	I.prompt = strdup (prompt);
+	RCons *cons = r_cons_singleton ();
+	I.cb_fkey = cons->cb_fkey;
 }
 
 // handle const or dynamic prompts?

@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2019 - pancake, nibble, dso */
+/* radare2 - LGPL - Copyright 2009-2020 - pancake, nibble, dso */
 
 #include <r_bin.h>
 #include <r_types.h>
@@ -142,6 +142,7 @@ R_API void r_bin_info_free(RBinInfo *rb) {
 	free (rb->machine);
 	free (rb->os);
 	free (rb->subsystem);
+	free (rb->default_cc);
 	free (rb->rpath);
 	free (rb->guid);
 	free (rb->debug_file_name);
@@ -167,6 +168,7 @@ R_API void r_bin_import_free(void *_imp) {
 	RBinImport *imp = (RBinImport *)_imp;
 	if (imp) {
 		R_FREE (imp->name);
+		R_FREE (imp->libname);
 		R_FREE (imp->classname);
 		R_FREE (imp->descriptor);
 		free (imp);
@@ -194,6 +196,7 @@ R_API void r_bin_symbol_free(void *_sym) {
 	RBinSymbol *sym = (RBinSymbol *)_sym;
 	if (sym) {
 		free (sym->name);
+		free (sym->libname);
 		free (sym->classname);
 		free (sym);
 	}
@@ -247,7 +250,6 @@ R_API bool r_bin_reload(RBin *bin, ut32 bf_id, ut64 baseaddr) {
 
 R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 	r_return_val_if_fail (bin && opt, false);
-	r_return_val_if_fail ((st64)opt->sz >= 0, false);
 
 	RListIter *it;
 	RBinXtrPlugin *xtr;
@@ -256,9 +258,6 @@ R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 	bin->file = opt->filename;
 	if (opt->loadaddr == UT64_MAX) {
 		opt->loadaddr = 0;
-	}
-	if (!opt->sz) {
-		opt->sz = r_buf_size (buf);
 	}
 
 	RBinFile *bf = NULL;
@@ -282,6 +281,8 @@ R_API bool r_bin_open_buf(RBin *bin, RBuffer *buf, RBinOptions *opt) {
 		}
 	}
 	if (!bf) {
+		// Uncomment for this speedup: 20s vs 22s
+		// RBuffer *buf = r_buf_new_slurp (bin->file);
 		bf = r_bin_file_new_from_buffer (bin, bin->file, buf, bin->rawstr,
 			opt->baseaddr, opt->loadaddr, opt->fd, opt->pluginname);
 		if (!bf) {
@@ -465,6 +466,7 @@ R_API void r_bin_free(RBin *bin) {
 		bin->file = NULL;
 		free (bin->force);
 		free (bin->srcdir);
+		free (bin->strenc);
 		//r_bin_free_bin_files (bin);
 		r_list_free (bin->binfiles);
 		r_list_free (bin->binxtrs);
@@ -848,6 +850,7 @@ R_API RBin *r_bin_new() {
 	bin->plugins = r_list_newf ((RListFree)r_bin_plugin_free);
 	bin->minstrlen = 0;
 	bin->strpurge = NULL;
+	bin->strenc = NULL;
 	bin->want_dbginfo = true;
 	bin->cur = NULL;
 	bin->ids = r_id_storage_new (0, ST32_MAX);
@@ -1005,23 +1008,31 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 	//are we with xtr format?
 	if (binfile && binfile->curxtr) {
 		list_xtr_archs (bin, mode);
+		r_table_free (table);
 		return;
 	}
 	Sdb *binfile_sdb = binfile? binfile->sdb: NULL;
 	if (!binfile_sdb) {
-		eprintf ("Cannot find SDB!\n");
+	//	eprintf ("Cannot find SDB!\n");
+		r_table_free (table);
 		return;
 	}
 	if (!binfile) {
-		eprintf ("Binary format not currently loaded!\n");
+	//	eprintf ("Binary format not currently loaded!\n");
+		r_table_free (table);
 		return;
 	}
 	sdb_unset (binfile_sdb, ARCHS_KEY, 0);
+	PJ *pj = pj_new ();
+	pj_o (pj);
 	if (mode == 'j') {
-		bin->cb_printf ("\"bins\":[");
+		pj_k (pj, "bins");
+		pj_a (pj);
 	}
 	RBinFile *nbinfile = r_bin_file_find_by_name_n (bin, name, i);
 	if (!nbinfile) {
+		pj_free (pj);
+		r_table_free (table);
 		return;
 	}
 	i = -1;
@@ -1047,11 +1058,15 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 			bin->cb_printf ("%s\n", arch);
 			break;
 		case 'j':
-			bin->cb_printf ("%s{\"arch\":\"%s\",\"bits\":%d,"
-					"\"offset\":%" PFMT64u ",\"size\":%" PFMT64u ","
-					"\"machine\":\"%s\"}",
-					i? ",": "", arch, bits,
-					boffset, obj_size, machine);
+			pj_o (pj);
+			pj_ks (pj, "arch", arch);
+			pj_ki (pj, "bits", bits);
+			pj_kn (pj, "offset", boffset);
+			pj_kn (pj, "size", obj_size);
+			if (machine) {
+				pj_ks (pj, "machine", machine);
+			}
+			pj_end (pj);
 			break;
 		default:
 			r_table_add_rowf (table, "nXnss", i, boffset, obj_size, sdb_fmt ("%s_%i", arch, bits), machine);
@@ -1069,11 +1084,15 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 				bin->cb_printf ("%s\n", arch);
 				break;
 			case 'j':
-				bin->cb_printf ("%s{\"arch\":\"%s\",\"bits\":%d,"
-						"\"offset\":%" PFMT64u ",\"size\":%" PFMT64u ","
-						"\"machine\":\"%s\"}",
-						i? ",": "", arch, bits,
-						boffset, obj_size, machine);
+				pj_o (pj);
+				pj_ks (pj, "arch", arch);
+				pj_ki (pj, "bits", bits);
+				pj_kn (pj, "offset", boffset);
+				pj_kn (pj, "size", obj_size);
+				if (machine) {
+					pj_ks (pj, "machine", machine);
+				}
+				pj_end (pj);
 				break;
 			default:
 				r_table_add_rowf (table, "nsnss", i, sdb_fmt ("0x%08" PFMT64x , boffset), obj_size, sdb_fmt("%s_%i", arch, bits), "");
@@ -1088,11 +1107,15 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 				bin->cb_printf ("%s\n", arch);
 				break;
 			case 'j':
-				bin->cb_printf ("%s{\"arch\":\"unk_%d\",\"bits\":%d,"
-						"\"offset\":%" PFMT64u ",\"size\":%" PFMT64u ","
-						"\"machine\":\"%s\"}",
-						i? ",": "", i, bits,
-						boffset, obj_size, machine);
+				pj_o (pj);
+				pj_ks (pj, "arch", arch);
+				pj_ki (pj, "bits", bits);
+				pj_kn (pj, "offset", boffset);
+				pj_kn (pj, "size", obj_size);
+				if (machine) {
+					pj_ks (pj, "machine", machine);
+				}
+				pj_end (pj);
 				break;
 			default:
 				r_table_add_rowf (table, "nsnss", i, sdb_fmt ("0x%08" PFMT64x , boffset), obj_size, "", "");
@@ -1107,8 +1130,14 @@ R_API void r_bin_list_archs(RBin *bin, int mode) {
 		//sdb_array_push (binfile_sdb, ARCHS_KEY, archline, 0);
 	}
 	if (mode == 'j') {
-		bin->cb_printf ("]");
+		pj_end (pj);
+		pj_end (pj);
+		const char *s = pj_string (pj);
+		if (s) {
+			bin->cb_printf ("%s\n", s);
+		}
 	}
+	pj_free (pj);
 	r_table_free (table);
 }
 
@@ -1181,10 +1210,10 @@ R_API RBuffer *r_bin_package(RBin *bin, const char *type, const char *file, RLis
 		int off = 12;
 		int item = 0;
 		r_list_foreach (files, iter, f) {
-			int f_len = 0;
+			size_t f_len = 0;
 			ut8 *f_buf = (ut8 *)r_file_slurp (f, &f_len);
-			if (f_buf && f_len >= 0) {
-				eprintf ("ADD %s %d\n", f, f_len);
+			if (f_buf) {
+				eprintf ("ADD %s %"PFMT64u"\n", f, (ut64)f_len);
 			} else {
 				eprintf ("Cannot open %s\n", f);
 				free (f_buf);

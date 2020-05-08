@@ -4,6 +4,7 @@
 #include <r_io.h>
 #include <r_lib.h>
 #include <r_util.h>
+#include <r_cons.h>
 #include <r_debug.h> /* only used for BSD PTRACE redefinitions */
 #include <string.h>
 
@@ -139,13 +140,13 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	LPTSTR cmdline_ = r_sys_conv_utf8_to_win (cmdline);
 	free (cmdline);
 	struct __createprocess_params p = {appname_, cmdline_, &pi};
-	w32dbg_wrap_instance *inst = io->w32dbg_wrap;
-	inst->params->type = W32_CALL_FUNC;
-	inst->params->func.func = __createprocess_wrap;
-	inst->params->func.user = &p;
-	w32dbg_wrap_wait_ret (inst);
-	if (!w32dbgw_intret (inst)) {
-		w32dbgw_err (inst);
+	W32DbgWInst *wrap = io->w32dbg_wrap;
+	wrap->params.type = W32_CALL_FUNC;
+	wrap->params.func.func = __createprocess_wrap;
+	wrap->params.func.user = &p;
+	w32dbg_wrap_wait_ret (wrap);
+	if (!w32dbgw_ret (wrap)) {
+		w32dbgw_err (wrap);
 		r_sys_perror ("fork_and_ptraceme/CreateProcess");
 		free (appname_);
 		free (cmdline_);
@@ -160,11 +161,11 @@ static int fork_and_ptraceme(RIO *io, int bits, const char *cmd) {
 	tid = pi.dwThreadId;
 
 	/* catch create process event */
-	inst->params->type = W32_WAIT;
-	inst->params->wait.wait_time = 10000;
-	inst->params->wait.de = &de;
-	w32dbg_wrap_wait_ret (inst);
-	if (!w32dbgw_intret (inst)) goto err_fork;
+	wrap->params.type = W32_WAIT;
+	wrap->params.wait.wait_time = 10000;
+	wrap->params.wait.de = &de;
+	w32dbg_wrap_wait_ret (wrap);
+	if (!w32dbgw_ret (wrap)) goto err_fork;
 
 	/* check if is a create process debug event */
 	if (de.dwDebugEventCode != CREATE_PROCESS_DEBUG_EVENT) {
@@ -196,7 +197,7 @@ static void inferior_abort_handler(int pid) {
 }
 #endif
 
-static void trace_me (void) {
+static void trace_me(void) {
 #if __APPLE__
 	r_sys_signal (SIGTRAP, SIG_IGN); //NEED BY STEP
 #endif
@@ -218,6 +219,7 @@ static void trace_me (void) {
 }
 #endif
 
+#if __APPLE__ && !__POWERPC__
 static void handle_posix_error(int err) {
 	switch (err) {
 	case 0:
@@ -235,6 +237,7 @@ static void handle_posix_error(int err) {
 		break;
 	}
 }
+#endif
 
 static RRunProfile* _get_run_profile(RIO *io, int bits, char **argv) {
 	char *expr = NULL;
@@ -457,6 +460,7 @@ static void fork_child_callback(void *user) {
 static int fork_and_ptraceme_for_unix(RIO *io, int bits, const char *cmd) {
 	int ret, status, child_pid;
 	bool runprofile = io->runprofile && *(io->runprofile);
+	void *bed = NULL;
 	fork_child_data child_data;
 	child_data.io = io;
 	child_data.bits = bits;
@@ -472,22 +476,25 @@ static int fork_and_ptraceme_for_unix(RIO *io, int bits, const char *cmd) {
 	default:
 		/* XXX: clean this dirty code */
 		do {
-			ret = wait (&status);
+			ret = waitpid (child_pid, &status, WNOHANG);
 			if (ret == -1) {
+				perror ("waitpid");
 				return -1;
 			}
-			if (ret != child_pid) {
-				eprintf ("Wait event received by "
-					"different pid %d\n", ret);
-			}
-		} while (ret != child_pid);
+			bed = r_cons_sleep_begin ();
+			usleep (100000);
+			r_cons_sleep_end (bed);
+		} while (ret != child_pid && !r_cons_is_breaked ());
 		if (WIFSTOPPED (status)) {
 			eprintf ("Process with PID %d started...\n", (int)child_pid);
-		}
-		if (WEXITSTATUS (status) == MAGIC_EXIT) {
+		} else if (WEXITSTATUS (status) == MAGIC_EXIT) {
 			child_pid = -1;
+		} else if (r_cons_is_breaked ()) {
+			kill (child_pid, SIGSTOP);
+		} else {
+			eprintf ("Killing child process %d due to an error\n", (int)child_pid);
+			kill (child_pid, SIGSTOP);
 		}
-		// XXX kill (pid, SIGSTOP);
 		break;
 	}
 	return child_pid;
@@ -519,7 +526,7 @@ static bool __plugin_open(RIO *io, const char *file, bool many) {
 
 #include <r_core.h>
 static int get_pid_of(RIO *io, const char *procname) {
-	RCore *c = io->user;
+	RCore *c = io->corebind.core;
 	if (c && c->dbg && c->dbg->h) {
 		RListIter *iter;
 		RDebugPid *proc;
@@ -582,10 +589,11 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 				return NULL;
 			}
 			if ((ret = _plugin->open (io, uri, rw, mode))) {
-				RIOW32Dbg *w32 = (RIOW32Dbg *)ret->data;
-				w32->winbase = winbase;
-				w32->pi.dwThreadId = wintid;
-				*(RIOW32Dbg *)((RCore *)io->user)->dbg->user = *w32;
+				RCore *c = io->corebind.core;
+				W32DbgWInst *wrap = (W32DbgWInst *)ret->data;
+				wrap->winbase = winbase;
+				wrap->pi.dwThreadId = wintid;
+				c->dbg->user = wrap;
 			}
 #elif __APPLE__
 			sprintf (uri, "smach://%d", pid);		//s is for spawn
@@ -612,8 +620,9 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 			ret = _plugin->open (io, uri, rw, mode);
 #if __WINDOWS__
 			if (ret) {
-				RIOW32Dbg *w32 = (RIOW32Dbg *)ret->data;
-				*(RIOW32Dbg *)((RCore *)io->user)->dbg->user = *w32;
+				RCore *c = io->corebind.core;
+				W32DbgWInst *wrap = (W32DbgWInst *)ret->data;
+				c->dbg->user = wrap;
 			}
 #endif
 		}

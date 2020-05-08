@@ -131,6 +131,7 @@ R_API RIODesc *r_io_open_buffer(RIO *io, RBuffer *b, int perm, int mode) {
 		const ut8 *tmp = r_buf_data (b, &bufSize);
 		r_io_desc_write (desc, tmp, bufSize);
 	}
+	free (uri);
 	return desc;
 }
 
@@ -146,7 +147,7 @@ R_API RIODesc *r_io_open_nomap(RIO *io, const char *uri, int perm, int mode) {
 
 /* opens a file and maps it to 0x0 */
 R_API RIODesc* r_io_open(RIO* io, const char* uri, int perm, int mode) {
-	r_return_val_if_fail (io && io->maps, NULL);
+	r_return_val_if_fail (io, NULL);
 	RIODesc* desc = r_io_open_nomap (io, uri, perm, mode);
 	if (desc) {
 		r_io_map_new (io, desc->fd, desc->perm, 0LL, 0LL, r_io_desc_size (desc));
@@ -156,7 +157,7 @@ R_API RIODesc* r_io_open(RIO* io, const char* uri, int perm, int mode) {
 
 /* opens a file and maps it to an offset specified by the "at"-parameter */
 R_API RIODesc* r_io_open_at(RIO* io, const char* uri, int perm, int mode, ut64 at) {
-	r_return_val_if_fail (io && io->maps && uri, NULL);
+	r_return_val_if_fail (io && uri, NULL);
 
 	RIODesc* desc = r_io_open_nomap (io, uri, perm, mode);
 	if (!desc) {
@@ -538,7 +539,7 @@ R_API void r_io_bind(RIO *io, RIOBind *bnd) {
 }
 
 /* moves bytes up (+) or down (-) within the specified range */
-R_API int r_io_shift(RIO* io, ut64 start, ut64 end, st64 move) {
+R_API bool r_io_shift(RIO* io, ut64 start, ut64 end, st64 move) {
 	ut8* buf;
 	ut64 chunksize = 0x10000;
 	ut64 saved_off = io->off;

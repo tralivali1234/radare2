@@ -3,6 +3,7 @@ r_cons_sources = [
   'canvas.c',
   'canvas_line.c',
   'cons.c',
+  'html.c',
   # 'dietline.c',
   'editor.c',
   'grep.c',
@@ -17,7 +18,7 @@ r_cons_sources = [
   'pal.c',
   'pipe.c',
   'rgb.c',
-  'utf8.c'
+  'cutf8.c'
 ]
 
 r_cons = library('r_cons', r_cons_sources,

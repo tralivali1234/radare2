@@ -49,7 +49,8 @@ static int perform_mapped_file_yank(RCore *core, ut64 offset, ut64 len, const ch
 		// map the file in for IO operations.
 		if (yankdesc && load_align) {
 			yank_file_sz = r_io_size (core->io);
-			map = r_io_map_add_next_available (core->io, yankdesc->fd, R_PERM_R, 0, 0, yank_file_sz, load_align);
+			ut64 addr = r_io_map_next_available (core->io, 0, yank_file_sz, load_align);
+        		map = r_io_map_new (core->io, yankdesc->fd, R_PERM_R, 0, addr, yank_file_sz);
 			loadaddr = map? map->itv.addr: -1;
 			if (yankdesc && map && loadaddr != -1) {
 				// ***NOTE*** this is important, we need to
@@ -144,12 +145,12 @@ R_API int r_core_yank(struct r_core_t *core, ut64 addr, int len) {
 		return false;
 	}
 	if (addr != core->offset) {
-		r_core_seek (core, addr, 1);
+		r_core_seek (core, addr, true);
 	}
 	r_io_read_at (core->io, addr, buf, len);
 	r_core_yank_set (core, addr, buf, len);
 	if (curseek != addr) {
-		r_core_seek (core, curseek, 1);
+		r_core_seek (core, curseek, true);
 	}
 	free (buf);
 	return true;
@@ -164,7 +165,7 @@ R_API int r_core_yank_string(RCore *core, ut64 addr, int maxlen) {
 		return false;
 	}
 	if (addr != core->offset) {
-		r_core_seek (core, addr, 1);
+		r_core_seek (core, addr, true);
 	}
 	/* Ensure space and safe termination for largest possible string allowed */
 	buf = calloc (1, core->blocksize + 1);
@@ -181,7 +182,7 @@ R_API int r_core_yank_string(RCore *core, ut64 addr, int maxlen) {
 	}
 	r_core_yank_set (core, addr, buf, maxlen);
 	if (curseek != addr) {
-		r_core_seek (core, curseek, 1);
+		r_core_seek (core, curseek, true);
 	}
 	free (buf);
 	return true;
@@ -199,7 +200,9 @@ R_API int r_core_yank_paste(RCore *core, ut64 addr, int len) {
 		return false;
 	}
 	r_buf_read_at (core->yank_buf, 0, buf, len);
-	r_core_write_at (core, addr, buf, len);
+	if (!r_core_write_at (core, addr, buf, len)) {
+		return false;
+	}
 	return true;
 }
 
@@ -219,10 +222,6 @@ R_API int r_core_yank_to(RCore *core, const char *_arg) {
 		len = r_num_math (core->num, arg);
 		pos = r_num_math (core->num, str + 1);
 		str[0] = ' ';
-	}
-	if (len < 1) {
-		free (arg);
-		return res;
 	}
 	if (!str || pos == -1 || len == 0) {
 		eprintf ("Usage: yt [len] [dst-addr]\n");

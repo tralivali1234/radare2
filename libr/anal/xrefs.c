@@ -122,11 +122,13 @@ R_API int r_anal_xrefs_set(RAnal *anal, ut64 from, ut64 to, const RAnalRefType t
 	if (!anal || from == to) {
 		return false;
 	}
-	if (!anal->iob.is_valid_offset (anal->iob.io, from, 0)) {
-		return false;
-	}
-	if (!anal->iob.is_valid_offset (anal->iob.io, to, 0)) {
-		return false;
+	if (anal->iob.is_valid_offset) {
+		if (!anal->iob.is_valid_offset (anal->iob.io, from, 0)) {
+			return false;
+		}
+		if (!anal->iob.is_valid_offset (anal->iob.io, to, 0)) {
+			return false;
+		}
 	}
 	setxref (anal->dict_xrefs, to, from, type);
 	setxref (anal->dict_refs, from, to, type);
@@ -328,8 +330,15 @@ R_API bool r_anal_xrefs_init(RAnal *anal) {
 	return true;
 }
 
-R_API int r_anal_xrefs_count(RAnal *anal) {
-	return anal->dict_xrefs->count;
+static bool count_cb(void *user, const ut64 k, const void *v) {
+	(*(ut64 *)user) += ((HtUP *)v)->count;
+	return true;
+}
+
+R_API ut64 r_anal_xrefs_count(RAnal *anal) {
+	ut64 ret = 0;
+	ht_up_foreach (anal->dict_xrefs, count_cb, &ret);
+	return ret;
 }
 
 static RList *fcn_get_refs(RAnalFunction *fcn, HtUP *ht) {
@@ -339,11 +348,10 @@ static RList *fcn_get_refs(RAnalFunction *fcn, HtUP *ht) {
 	if (!list) {
 		return NULL;
 	}
-
 	r_list_foreach (fcn->bbs, iter, bb) {
 		int i;
 
-		for (i = 0; i < bb->ninstr; ++i) {
+		for (i = 0; i < bb->ninstr; i++) {
 			ut64 at = bb->addr + r_anal_bb_offset_inst (bb, i);
 			listxrefs (ht, at, list);
 		}
@@ -352,13 +360,14 @@ static RList *fcn_get_refs(RAnalFunction *fcn, HtUP *ht) {
 	return list;
 }
 
-R_API RList *r_anal_fcn_get_refs(RAnal *anal, RAnalFunction *fcn) {
-	r_return_val_if_fail (anal && fcn, NULL);
-	return fcn_get_refs (fcn, anal->dict_refs);
+R_API RList *r_anal_function_get_refs(RAnalFunction *fcn) {
+	r_return_val_if_fail (fcn, NULL);
+	return fcn_get_refs (fcn, fcn->anal->dict_refs);
 }
 
-R_API RList *r_anal_fcn_get_xrefs(RAnal *anal, RAnalFunction *fcn) {
-	return fcn_get_refs (fcn, anal->dict_xrefs);
+R_API RList *r_anal_function_get_xrefs(RAnalFunction *fcn) {
+	r_return_val_if_fail (fcn, NULL);
+	return fcn_get_refs (fcn, fcn->anal->dict_xrefs);
 }
 
 R_API const char *r_anal_ref_type_tostring(RAnalRefType t) {

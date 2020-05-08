@@ -460,7 +460,7 @@ static int _6502_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 	case 0x2c: // bit $ffff
 		op->type = R_ANAL_OP_TYPE_MOV;
 		_6502_anal_esil_get_addr_pattern3 (op, data, len, addrbuf, buffsize, 0);
-		r_strbuf_setf (&op->esil, "a,%s,[1],&,0x80,&,!,!,N,=,a,%s,[1],&,0x40,&,!,!,V,=,a,%s,[1],&,0xff,&,!,Z,=",addrbuf, addrbuf, addrbuf);
+		r_strbuf_setf (&op->esil, "%s,[1],0x80,&,!,!,N,=,%s,[1],0x40,&,!,!,V,=,a,%s,[1],&,0xff,&,!,Z,=", addrbuf, addrbuf, addrbuf);
 		break;
 	// ADC
 	case 0x69: // adc #$ff
@@ -758,7 +758,7 @@ static int _6502_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 		op->type = R_ANAL_OP_TYPE_UJMP;
 		// FIXME: how to read memory?
 		// op->jump = data[1] | data[2] << 8;
-		r_strbuf_setf (&op->esil, "0x%04x,[2],pc,=", data[1] | data[2] << 8);
+		r_strbuf_setf (&op->esil, "0x%04x,[2],pc,=", len > 2? data[1] | data[2] << 8: 0);
 		break;
 	// RTS
 	case 0x60: // rts
@@ -908,7 +908,7 @@ static int _6502_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 	return op->size;
 }
 
-static int set_reg_profile(RAnal *anal) {
+static bool set_reg_profile(RAnal *anal) {
 	char *p =
 		"=PC	pc\n"
 		"=SP	sp\n"

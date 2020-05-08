@@ -31,7 +31,7 @@ R_API void r_anal_cc_set(RAnal *anal, const char *expr) {
 			const char *ret = r_list_get_n (retName, 0);
 			const char *name = r_list_get_n (retName, 1);
 			sdb_set (DB, name, "cc", 0);
-			sdb_set (DB, sdb_fmt ("cc.%s.ret"), ret, 0);
+			sdb_set (DB, sdb_fmt ("cc.%s.ret", name), ret, 0);
 			RListIter *iter;
 			const char *arg;
 			int n = 0;
@@ -79,36 +79,52 @@ R_API char *r_anal_cc_get(RAnal *anal, const char *name) {
 	if (argn) {
 		r_strbuf_appendf (sb, "%s%s", isFirst? "": ", ", argn);
 	}
+	const char *self = r_anal_cc_self (anal, name);
+	if (self) {
+		r_strbuf_appendf (sb, "%s%s", isFirst? "": ", ", self);
+	}
+	const char *error = r_anal_cc_error (anal, name);
+	if (error) {
+		r_strbuf_appendf (sb, "%s%s", isFirst? "": ", ", error);
+	}
+
 	r_strbuf_appendf (sb, ");");
 	return r_strbuf_drain (sb);
 }
 
 
-R_API bool r_anal_cc_exist (RAnal *anal, const char *convention) {
+R_API bool r_anal_cc_exist(RAnal *anal, const char *convention) {
 	r_return_val_if_fail (anal && convention, false);
 	const char *x = sdb_const_get (DB, convention, 0);
 	return x && *x && !strcmp (x, "cc");
 }
 
-// TODO: all callers to this function expect NON-NULL, so lets return "" on fail for now
 R_API const char *r_anal_cc_arg(RAnal *anal, const char *convention, int n) {
 	r_return_val_if_fail (anal && convention, NULL);
 	if (n < 0) {
-		return "";
+		return NULL;
 	}
 	const char *query = sdb_fmt ("cc.%s.arg%d", convention, n);
 	const char *ret = sdb_const_get (DB, query, 0);
 	if (!ret) {
 		query = sdb_fmt ("cc.%s.argn", convention);
 		ret = sdb_const_get (DB, query, 0);
-#if 0
-		if (!strcmp (ret, "stack")) {
-			// TODO handle stack arguments here
-			return NULL;
-		}
-#endif
 	}
-	return r_str_constpool_get (&anal->constpool, ret ? ret : "");
+	return ret? r_str_constpool_get (&anal->constpool, ret): NULL;
+}
+
+R_API const char *r_anal_cc_self(RAnal *anal, const char *convention) {
+	r_return_val_if_fail (anal && convention, NULL);
+	const char *query = sdb_fmt ("cc.%s.self", convention);
+	const char *self = sdb_const_get (DB, query, 0);
+	return self? r_str_constpool_get (&anal->constpool, self): NULL;
+}
+
+R_API const char *r_anal_cc_error(RAnal *anal, const char *convention) {
+	r_return_val_if_fail (anal && convention, NULL);
+	const char *query = sdb_fmt ("cc.%s.error", convention);
+	const char *error = sdb_const_get (DB, query, 0);
+	return error? r_str_constpool_get (&anal->constpool, error): NULL;
 }
 
 R_API int r_anal_cc_max_arg(RAnal *anal, const char *cc) {

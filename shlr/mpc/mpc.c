@@ -584,7 +584,7 @@ char *mpc_err_string(mpc_err_t *x) {
   }
   
   mpc_err_string_cat(buffer, &pos, &max, 
-    "%s:%i:%i: error: expected ", x->filename, x->state.row+1, x->state.col+1);
+    "%s:%li:%li: error: expected ", x->filename, x->state.row+1, x->state.col+1);
   
   if (x->expected_num == 0) { mpc_err_string_cat(buffer, &pos, &max, "ERROR: NOTHING EXPECTED"); }
   if (x->expected_num == 1) { mpc_err_string_cat(buffer, &pos, &max, "%s", x->expected[0]); }
@@ -978,7 +978,7 @@ enum {
 static int mpc_parse_run(mpc_input_t *i, mpc_parser_t *p, mpc_result_t *r, mpc_err_t **e) {
   
   int j = 0, k = 0;
-  mpc_result_t results_stk[MPC_PARSE_STACK_MIN] = { 0 };
+  mpc_result_t results_stk[MPC_PARSE_STACK_MIN] = {{ 0 }};
   mpc_result_t *results;
   int results_slots = MPC_PARSE_STACK_MIN;
   

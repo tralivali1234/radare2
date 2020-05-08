@@ -6,7 +6,7 @@
 static void pj_raw(PJ *j, const char *msg) {
 	r_return_if_fail (j && msg);
 	if (*msg) {
-		r_strbuf_append (j->sb, msg);
+		r_strbuf_append (&j->sb, msg);
 	}
 }
 
@@ -24,7 +24,7 @@ static void pj_comma(PJ *j) {
 R_API PJ *pj_new() {
 	PJ *j = R_NEW0 (PJ);
 	if (j) {
-		j->sb = r_strbuf_new ("");
+		r_strbuf_init (&j->sb);
 		j->is_first = true;
 	}
 	return j;
@@ -32,21 +32,20 @@ R_API PJ *pj_new() {
 
 R_API void pj_free(PJ *pj) {
 	if (pj) {
-		r_strbuf_free (pj->sb);
+		r_strbuf_fini (&pj->sb);
 		free (pj);
 	}
 }
 
 R_API char *pj_drain(PJ *pj) {
 	r_return_val_if_fail (pj && pj->level == 0, NULL);
-	char *res = r_strbuf_drain (pj->sb);
-	pj->sb = NULL;
+	char *res = r_strbuf_drain_nofree (&pj->sb);
 	free (pj);
 	return res;
 }
 
 R_API const char *pj_string(PJ *j) {
-	return j? r_strbuf_get (j->sb): NULL;
+	return j? r_strbuf_get (&j->sb): NULL;
 }
 
 static PJ *pj_begin(PJ *j, char type) {
@@ -102,6 +101,13 @@ R_API PJ *pj_k(PJ *j, const char *k) {
 	return j;
 }
 
+R_API PJ *pj_knull(PJ *j, const char *k) {
+	r_return_val_if_fail (j && k, j);
+	pj_k (j, k);
+	pj_null (j);
+	return j;
+}
+
 R_API PJ *pj_kn(PJ *j, const char *k, ut64 n) {
 	r_return_val_if_fail (j && k, j);
 	pj_k (j, k);
@@ -137,9 +143,22 @@ R_API PJ *pj_ki(PJ *j, const char *k, int i) {
 	return j;
 }
 
+R_API PJ *pj_ko(PJ *j, const char *k) {
+	r_return_val_if_fail (j && k, j);
+	pj_k (j, k);
+	pj_o (j);
+	return j;
+}
+
+R_API PJ *pj_ka(PJ *j, const char *k) {
+	r_return_val_if_fail (j && k, j);
+	pj_k (j, k);
+	pj_a (j);
+	return j;
+}
+
 R_API PJ *pj_ks(PJ *j, const char *k, const char *v) {
 	r_return_val_if_fail (j && k && v, j);
-	//if (*k && *v) 
 	pj_k (j, k);
 	pj_s (j, v);
 	return j;
@@ -149,6 +168,12 @@ R_API PJ *pj_kb(PJ *j, const char *k, bool v) {
 	r_return_val_if_fail (j && k, j);
 	pj_k (j, k);
 	pj_b (j, v);
+	return j;
+}
+
+R_API PJ *pj_null(PJ *j) {
+	r_return_val_if_fail (j, j);
+	pj_raw (j, "null");
 	return j;
 }
 
@@ -168,9 +193,27 @@ R_API PJ *pj_s(PJ *j, const char *k) {
 		pj_raw (j, ek);
 		free (ek);
 	} else {
-		eprintf ("damn\n");
+		eprintf ("cannot escape string\n");
 	}
 	pj_raw (j, "\"");
+	return j;
+}
+
+R_API PJ *pj_r(PJ *j, const unsigned char *v, size_t v_len) {
+	r_return_val_if_fail (j && v, j);
+	size_t i;
+	pj_a (j);
+	for (i = 0; i < v_len; i++) {
+		pj_i (j, v[i]);
+	}
+	pj_end (j);
+	return j;
+}
+
+R_API PJ *pj_kr(PJ *j, const char *k, const unsigned char *v, size_t v_len) {
+	r_return_val_if_fail (j && k && v, j);
+	pj_k (j, k);
+	pj_r (j, v, v_len);
 	return j;
 }
 
@@ -288,7 +331,7 @@ R_API char *pj_fmt(PrintfCallback p, const char *fmt, ...) {
 	}
 	char *ret = NULL;
 	if (p) {
-		p ("%s", r_strbuf_get (j->sb));
+		p ("%s", r_strbuf_get (&j->sb));
 		pj_free (j);
 	} else {
 		ret = pj_drain (j);

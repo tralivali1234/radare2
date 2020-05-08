@@ -231,7 +231,7 @@ r_core_wrap.cxx:32103:61: error: assigning to 'RDebugReasonType' from incompatib
 
 * Never ever use %lld or %llx. This is not portable. Always use the PFMT64x
   macros. Those are similar to the ones in GLIB.
-  
+
 ### Shell Scripts
 
 * Use `#!/bin/sh`
@@ -331,6 +331,26 @@ You may use directory-local variables by putting
 
 into `.dir-locals.el`.
 
+## Packed structures
+
+Due to the various differences between platforms and compilers radare2
+has a special helper macro - `R_PACKED()`. Instead of non-portable
+`#pragma pack` or `__attribute__((packed))` it is advised to use this macro
+instead. To wrap the code inside of it you just need to write:
+```c
+R_PACKED (union mystruct {
+	int a;
+	char b;
+})
+```
+or in case of typedef:
+```c
+R_PACKED (typedef structmystruct {
+	int a;
+	char b;
+})
+```
+
 ## Modules
 
 The radare2 code base is modularized into different libraries that are
@@ -352,7 +372,7 @@ As mentioned in README.md, the API itself is maintained in a different
 repository. The API function definitions in C header files are derived
 from and documented in the radare2-bindings repository, found at:
 ```sh
-   git clone git://github.com/radare/radare2-bindings
+   git clone git://github.com/radareorg/radare2-bindings
 ```
 
 Currently the process of updating the header files from changed API
@@ -384,9 +404,9 @@ linux-arm and others, but the procedure is like this:
 
 ## Source repository
 
-The source of radare2 can be found in the following github repository.
+The source of radare2 can be found in the following GitHub repository.
 ```sh
-   git clone git://github.com/radare/radare2
+   git clone git://github.com/radareorg/radare2
 ```
 Other packages radare2 depends on, such as Capstone, are pulled from
 their git repository as required.
@@ -440,15 +460,16 @@ in the code for various reasons.
 ## Regression testing
 
 The source of the radare2 regression test suite can be found in the
-following github repository.
+ `test/` directory, while binaries for this test are located in the
+ following GitHub repository.
 ```sh
-   git clone git://github.com/radareorg/radare2-regressions
+   git clone git://github.com/radareorg/radare2-testbins
 ```
 
 See the `README.md` file in that repository for further information.
 
 The existing test coverage can always do with improvement. So if you can
-contribute additions tests, that would be gratefully accepted.
+contribute additional tests, that would be gratefully accepted.
 
 ## Reporting bugs
 
@@ -456,7 +477,7 @@ If you notice any misfeature, issue, error, problem or you just
 don't know how to do something which is supposed to be covered
 by this framework.
 
-You should report it into the github issues page.
+You should report it into the GitHub issues page.
    https://github.com/radareorg/radare2/issues
 
 Otherwise, if you are looking for some more feedback, I will
@@ -466,7 +487,7 @@ in the AUTHORS file.
 Anyway, if you want to get even more feedback and discuss this
 in a public place: join the #radare channel on irc.freenode.net.
 
-The issues page of Github contains a list of all the bugs that
+The issues page of GitHub contains a list of all the bugs that
 have been reported classified with labels by difficulty, type,
 milestone, etc. It is a good place to start if you are looking
 to contribute.
@@ -479,7 +500,7 @@ to contribute.
   RADARE2
   ---
    - bump revision
-   - `./configure`  
+   - `./configure`
    - `make dist`
 
   R2-BINDINGS

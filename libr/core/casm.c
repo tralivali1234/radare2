@@ -115,7 +115,8 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 		if (!tok) {
 			break;
 		}
-		tokens[tokcount] = r_str_trim_head_tail (tok);
+		r_str_trim (tok);
+		tokens[tokcount] = tok;
 	}
 	tokens[tokcount] = NULL;
 	r_cons_break_push (NULL, NULL);
@@ -205,10 +206,8 @@ R_API RList *r_core_asm_strsearch(RCore *core, const char *input, ut64 from, ut6
 				} else if (!regexp) {
 					matches = strstr (opst, tokens[matchcount]) != NULL;
 				} else {
-					rx = r_regex_new (tokens[matchcount], "");
-					if (r_regex_comp (rx, tokens[matchcount], R_REGEX_EXTENDED|R_REGEX_NOSUB) == 0) {
-						matches = r_regex_exec (rx, opst, 0, 0, 0) == 0;
-					}
+					rx = r_regex_new (tokens[matchcount], "es");
+					matches = r_regex_exec (rx, opst, 0, 0, 0) == 0;
 					r_regex_free (rx);
 				}
 			}
@@ -520,7 +519,7 @@ R_API RList *r_core_asm_bwdisassemble(RCore *core, ut64 addr, int n, int len) {
 		}
 		numinstr = 0;
 		asmlen = strlen (c->assembly);
-		for (ii = 0; ii < asmlen; ++ii) {
+		for (ii = 0; ii < asmlen; ii++) {
 			if (c->assembly[ii] == '\n') {
 				++numinstr;
 			}

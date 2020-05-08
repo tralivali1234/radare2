@@ -1,7 +1,6 @@
 r_core_sources = [
   'anal_tp.c',
   'anal_objc.c',
-  'esil_data_flow.c',
   'casm.c',
   'blaze.c',
   'citem.c',
@@ -50,7 +49,7 @@ r_core_sources = [
   'corelog.c',
   'panels.c',
   'patch.c',
-  'plugin.c',
+  'cplugin.c',
   'project.c',
   'pseudo.c',
   'rtr.c',
