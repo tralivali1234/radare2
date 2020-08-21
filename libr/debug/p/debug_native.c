@@ -207,6 +207,7 @@ static void interrupt_process(RDebug *dbg) {
 
 static int r_debug_native_stop(RDebug *dbg) {
 #if __linux__
+	// Stop all running threads except the thread reported by waitpid
 	return linux_stop_threads (dbg, dbg->reason.tid);
 #else
 	return 0;
@@ -240,26 +241,19 @@ static int r_debug_native_continue(RDebug *dbg, int pid, int tid, int sig) {
 		r_cons_break_push ((RConsBreak)interrupt_process, dbg);
 	}
 
-	if (dbg->continue_all_threads && dbg->n_threads) {
-		RList *list = dbg->threads;
+	if (dbg->continue_all_threads && dbg->n_threads && dbg->threads) {
 		RDebugPid *th;
 		RListIter *it;
-
-		if (list) {
-			r_list_foreach (list, it, th) {
-				if (th->pid) {
-					ret = r_debug_ptrace (dbg, PTRACE_CONT, th->pid, NULL, (r_ptrace_data_t)(size_t)contsig);
-					if (ret) {
-						perror ("PTRACE_CONT");
-					}
-				}
+		r_list_foreach (dbg->threads, it, th) {
+			ret = r_debug_ptrace (dbg, PTRACE_CONT, th->pid, 0, 0);
+			if (ret) {
+				eprintf ("Error: (%d) is running or dead.\n", th->pid);
 			}
 		}
-	}
-	else {
+	} else {
 		ret = r_debug_ptrace (dbg, PTRACE_CONT, tid, NULL, (r_ptrace_data_t)(size_t)contsig);
 		if (ret) {
-			perror ("PTRACE_CONT");
+			r_sys_perror ("PTRACE_CONT");
 		}
 	}
 	//return ret >= 0 ? tid : false;
@@ -291,9 +285,7 @@ static bool tracelib(RDebug *dbg, const char *mode, PLIB_ITEM item) {
 		case 'u': needle = dbg->glob_unlibs; break;
 		}
 	}
-	//eprintf ("(%d) %sing library at %p (%s) %s\n", item->pid, mode,
-		//item->BaseOfDll, item->Path, item->Name);
-	r_cons_printf ("(%d) %sing library at %p (%s) %s\n", item->pid, mode,
+	r_cons_printf ("(%d) %sing library at 0x%p (%s) %s\n", item->pid, mode,
 		item->BaseOfDll, item->Path, item->Name);
 	r_cons_flush ();
 	if (needle && strlen (needle)) {
@@ -448,14 +440,6 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 	}
 
 	reason = linux_dbg_wait (dbg, dbg->tid);
-	if (reason == R_DEBUG_REASON_EXIT_TID) {
-		RDebugInfo *r = r_debug_native_info (dbg, "");
-		if (r) {
-			eprintf ("(%d) Finished thread %d Exit code\n", r->pid, r->tid);
-			r_debug_info_free (r);
-		}
-	}
-
 	dbg->reason.type = reason;
 	return reason;
 }
@@ -515,7 +499,7 @@ static RDebugReasonType r_debug_native_wait(RDebug *dbg, int pid) {
 	// TODO: switch status and handle reasons here
 	// FIXME: Remove linux handling from this function?
 #if __linux__ && defined(PT_GETEVENTMSG)
-	reason = linux_ptrace_event (dbg, pid, status);
+	reason = linux_ptrace_event (dbg, pid, status, true);
 #endif // __linux__
 
 	/* propagate errors */
@@ -1455,13 +1439,11 @@ static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 		return set
 			? drx_add (dbg, bp, b)
 			: drx_del (dbg, bp, b);
-#elif __arm64__ || __aarch64__
-#if __linux__
+#elif (__arm64__ || __aarch64__) && __linux__
 		return set
 			? arm64_hwbp_add (dbg, bp, b)
 			: arm64_hwbp_del (dbg, bp, b);
-#endif
-#elif __arm__
+#elif __arm__ && __linux__
 		return set
 			? arm32_hwbp_add (dbg, bp, b)
 			: arm32_hwbp_del (dbg, bp, b);
@@ -1472,7 +1454,7 @@ static int r_debug_native_bp(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 
 #if __APPLE__
 
-static int getMaxFiles() {
+static int getMaxFiles(void) {
 	struct rlimit limit;
 	if (getrlimit (RLIMIT_NOFILE, &limit) != 0) {
 		return 1024;

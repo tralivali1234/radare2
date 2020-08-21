@@ -1,7 +1,6 @@
 /* radare - LGPL - Copyright 2020 - thestr4ng3r */
 
 #include "r2r.h"
-#include <r_cons.h>
 #include <assert.h>
 
 #define WORKERS_DEFAULT        8
@@ -39,6 +38,7 @@ static void interact(R2RState *state);
 static void interact_fix(R2RTestResultInfo *result, RPVector *fixup_results);
 static void interact_break(R2RTestResultInfo *result, RPVector *fixup_results);
 static void interact_commands(R2RTestResultInfo *result, RPVector *fixup_results);
+static void interact_diffchar(R2RTestResultInfo *result);
 
 static int help(bool verbose) {
 	printf ("Usage: r2r [-qvVnL] [-j threads] [test file/dir | @test-type]\n");
@@ -83,9 +83,12 @@ static bool r2r_chdir(const char *argv0) {
 			*p = 0;
 			strcat (src_path, R_SYS_DIR"test"R_SYS_DIR);
 			if (r_file_is_directory (src_path)) {
-				(void)chdir (src_path);
-				eprintf ("Running from %s\n", src_path);
-				found = true;
+				if (chdir (src_path) != -1) {
+					eprintf ("Running from %s\n", src_path);
+					found = true;
+				} else {
+					eprintf ("Cannot find '%s' directory\n", src_path);
+				}
 			}
 		}
 	}
@@ -96,8 +99,8 @@ static bool r2r_chdir(const char *argv0) {
 #endif
 }
 
-static void r2r_test_run_unit(void) {
-	system ("make -C unit all run");
+static bool r2r_test_run_unit(void) {
+	return r_sandbox_system ("make -C unit all run", 1) == 0;
 }
 
 static bool r2r_chdir_fromtest(const char *test_path) {
@@ -112,8 +115,10 @@ static bool r2r_chdir_fromtest(const char *test_path) {
 		}
 	}
 	if (chdir (abs_test_path) == -1) {
+		free (abs_test_path);
 		return false;
 	}
+	free (abs_test_path);
 	bool found = false;
 	char *cwd = NULL;
 	char *old_cwd = NULL;
@@ -164,6 +169,7 @@ int main(int argc, char **argv) {
 	int ret = 0;
 
 #if __WINDOWS__
+	UINT old_cp = GetConsoleOutputCP ();
 	{
 		HANDLE streams[] = { GetStdHandle (STD_OUTPUT_HANDLE), GetStdHandle (STD_ERROR_HANDLE) };
 		DWORD mode;
@@ -250,7 +256,10 @@ int main(int argc, char **argv) {
 
 	char *cwd = r_sys_getdir ();
 	if (r2r_dir) {
-		chdir (r2r_dir);
+		if (chdir (r2r_dir) == -1) {
+			eprintf ("Cannot find %s directory.\n", r2r_dir);
+			return -1;
+		}
 	} else {
 		bool dir_found = (opt.ind < argc && argv[opt.ind][0] != '.')
 			? r2r_chdir_fromtest (argv[opt.ind])
@@ -273,7 +282,7 @@ int main(int argc, char **argv) {
 	}
 	atexit (r2r_subprocess_fini);
 
-	ut64 time_start = r_sys_now ();
+	ut64 time_start = r_time_now_mono ();
 	R2RState state = {{0}};
 	state.run_config.r2_cmd = radare2_cmd ? radare2_cmd : RADARE2_CMD_DEFAULT;
 	state.run_config.rasm2_cmd = rasm2_cmd ? rasm2_cmd : RASM2_CMD_DEFAULT;
@@ -305,7 +314,9 @@ int main(int argc, char **argv) {
 				arg++;
 				eprintf ("Category: %s\n", arg);
 				if (!strcmp (arg, "unit")) {
-					r2r_test_run_unit ();
+					if (!r2r_test_run_unit ()) {
+						return -1;
+					}
 					continue;
 				} else if (!strcmp (arg, "fuzz")) {
 					if (!fuzz_dir) {
@@ -433,7 +444,7 @@ int main(int argc, char **argv) {
 	}
 	r_pvector_clear (&workers);
 
-	ut64 seconds = (r_sys_now () - time_start) / 1000000;
+	ut64 seconds = (r_time_now_mono () - time_start) / 1000000;
 	printf ("Finished in");
 	if (seconds > 60) {
 		ut64 minutes = seconds / 60;
@@ -462,6 +473,13 @@ beach:
 	free (rasm2_cmd);
 	free (json_test_file);
 	free (fuzz_dir);
+#if __WINDOWS__
+	if (old_cp) {
+		(void)SetConsoleOutputCP (old_cp);
+		// chcp doesn't pick up the code page switch for some reason
+		(void)r_sys_cmdf ("chcp %u > NUL", old_cp);
+	}
+#endif
 	return ret;
 }
 
@@ -508,50 +526,67 @@ static RThreadFunctionRet worker_th(RThread *th) {
 	return R_TH_STOP;
 }
 
-static void print_diff(const char *actual, const char *expected) {
-#define DO_DIFF !__WINDOWS__
-#if DO_DIFF
+static void print_diff(const char *actual, const char *expected, bool diffchar) {
 	RDiff *d = r_diff_new ();
-	char *uni = r_diff_buffers_to_string (d, (const ut8 *)expected, (int)strlen (expected), (const ut8 *)actual, (int)strlen (actual));
+#ifdef __WINDOWS__
+	d->diff_cmd = "git diff --no-index";
+#endif
+	if (diffchar) {
+		RDiffChar *diff = r_diffchar_new ((const ut8 *)expected, (const ut8 *)actual);
+		if (diff) {
+			r_diffchar_print (diff);
+			r_diffchar_free (diff);
+			return;
+		}
+		d->diff_cmd = "git diff --no-index --word-diff=porcelain --word-diff-regex=.";
+	}
+	char *uni = r_diff_buffers_to_string (d, (const ut8 *)expected, (int)strlen (expected),
+	                                      (const ut8 *)actual, (int)strlen (actual));
 	r_diff_free (d);
 
-	RList *lines = r_str_split_duplist (uni, "\n");
+	RList *lines = r_str_split_duplist (uni, "\n", false);
 	RListIter *it;
 	char *line;
+	bool header_found = false;
 	r_list_foreach (lines, it, line) {
+		if (!header_found) {
+			if (r_str_startswith (line, "+++ ")) {
+				header_found = true;
+			}
+			continue;
+		}
+		if (r_str_startswith (line, "@@ ") && r_str_endswith (line, " @@")) {
+			printf ("%s%s%s\n", Color_CYAN, line, Color_RESET);
+			continue;
+		}
+		bool color = true;
 		char c = *line;
 		switch (c) {
 		case '+':
-			printf ("%s", Color_GREEN);
+			printf ("%s"Color_INSERT, diffchar ? Color_BGINSERT : "");
 			break;
 		case '-':
-			printf ("%s", Color_RED);
+			printf ("%s"Color_DELETE, diffchar ? Color_BGDELETE : "");
 			break;
+		case '~': // can't happen if !diffchar
+			printf ("\n");
+			continue;
 		default:
+			color = false;
 			break;
 		}
-		printf ("%s\n", line);
-		if (c == '+' || c == '-') {
+		if (diffchar) {
+			printf ("%s", *line ? line + 1 : "");
+		} else {
+			printf ("%s\n", line);
+		}
+		if (color) {
 			printf ("%s", Color_RESET);
 		}
 	}
 	r_list_free (lines);
 	free (uni);
 	printf ("\n");
-#else
-	RList *lines = r_str_split_duplist (expected, "\n");
-	RListIter *it;
-	char *line;
-	r_list_foreach (lines, it, line) {
-		printf (Color_RED"- %s"Color_RESET"\n", line);
-	}
-	r_list_free (lines);
-	lines = r_str_split_duplist (actual, "\n");
-	r_list_foreach (lines, it, line) {
-		printf (Color_GREEN"+ %s"Color_RESET"\n", line);
-	}
-	r_list_free (lines);
-#endif
 }
 
 static R2RProcessOutput *print_runner(const char *file, const char *args[], size_t args_size,
@@ -584,13 +619,13 @@ static void print_result_diff(R2RRunConfig *config, R2RTestResultInfo *result) {
 		const char *expect = result->test->cmd_test->expect.value;
 		if (expect && strcmp (result->proc_out->out, expect)) {
 			printf ("-- stdout\n");
-			print_diff (result->proc_out->out, expect);
+			print_diff (result->proc_out->out, expect, false);
 		}
 		expect = result->test->cmd_test->expect_err.value;
 		const char *err = result->proc_out->err;
 		if (expect && strcmp (err, expect)) {
 			printf ("-- stderr\n");
-			print_diff (err, expect);
+			print_diff (err, expect, false);
 		} else if (*err) {
 			printf ("-- stderr\n%s\n", err);
 		}
@@ -626,6 +661,7 @@ static void print_new_results(R2RState *state, ut64 prev_completed) {
 		if (!name) {
 			continue;
 		}
+		printf ("\n"R_CONS_CURSOR_UP R_CONS_CLEAR_LINE);
 		switch (result->result) {
 		case R2R_TEST_RESULT_OK:
 			printf (Color_GREEN"[OK]"Color_RESET);
@@ -649,7 +685,6 @@ static void print_new_results(R2RState *state, ut64 prev_completed) {
 		}
 		free (name);
 	}
-
 }
 
 static void print_state_counts(R2RState *state) {
@@ -661,11 +696,10 @@ static void print_state(R2RState *state, ut64 prev_completed) {
 #if __WINDOWS__
 	setvbuf (stdout, NULL, _IOFBF, 8192);
 #endif
-	printf (R_CONS_CLEAR_LINE);
-
 	print_new_results (state, prev_completed);
 
 	// [x/x] OK  42 BR  0 ...
+	printf (R_CONS_CLEAR_LINE);
 	int w = printf ("[%"PFMT64u"/%"PFMT64u"]", (ut64)r_pvector_len (&state->results), (ut64)r_pvector_len (&state->db->tests));
 	while (w >= 0 && w < 20) {
 		printf (" ");
@@ -703,9 +737,13 @@ static void interact(R2RState *state) {
 		goto beach;
 	}
 
+#if __WINDOWS__
+	(void)SetConsoleOutputCP (65001); // UTF-8
+#endif
 	printf ("\n");
 	printf ("#####################\n");
-	printf (" %"PFMT64u" failed test(s) \xf0\x9f\x9a\xa8\n", (ut64)r_pvector_len (&failed_results));
+	printf (" %"PFMT64u" failed test(s) "UTF8_POLICE_CARS_REVOLVING_LIGHT"\n",
+	        (ut64)r_pvector_len (&failed_results));
 
 	r_pvector_foreach (&failed_results, it) {
 		R2RTestResultInfo *result = *it;
@@ -716,26 +754,27 @@ static void interact(R2RState *state) {
 
 		printf ("#####################\n\n");
 		print_result_diff (&state->run_config, result);
-inval:
+menu:
 		printf ("Wat do?    "
-				"(f)ix \xe2\x9c\x85\xef\xb8\x8f\xef\xb8\x8f\xef\xb8\x8f    "
-				"(i)gnore \xf0\x9f\x99\x88    "
-				"(b)roken \xe2\x98\xa0\xef\xb8\x8f\xef\xb8\x8f\xef\xb8\x8f    "
-				"(c)ommands \xe2\x8c\xa8\xef\xb8\x8f    "
-				"(q)uit \xf0\x9f\x9a\xaa\n");
+				"(f)ix "UTF8_WHITE_HEAVY_CHECK_MARK UTF8_VS16 UTF8_VS16 UTF8_VS16"    "
+				"(i)gnore "UTF8_SEE_NO_EVIL_MONKEY"    "
+				"(b)roken "UTF8_SKULL_AND_CROSSBONES UTF8_VS16 UTF8_VS16 UTF8_VS16"    "
+				"(c)ommands "UTF8_KEYBOARD UTF8_VS16"    "
+				"(d)iffchar "UTF8_LEFT_POINTING_MAGNIFYING_GLASS"    "
+				"(q)uit "UTF8_DOOR"\n");
 		printf ("> ");
 		char buf[0x30];
 		if (!fgets (buf, sizeof (buf), stdin)) {
 			break;
 		}
 		if (strlen (buf) != 2) {
-			goto inval;
+			goto menu;
 		}
 		switch (buf[0]) {
 		case 'f':
 			if (result->run_failed || result->proc_out->ret != 0) {
 				printf ("This test has failed too hard to be fixed.\n");
-				goto inval;
+				goto menu;
 			}
 			interact_fix (result, &failed_results);
 			break;
@@ -747,10 +786,13 @@ inval:
 		case 'c':
 			interact_commands (result, &failed_results);
 			break;
+		case 'd':
+			interact_diffchar (result);
+			goto menu;
 		case 'q':
 			goto beach;
 		default:
-			goto inval;
+			goto menu;
 		}
 	}
 
@@ -770,9 +812,9 @@ static char *format_cmd_kv(const char *key, const char *val) {
 	return r_strbuf_drain_nofree (&buf);
 }
 
-static char *replace_lines(char *src, ut64 from, ut64 to, char *news) {
-	char *begin = src;
-	ut64 line = 1;
+static char *replace_lines(const char *src, size_t from, size_t to, const char *news) {
+	const char *begin = src;
+	size_t line = 1;
 	while (line < from) {
 		begin = strchr (begin, '\n');
 		if (!begin) {
@@ -785,7 +827,7 @@ static char *replace_lines(char *src, ut64 from, ut64 to, char *news) {
 		return NULL;
 	}
 
-	char *end = begin;
+	const char *end = begin;
 	while (line < to) {
 		end = strchr (end, '\n');
 		if (!end) {
@@ -841,20 +883,33 @@ static void fixup_tests(RPVector *results, const char *edited_file, ut64 start_l
 	}
 }
 
-static void replace_cmd_kv(const char *path, ut64 line_begin, ut64 line_end, const char *key, const char *value, RPVector *fixup_results) {
+static char *replace_cmd_kv(const char *path, const char *content, size_t line_begin, size_t line_end, const char *key, const char *value, RPVector *fixup_results) {
+	char *kv = format_cmd_kv (key, value);
+	if (!kv) {
+		return NULL;
+	}
+	size_t kv_lines = r_str_char_count (kv, '\n') + 1;
+	char *newc = replace_lines (content, line_begin, line_end, kv);
+	free (kv);
+	if (!newc) {
+		return NULL;
+	}
+	size_t lines_before = line_end - line_begin;
+	st64 delta = (st64)kv_lines - (st64)lines_before;
+	if (line_end == line_begin) {
+		delta++;
+	}
+	fixup_tests (fixup_results, path, line_end, delta);
+	return newc;
+}
+
+static void replace_cmd_kv_file(const char *path, ut64 line_begin, ut64 line_end, const char *key, const char *value, RPVector *fixup_results) {
 	char *content = r_file_slurp (path, NULL);
 	if (!content) {
 		eprintf ("Failed to read file \"%s\"\n", path);
 		return;
 	}
-	char *kv = format_cmd_kv (key, value);
-	if (!kv) {
-		free (content);
-		return;
-	}
-	ut64 kv_lines = r_str_char_count (kv, '\n');
-	char *newc = replace_lines (content, line_begin, line_end, kv);
-	free (kv);
+	char *newc = replace_cmd_kv (path, content, line_begin, line_end, key, value, fixup_results);
 	free (content);
 	if (!newc) {
 		return;
@@ -863,12 +918,6 @@ static void replace_cmd_kv(const char *path, ut64 line_begin, ut64 line_end, con
 #if __UNIX__
 		sync ();
 #endif
-		ut64 lines_before = line_end - line_begin;
-		st64 delta = (st64)kv_lines - lines_before;
-		if (line_end == line_begin) {
-			delta++;
-		}
-		fixup_tests (fixup_results, path, line_end, delta);
 	} else {
 		eprintf ("Failed to write file \"%s\"\n", path);
 	}
@@ -880,10 +929,10 @@ static void interact_fix(R2RTestResultInfo *result, RPVector *fixup_results) {
 	R2RCmdTest *test = result->test->cmd_test;
 	R2RProcessOutput *out = result->proc_out;
 	if (test->expect.value && out->out) {
-		replace_cmd_kv (result->test->path, test->expect.line_begin, test->expect.line_end, "EXPECT", out->out, fixup_results);
+		replace_cmd_kv_file (result->test->path, test->expect.line_begin, test->expect.line_end, "EXPECT", out->out, fixup_results);
 	}
 	if (test->expect_err.value && out->err) {
-		replace_cmd_kv (result->test->path, test->expect_err.line_begin, test->expect_err.line_end, "EXPECT_ERR", out->err, fixup_results);
+		replace_cmd_kv_file (result->test->path, test->expect_err.line_begin, test->expect_err.line_end, "EXPECT_ERR", out->err, fixup_results);
 	}
 }
 
@@ -898,7 +947,7 @@ static void interact_break(R2RTestResultInfo *result, RPVector *fixup_results) {
 	} else {
 		line_begin = line_end = test->run_line;
 	}
-	replace_cmd_kv (result->test->path, line_begin, line_end, "BROKEN", "1", fixup_results);
+	replace_cmd_kv_file (result->test->path, line_begin, line_end, "BROKEN", "1", fixup_results);
 }
 
 static void interact_commands(R2RTestResultInfo *result, RPVector *fixup_results) {
@@ -954,7 +1003,14 @@ static void interact_commands(R2RTestResultInfo *result, RPVector *fixup_results
 		}
 	}
 
-	replace_cmd_kv (result->test->path, test->cmds.line_begin, test->cmds.line_end, "CMDS", newcmds, fixup_results);
+	replace_cmd_kv_file (result->test->path, test->cmds.line_begin, test->cmds.line_end, "CMDS", newcmds, fixup_results);
 	free (name);
 	free (newcmds);
+}
+
+static void interact_diffchar(R2RTestResultInfo *result) {
+	const char *actual = result->proc_out->out;
+	const char *expected = result->test->cmd_test->expect.value;
+	printf ("-- stdout\n");
+	print_diff (actual, expected, true);
 }

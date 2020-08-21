@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define UPDATE_TIME(a) (r->times->file_open_time = r_sys_now () - (a))
+#define UPDATE_TIME(a) (r->times->file_open_time = r_time_now_mono () - (a))
 
 static int r_core_file_do_load_for_debug(RCore *r, ut64 loadaddr, const char *filenameuri);
 static int r_core_file_do_load_for_io_plugin(RCore *r, ut64 baseaddr, ut64 loadaddr);
@@ -14,7 +14,7 @@ static bool __isMips (RAsm *a) {
 }
 
 static void loadGP(RCore *core) {
-	if (__isMips (core->assembler)) {
+	if (__isMips (core->rasm)) {
 		ut64 gp = r_num_math (core->num, "loc._gp");
 		if (!gp || gp == UT64_MAX) {
 			r_config_set (core->config, "anal.roregs", "zero");
@@ -76,7 +76,9 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 
 	if (isdebug) {
 		r_debug_kill (core->dbg, core->dbg->pid, core->dbg->tid, 9); // SIGKILL
-		r_debug_continue (core->dbg);
+		do {
+			r_debug_continue (core->dbg);
+		} while (!r_debug_is_dead (core->dbg));
 		r_debug_detach (core->dbg, core->dbg->pid);
 		perm = 7;
 	} else {
@@ -114,6 +116,8 @@ R_API int r_core_file_reopen(RCore *core, const char *args, int perm, int loadbi
 		// Reset previous pid and tid
 		core->dbg->pid = -1;
 		core->dbg->tid = -1;
+		core->dbg->recoil_mode = R_DBG_RECOIL_NONE;
+		memset (&core->dbg->reason, 0, sizeof (core->dbg->reason));
 		// Reopen and attach
 		r_core_setup_debugger (core, "native", true);
 		r_debug_select (core->dbg, newpid, newtid);
@@ -253,7 +257,7 @@ R_API char *r_core_sysenv_begin(RCore * core, const char *cmd) {
 	}
 	r_sys_setenv ("R2_OFFSET", sdb_fmt ("%"PFMT64d, core->offset));
 	r_sys_setenv ("R2_XOFFSET", sdb_fmt ("0x%08"PFMT64x, core->offset));
-	r_sys_setenv ("R2_ENDIAN", core->assembler->big_endian? "big": "little");
+	r_sys_setenv ("R2_ENDIAN", core->rasm->big_endian? "big": "little");
 	r_sys_setenv ("R2_BSIZE", sdb_fmt ("%d", core->blocksize));
 
 	// dump current config file so other r2 tools can use the same options
@@ -434,7 +438,11 @@ static int r_core_file_do_load_for_io_plugin(RCore *r, ut64 baseaddr, ut64 loada
 		return false;
 	}
 	binfile = r_bin_cur (r->bin);
-	r_core_bin_set_env (r, binfile);
+	if (r_core_bin_set_env (r, binfile)) {
+		if (!r->anal->sdb_cc->path) {
+			R_LOG_WARN ("No calling convention defined for this file, analysis may be inaccurate.\n");
+		}
+	}
 	plugin = r_bin_file_cur_plugin (binfile);
 	if (plugin && !strcmp (plugin->name, "any")) {
 		RBinObject *obj = r_bin_cur_object (r->bin);
@@ -865,7 +873,7 @@ R_API RCoreFile *r_core_file_open_many(RCore *r, const char *file, int perm, ut6
 /* loadaddr is r2 -m (mapaddr) */
 R_API RCoreFile *r_core_file_open(RCore *r, const char *file, int flags, ut64 loadaddr) {
 	r_return_val_if_fail (r && file, NULL);
-	ut64 prev = r_sys_now ();
+	ut64 prev = r_time_now_mono ();
 	const bool openmany = r_config_get_i (r->config, "file.openmany");
 	RCoreFile *fh = NULL;
 
@@ -876,7 +884,7 @@ R_API RCoreFile *r_core_file_open(RCore *r, const char *file, int flags, ut64 lo
 	if (!flags) {
 		flags = R_PERM_R;
 	}
-	r->io->bits = r->assembler->bits; // TODO: we need an api for this
+	r->io->bits = r->rasm->bits; // TODO: we need an api for this
 	RIODesc *fd = r_io_open_nomap (r->io, file, flags, 0644);
 	if (r_cons_is_breaked()) {
 		goto beach;
@@ -954,7 +962,7 @@ R_API RCoreFile *r_core_file_open(RCore *r, const char *file, int flags, ut64 lo
 	}
 	r_core_cmd0 (r, "=!");
 beach:
-	r->times->file_open_time = r_sys_now () - prev;
+	r->times->file_open_time = r_time_now_mono () - prev;
 	return fh;
 }
 

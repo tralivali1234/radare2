@@ -1659,8 +1659,16 @@
                 "type": "FIELD",
                 "name": "args",
                 "content": {
-                  "type": "SYMBOL",
-                  "name": "_simple_command"
+                  "type": "CHOICE",
+                  "members": [
+                    {
+                      "type": "SYMBOL",
+                      "name": "_simple_command"
+                    },
+                    {
+                      "type": "BLANK"
+                    }
+                  ]
                 }
               }
             ]
@@ -2572,10 +2580,6 @@
                 {
                   "type": "PATTERN",
                   "value": "\\\\."
-                },
-                {
-                  "type": "PATTERN",
-                  "value": "\\/[^\\*]"
                 }
               ]
             }
@@ -2650,10 +2654,6 @@
                 {
                   "type": "PATTERN",
                   "value": "\\\\."
-                },
-                {
-                  "type": "PATTERN",
-                  "value": "\\/[^\\*]"
                 }
               ]
             }
@@ -3658,10 +3658,6 @@
             {
               "type": "PATTERN",
               "value": "\\\\."
-            },
-            {
-              "type": "PATTERN",
-              "value": "\\/[^\\*]"
             }
           ]
         }
@@ -3704,10 +3700,6 @@
             {
               "type": "PATTERN",
               "value": "\\\\."
-            },
-            {
-              "type": "PATTERN",
-              "value": "\\/[^\\*]"
             }
           ]
         }
@@ -3726,8 +3718,15 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "PATTERN",
-                "value": "[^\\\\\"\\n$`]+"
+                "type": "IMMEDIATE_TOKEN",
+                "content": {
+                  "type": "PREC",
+                  "value": 1,
+                  "content": {
+                    "type": "PATTERN",
+                    "value": "[^\\\\\"\\n$`]+"
+                  }
+                }
               },
               {
                 "type": "PATTERN",
@@ -3763,8 +3762,15 @@
             "type": "CHOICE",
             "members": [
               {
-                "type": "PATTERN",
-                "value": "[^\\\\'\\n]+"
+                "type": "IMMEDIATE_TOKEN",
+                "content": {
+                  "type": "PREC",
+                  "value": 1,
+                  "content": {
+                    "type": "PATTERN",
+                    "value": "[^\\\\'\\n]+"
+                  }
+                }
               },
               {
                 "type": "PATTERN",

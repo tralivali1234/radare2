@@ -2,12 +2,6 @@
 
 #include "r2r.h"
 
-#define NSEC_PER_SEC  1000000000
-#define NSEC_PER_MSEC 1000000
-#define USEC_PER_SEC  1000000
-#define NSEC_PER_USEC 1000
-#define USEC_PER_MSEC 1000
-
 #if __WINDOWS__
 struct r2r_subprocess_t {
 	HANDLE stdin_write;
@@ -236,20 +230,6 @@ error:
 	goto beach;
 }
 
-static ut64 now_us() {
-	LARGE_INTEGER f;
-	if (!QueryPerformanceFrequency (&f)) {
-		return 0;
-	}
-	LARGE_INTEGER v;
-	if (!QueryPerformanceCounter (&v)) {
-		return 0;
-	}
-	v.QuadPart *= 1000000;
-	v.QuadPart /= f.QuadPart;
-	return v.QuadPart;
-}
-
 R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 	OVERLAPPED stdout_overlapped = { 0 };
 	stdout_overlapped.hEvent = CreateEvent (NULL, TRUE, FALSE, NULL);
@@ -265,7 +245,7 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 
 	ut64 timeout_us_abs = UT64_MAX;
 	if (timeout_ms != UT64_MAX) {
-		timeout_us_abs = now_us () + timeout_ms * USEC_PER_MSEC;
+		timeout_us_abs = r_time_now_mono () + timeout_ms * R_USEC_PER_MSEC;
 	}
 
 	ut8 stdout_buf[0x500];
@@ -307,11 +287,11 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		
 		DWORD timeout = INFINITE;
 		if (timeout_us_abs != UT64_MAX) {
-			ut64 now = now_us ();
+			ut64 now = r_time_now_mono ();
 			if (now >= timeout_us_abs) {
 				return false;
 			}
-			timeout = (DWORD)((timeout_us_abs - now) / USEC_PER_MSEC);
+			timeout = (DWORD)((timeout_us_abs - now) / R_USEC_PER_MSEC);
 		}
 		DWORD signaled = WaitForMultipleObjects (handles.len, handles.a, FALSE, timeout);
 		if (!stdout_eof && signaled == stdout_index) {
@@ -635,12 +615,9 @@ error:
 }
 
 R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
-	struct timespec timeout_abs;
+	ut64 timeout_abs;
 	if (timeout_ms != UT64_MAX) {
-		clock_gettime (CLOCK_MONOTONIC, &timeout_abs);
-		timeout_abs.tv_nsec += timeout_ms * NSEC_PER_MSEC;
-		timeout_abs.tv_sec += timeout_abs.tv_nsec / NSEC_PER_SEC;
-		timeout_abs.tv_nsec = timeout_abs.tv_nsec % NSEC_PER_SEC;
+		timeout_abs = r_time_now_mono () + timeout_ms * R_USEC_PER_MSEC;
 	}
 
 	int r = 0;
@@ -674,15 +651,13 @@ R_API bool r2r_subprocess_wait(R2RSubprocess *proc, ut64 timeout_ms) {
 		struct timeval timeout_s;
 		struct timeval *timeout = NULL;
 		if (timeout_ms != UT64_MAX) {
-			struct timespec now;
-			clock_gettime (CLOCK_MONOTONIC, &now);
-			st64 usec_diff = ((st64)timeout_abs.tv_sec - now.tv_sec) * USEC_PER_SEC
-					+ ((st64)timeout_abs.tv_nsec - now.tv_nsec) / NSEC_PER_USEC;
-			if (usec_diff <= 0) {
+			ut64 now = r_time_now_mono ();
+			if (now >= timeout_abs) {
 				break;
 			}
-			timeout_s.tv_sec = usec_diff / USEC_PER_SEC;
-			timeout_s.tv_usec = usec_diff % USEC_PER_SEC;
+			ut64 usec_diff = timeout_abs - r_time_now_mono ();
+			timeout_s.tv_sec = usec_diff / R_USEC_PER_SEC;
+			timeout_s.tv_usec = usec_diff % R_USEC_PER_SEC;
 			timeout = &timeout_s;
 		}
 		r = select (nfds, &rfds, NULL, NULL, timeout);
@@ -919,8 +894,8 @@ static R2RProcessOutput *run_r2_test(R2RRunConfig *config, const char *cmds, RLi
 }
 
 R_API R2RProcessOutput *r2r_run_cmd_test(R2RRunConfig *config, R2RCmdTest *test, R2RCmdRunner runner, void *user) {
-	RList *extra_args = test->args.value ? r_str_split_duplist (test->args.value, " ") : NULL;
-	RList *files = r_str_split_duplist (test->file.value, "\n");
+	RList *extra_args = test->args.value ? r_str_split_duplist (test->args.value, " ", true) : NULL;
+	RList *files = r_str_split_duplist (test->file.value, "\n", true);
 	RListIter *it;
 	RListIter *tmpit;
 	char *token;
@@ -966,8 +941,9 @@ R_API bool r2r_check_cmd_test(R2RProcessOutput *out, R2RCmdTest *test) {
 #define JQ_CMD "jq"
 
 R_API bool r2r_check_jq_available(void) {
+	const char *args[] = {"."};
 	const char *invalid_json = "this is not json lol";
-	R2RSubprocess *proc = r2r_subprocess_start (JQ_CMD, NULL, 0, NULL, NULL, 0);
+	R2RSubprocess *proc = r2r_subprocess_start (JQ_CMD, args, 1, NULL, NULL, 0);
 	if (proc) {
 		r2r_subprocess_stdin_write (proc, (const ut8 *)invalid_json, strlen (invalid_json));
 		r2r_subprocess_wait (proc, UT64_MAX);
@@ -976,7 +952,7 @@ R_API bool r2r_check_jq_available(void) {
 	r2r_subprocess_free (proc);
 
 	const char *valid_json = "{\"this is\":\"valid json\",\"lol\":true}";
-	proc = r2r_subprocess_start (JQ_CMD, NULL, 0, NULL, NULL, 0);
+	proc = r2r_subprocess_start (JQ_CMD, args, 1, NULL, NULL, 0);
 	if (proc) {
 		r2r_subprocess_stdin_write (proc, (const ut8 *)valid_json, strlen (valid_json));
 		r2r_subprocess_wait (proc, UT64_MAX);
@@ -999,7 +975,8 @@ R_API bool r2r_check_json_test(R2RProcessOutput *out, R2RJsonTest *test) {
 	if (!out || out->ret != 0 || !out->out || !out->err || out->timeout) {
 		return false;
 	}
-	R2RSubprocess *proc = r2r_subprocess_start (JQ_CMD, NULL, 0, NULL, NULL, 0);
+	const char *args[] = {"."};
+	R2RSubprocess *proc = r2r_subprocess_start (JQ_CMD, args, 1, NULL, NULL, 0);
 	r2r_subprocess_stdin_write (proc, (const ut8 *)out->out, strlen (out->out));
 	r2r_subprocess_wait (proc, UT64_MAX);
 	bool ret = proc->ret == 0;

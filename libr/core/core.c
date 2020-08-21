@@ -487,7 +487,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 	case '[':
 {
 		ut64 n = 0LL;
-		int refsz = core->assembler->bits / 8;
+		int refsz = core->rasm->bits / 8;
 		const char *p = NULL;
 		if (strlen (str) > 5) {
 			p = strchr (str + 5, ':');
@@ -544,6 +544,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 		// TODO: group analop-dependant vars after a char, so i can filter
 		r_anal_op (core->anal, &op, core->offset, core->block, core->blocksize, R_ANAL_OP_MASK_BASIC);
 		r_anal_op_fini (&op); // we don't need strings or pointers, just values, which are not nullified in fini
+		// XXX the above line is assuming op after fini keeps jump, fail, ptr, val, size and r_anal_op_is_eob()
 		switch (str[1]) {
 		case '.': // can use pc, sp, a0, a1, ...
 			return r_debug_reg_get (core->dbg, str + 2);
@@ -822,7 +823,7 @@ static ut64 num_callback(RNum *userptr, const char *str, int *ok) {
 	return ret;
 }
 
-R_API RCore *r_core_new() {
+R_API RCore *r_core_new(void) {
 	RCore *c = R_NEW0 (RCore);
 	if (c) {
 		r_core_init (c);
@@ -848,7 +849,7 @@ static const char *radare_argv[] = {
 	"=g?", "=g", "=g!", "=h?", "=h", "=h-", "=h--", "=h*", "=h&", "=H?", "=H", "=H&",
 	"<",
 	"/?", "/", "/j", "/j!", "/j!x", "/+", "//", "/a", "/a1", "/ab", "/ad", "/aa", "/as", "/asl", "/at", "/atl", "/af", "/afl", "/ae", "/aej", "/ai", "/aij",
-	"/c", "/ca", "/car", "/d", "/e", "/E", "/f", "/F", "/g", "/gg", "/h", "/ht", "/i", "/m", "/mb", "/mm",
+	"/c", "/ca", "/car", "/d", "/e", "/E", "/Ej", "/f", "/F", "/g", "/gg", "/h", "/ht", "/i", "/m", "/mb", "/mm",
 	"/o", "/O", "/p", "/P", "/s", "/s*", "/r?", "/r", "/ra", "/rc", "/re", "/rr", "/rw", "/rc",
 	"/R",
 	"/v?", "/v", "/v1", "/v2", "/v4", "/v8",
@@ -954,7 +955,7 @@ static const char *radare_argv[] = {
 	"L?", "L", "L-", "Ll", "LL", "La", "Lc", "Ld", "Lh", "Li", "Lo",
 	"m?", "m", "m*", "ml", "m-", "md", "mf?", "mf", "mg", "mo", "mi", "mp", "ms", "my",
 	"o?", "o", "o-", "o--", "o+", "oa", "oa-", "oq", "o*", "o.", "o=",
-	"ob?", "ob", "ob*", "obo", "obb", "oba", "obf", "obj", "obr", "ob-", "ob-*",
+	"ob?", "ob", "ob*", "obo", "oba", "obf", "obj", "obr", "ob-", "ob-*",
 	"oc", "of", "oi", "oj", "oL", "om", "on",
 	"oo?", "oo", "oo+", "oob", "ood", "oom", "oon", "oon+", "oonn", "oonn+",
 	"op",  "ox",
@@ -1492,16 +1493,18 @@ static void autocomplete_functions (RCore *core, RLineCompletion *completion, co
 }
 
 static void autocomplete_macro(RCore *core, RLineCompletion *completion, const char *str) {
-	r_return_if_fail (str);
+	r_return_if_fail (core && core->rcmd && completion && str);
 	RCmdMacroItem *item;
 	RListIter *iter;
-	char buf[1024];
-	int n = strlen(str);
+	size_t n = strlen (str);
 	r_list_foreach (core->rcmd->macro.macros, iter, item) {
 		char *p = item->name;
 		if (!*str || !strncmp (str, p, n)) {
-			snprintf (buf, sizeof (buf), "%s%s)", str, p);
-			r_line_completion_push (completion, buf);
+			char *buf = r_str_newf ("%s%s)", str, p);
+			if (buf) {
+				r_line_completion_push (completion, buf);
+				free (buf);
+			}
 		}
 	}
 }
@@ -2006,9 +2009,9 @@ static void update_sdb(RCore *core) {
 	//sdb_ns_set (core->sdb, "flags", core->flags->sdb);
 	//sdb_ns_set (core->sdb, "bin", core->bin->sdb);
 	//SDB// syscall/
-	if (core->assembler && core->assembler->syscall && core->assembler->syscall->db) {
-		core->assembler->syscall->db->refs++;
-		sdb_ns_set (DB, "syscall", core->assembler->syscall->db);
+	if (core->rasm && core->rasm->syscall && core->rasm->syscall->db) {
+		core->rasm->syscall->db->refs++;
+		sdb_ns_set (DB, "syscall", core->rasm->syscall->db);
 	}
 	d = sdb_ns (DB, "debug", 1);
 	if (core->dbg->sgnls) {
@@ -2077,7 +2080,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 		r_strbuf_appendf (s, " (%s)", mapname);
 		R_FREE (mapname);
 	}
-	int bits = core->assembler->bits;
+	int bits = core->rasm->bits;
 	switch (bits) {
 	case 16: // umf, not in sync with pxr
 		{
@@ -2159,8 +2162,8 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 			r_strbuf_appendf (s, " %sX%s", c, cend);
 			/* instruction disassembly */
 			r_io_read_at (core->io, value, buf, sizeof (buf));
-			r_asm_set_pc (core->assembler, value);
-			r_asm_disassemble (core->assembler, &op, buf, sizeof (buf));
+			r_asm_set_pc (core->rasm, value);
+			r_asm_disassemble (core->rasm, &op, buf, sizeof (buf));
 			r_strbuf_appendf (s, " '%s'", r_asm_op_get_asm (&op));
 			/* get library name */
 			{ // NOTE: dup for mapname?
@@ -2181,7 +2184,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 			ut32 *n32 = (ut32 *)buf;
 			ut64 *n64 = (ut64*)buf;
 			r_io_read_at (core->io, value, buf, sizeof (buf));
-			ut64 n = (core->assembler->bits == 64)? *n64: *n32;
+			ut64 n = (core->rasm->bits == 64)? *n64: *n32;
 			r_strbuf_appendf (s, " 0x%"PFMT64x, n);
 		}
 	}
@@ -2215,7 +2218,7 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 		ut32 *n32 = (ut32 *)buf;
 		ut64 *n64 = (ut64*)buf;
 		r_io_read_at (core->io, value, buf, sizeof (buf));
-		ut64 n = (core->assembler->bits == 64)? *n64: *n32;
+		ut64 n = (core->rasm->bits == 64)? *n64: *n32;
 		if(n != value) {
 			char* rrstr = r_core_anal_hasrefs_to_depth (core, n, depth-1);
 			if (rrstr) {
@@ -2232,17 +2235,14 @@ static char *r_core_anal_hasrefs_to_depth(RCore *core, ut64 value, int depth) {
 
 R_API char *r_core_anal_get_comments(RCore *core, ut64 addr) {
 	if (core) {
-		char *type = r_meta_get_string (core->anal, R_META_TYPE_VARTYPE, addr);
-		char *cmt = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr);
+		const char *type = r_meta_get_string (core->anal, R_META_TYPE_VARTYPE, addr);
+		const char *cmt = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr);
 		if (type && cmt) {
-			char *ret = r_str_newf ("%s %s", type, cmt);
-			free (type);
-			free (cmt);
-			return ret;
+			return r_str_newf ("%s %s", type, cmt);
 		} else if (type) {
-			return type;
+			return strdup (type);
 		} else if (cmt) {
-			return cmt;
+			return strdup (cmt);
 		}
 	}
 	return NULL;
@@ -2624,9 +2624,9 @@ R_API bool r_core_init(RCore *core) {
 	core->lang->cb_printf = r_cons_printf;
 	r_lang_define (core->lang, "RCore", "core", core);
 	r_lang_set_user_ptr (core->lang, core);
-	core->assembler = r_asm_new ();
-	core->assembler->num = core->num;
-	r_asm_set_user_ptr (core->assembler, core);
+	core->rasm = r_asm_new ();
+	core->rasm->num = core->num;
+	r_asm_set_user_ptr (core->rasm, core);
 	core->anal = r_anal_new ();
 	core->gadgets = r_list_newf ((RListFree)r_core_gadget_free);
 	core->anal->ev = core->ev;
@@ -2637,7 +2637,7 @@ R_API bool r_core_init(RCore *core) {
 	core->anal->cb.on_fcn_delete = on_fcn_delete;
 	core->anal->cb.on_fcn_rename = on_fcn_rename;
 	core->print->sdb_types = core->anal->sdb_types;
-	core->assembler->syscall = r_syscall_ref (core->anal->syscall); // BIND syscall anal/asm
+	core->rasm->syscall = r_syscall_ref (core->anal->syscall); // BIND syscall anal/asm
 	r_anal_set_user_ptr (core->anal, core);
 	core->anal->cb_printf = (void *) r_cons_printf;
 	core->parser = r_parse_new ();
@@ -2667,7 +2667,7 @@ R_API bool r_core_init(RCore *core) {
 		core->asmqjmps = R_NEWS (ut64, core->asmqjmps_size);
 	}
 
-	r_bin_bind (core->bin, &(core->assembler->binb));
+	r_bin_bind (core->bin, &(core->rasm->binb));
 	r_bin_bind (core->bin, &(core->anal->binb));
 	r_bin_bind (core->bin, &(core->anal->binb));
 
@@ -2716,7 +2716,7 @@ R_API bool r_core_init(RCore *core) {
 	//r_core_loadlibs (core);
 
 	// TODO: get arch from r_bin or from native arch
-	r_asm_use (core->assembler, R_SYS_ARCH);
+	r_asm_use (core->rasm, R_SYS_ARCH);
 	r_anal_use (core->anal, R_SYS_ARCH);
 	if (R_SYS_BITS & R_SYS_BITS_64) {
 		r_config_set_i (core->config, "asm.bits", 64);
@@ -2801,8 +2801,8 @@ R_API void r_core_fini(RCore *c) {
 	c->rcmd = r_cmd_free (c->rcmd);
 	r_list_free (c->cmd_descriptors);
 	c->anal = r_anal_free (c->anal);
-	r_asm_free (c->assembler);
-	c->assembler = NULL;
+	r_asm_free (c->rasm);
+	c->rasm = NULL;
 	c->print = r_print_free (c->print);
 	c->bin = (r_bin_free (c->bin), NULL);
 	c->lang = (r_lang_free (c->lang), NULL);
@@ -3088,9 +3088,9 @@ R_API int r_core_seek_align(RCore *core, ut64 align, int times) {
 R_API char *r_core_op_str(RCore *core, ut64 addr) {
 	RAsmOp op = {0};
 	ut8 buf[64];
-	r_asm_set_pc (core->assembler, addr);
+	r_asm_set_pc (core->rasm, addr);
 	r_io_read_at (core->io, addr, buf, sizeof (buf));
-	int ret = r_asm_disassemble (core->assembler, &op, buf, sizeof (buf));
+	int ret = r_asm_disassemble (core->rasm, &op, buf, sizeof (buf));
 	char *str = (ret > 0)? strdup (r_strbuf_get (&op.buf_asm)): NULL;
 	r_asm_op_fini (&op);
 	return str;
@@ -3456,7 +3456,12 @@ R_API char *r_core_editor(const RCore *core, const char *file, const char *str) 
 		eprintf ("Opening in read-only\n");
 	} else {
 		if (str) {
-			write (fd, str, strlen (str));
+			const size_t str_len = strlen (str);
+			if (write (fd, str, str_len) != str_len) {
+				close (fd);
+				free (name);
+				return NULL;
+			}
 		}
 	}
 	close (fd);
@@ -3526,7 +3531,7 @@ R_API RBuffer *r_core_syscall (RCore *core, const char *name, const char *args) 
 	num = r_syscall_get_num (core->anal->syscall, name);
 
 	//bits check
-	switch (core->assembler->bits) {
+	switch (core->rasm->bits) {
 	case 32:
 		if (strcmp (name, "setup") && !num ) {
 			eprintf ("syscall not found!\n");

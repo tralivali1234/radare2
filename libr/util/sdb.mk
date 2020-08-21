@@ -1,6 +1,7 @@
 SDBPATH=../../shlr/sdb/src/
 SDBLIB=${SDBPATH}/libsdb.a
 EXTRA_TARGETS+=${SDBLIB}
+EXTRA_PRE+=$(SDBLIB)
 
 SDB_OBJS=
 SDB_OBJS+=buffer.o
@@ -32,8 +33,7 @@ SDBOBJS=$(addprefix ${SDBPATH},${SDB_OBJS})
 
 OBJS+=$(SDBOBJS)
 
-CFLAGS+=-I$(SDBPATH)/src
+CFLAGS+=-I$(SDBPATH)
 
-sdb_version:
-	$(MAKE) -C "$(SDBPATH)" sdb_version.h
-	${MAKE} -C ${SDBPATH}
+$(SDBLIB):
+	$(MAKE) -C ../../shlr sdbs

@@ -29,10 +29,10 @@ endif
 # NOTE: when you update TS_TIP or TS_BRA, also update them in shlr/meson.build
 TS_URL=https://github.com/tree-sitter/tree-sitter.git
 TS_BRA=master
-TS_TIP=f049ba350f3f6019ce9a1cbb0975ebd154ef7ad3
+TS_TIP=86a5dabbcbdac650c53a889183bf56d7e721e09e
 
 ifeq ($(CS_RELEASE),1)
-CS_VER=4.0.1
+CS_VER=4.0.2
 CS_TAR=https://codeload.github.com/aquynh/capstone/tar.gz/$(CS_VER)
 #CS_TAR=http://capstone-engine.org/download/$(CS_VER)/capstone-$(CS_VER).tgz
 CS_PATCHES=0
@@ -44,10 +44,10 @@ CS_ARCHIVE=https://$(CS_URL_BASE)/archive
 CS_UPD=20190515
 # NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/meson.build
 ifeq ($(CS_NEXT),1)
-CS_TIP=0de88ed3fdc0ab1f1e2a6eada3cdd93e18057a0f
+CS_TIP=d956ceddabcbe544ee8f074ba75c86c6381b34e6
 CS_BRA=next
 else
-CS_TIP=c80b6aaf973c822d82565f25e9b2e2c0102626fa
+CS_TIP=2edae851d9fee511a57d4da32d5acecedd95d7ed
 CS_BRA=v4
 endif
 ifeq ($(CS_COMMIT_ARCHIVE),1)
@@ -60,13 +60,15 @@ CS_REV=
 CS_PATCHES=1
 endif
 
-.PHONY: capstone-sync capstone-build all clean mrproper libgdbr libwindbg bochs tree-sitter-sync
+.PHONY: capstone-sync capstone-build all clean mrproper libgdbr libwindbg bochs tree-sitter-sync sdbs
 
+ifeq ($(shell gcc -v > /dev/null 2>&1 && echo works),works)
 HOST_CC?=gcc
+endif
 SHLR?=$(shell pwd)
 AR?=ar
 RANLIB?=ranlib
-MODS=sdb zip java tcc mpc
+MODS=sdb zip java tcc mpc yxml
 MODS+=gdb qnx ar
 # lz4
 ifneq ($(CC),cccl)
@@ -92,7 +94,7 @@ all:
 	exit 1
 endif
 
-preall: targets libwindbg capstone-build tree-sitter-build radare2-shell-parser-build bochs
+preall: libwindbg capstone-build tree-sitter-build radare2-shell-parser-build bochs
 	@for MOD in ${MODS} ; do \
 		echo $(MAKE) -C $$MOD ; \
 		$(MAKE) -C $$MOD HAVE_VALA= ROOT="${PWD}/../" CC="${CC}" ; \
@@ -111,60 +113,40 @@ else
 BUILD_EXT_EXE=
 endif
 
-SDB_TARGETS=$(SDBLIB)
-ifneq (${EXT_EXE},)
-SDB_TARGETS+=sdb/sdb${EXT_EXE}
-else
-SDB_TARGETS+=sdb/sdb
-endif
-
 PIC=
 ifneq ($(CC),cccl)
 PIC=-fPIC
-ifeq ($(filter sdb/sdb${BUILD_EXT_EXE},$(SDB_TARGETS)),)
-SDB_TARGETS+=sdb/sdb${BUILD_EXT_EXE}
-endif
 endif
 
-targets:
-	for TARGET in ${SDB_TARGETS} ; do ${MAKE} $$TARGET ; done
+sdbs:
+	$(MAKE) sdb-host HOST_CC=$(HOST_CC) CC=$(HOST_CC)
+	$(MAKE) sdb-target
 
-${SDB_TARGETS}:
+sdb-host:
 	@echo
-	@echo BUILD SUMARY
-	@echo ============
-	@echo COMPILER ${COMPILER}
-	@echo CC ${CC}
-	@echo HOST_CC ${HOST_CC}
-	@echo HOST_OS ${HOST_OS}
-	@echo BUILD_OS ${BUILD_OS}
-	@echo ============
+	@echo ">>>>>>>>"
+	@echo "HOST SDB"
+	@echo ">>>>>>>>"
 	@echo
-	@echo ">>>>>>>>>>>>>>>>"
-	@echo "NATIVE BUILD SDB"
-	@echo ">>>>>>>>>>>>>>>>"
-	@echo
-	$(MAKE) -C sdb clean
-	$(MAKE) -C sdb src/sdb_version.h
-	$(MAKE) -C sdb/src CC=${HOST_CC} LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
+	$(MAKE) -C sdb clean ; rm -f sdb/src/*.o sdb/src/sdb_version.h
+	$(MAKE) -C sdb/src "CC=${HOST_CC}" LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
 	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/src/.sdb${BUILD_EXT_EXE}
-	@echo
-	@echo ">>>>>>>>>>>>>>>>"
-	@echo "TARGET BUILD SDB"
-	@echo ">>>>>>>>>>>>>>>>"
-	@echo
-	$(MAKE) -C sdb clean
-	cd sdb ; $(MAKE) src/sdb_version.h
-	cd sdb/src ; $(MAKE) ARCH=xxx RANLIB="${RANLIB}" CFLAGS_SHARED="${CFLAGS_SHARED}" \
-		CC="${CC}" AR="${AR}" CFLAGS='${CFLAGS}' LDFLAGS='${LDFLAGS}' libsdb.a
-	${RANLIB} sdb/src/libsdb.a
-ifneq (${EXT_AR},a)
-	-cp -f sdb/src/libsdb.a sdb/src/libsdb.${EXT_AR}
-endif
-	rm -f $@
-	cp -f sdb/src/.sdb${BUILD_EXT_EXE} $@
+	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/sdb$(BUILD_EXT_EXE)
+	-file sdb/sdb$(BUILD_EXT_EXE)
 
-.PHONY: sdb-sync sync-sdb sdbclean
+sdb-target:
+	@echo
+	@echo ">>>>>>>>>>"
+	@echo "TARGET SDB"
+	@echo ">>>>>>>>>>"
+	@echo
+	$(MAKE) -C sdb clean ; rm -f sdb/src/*.o sdb/src/sdb_version.h
+	$(MAKE) -C sdb/src sdb_version.h
+	$(MAKE) -C sdb/src ARCH=xxx RANLIB="${RANLIB}" CFLAGS_SHARED="${CFLAGS_SHARED}" \
+		CC="${CC}" AR="${AR}" ARCH=undefined CFLAGS='${CFLAGS}' LDFLAGS='${LDFLAGS}' libsdb.a
+	${RANLIB} sdb/src/libsdb.a
+
+.PHONY: sdb-sync sync-sdb sdbclean sdb-native sdb-target
 SDB_F=README.md config.mk src Makefile meson.build
 SDB_SYNCFILES=$(addprefix sdb.vc/,${SDB_F})
 I=../libr/include
@@ -188,17 +170,13 @@ sdb-sync sync-sdb:
 	git clone --depth 1 ${SDB_URL} sdb.vc
 	mkdir -p sdb
 	cp -rf ${SDB_SYNCFILES} sdb
-	rm -rf sdb.vc $I/sdb
-	mkdir -p $I/sdb
+	rm -rf sdb.vc
 	rm -f src/sdb_version.h
-	cd sdb ; $(MAKE) src/sdb_version.h
-	cp -f sdb/src/*.h $I/sdb
-	echo '#include <sdb/sdb.h>' > $I/sdb.h
+	$(MAKE) -C sdb src/sdb_version.h
 	mkdir -p sdb/test sdb/memcache
 	sed -e 's,HAVE_VALA=,HAVE_VALA=#,' sdb/config.mk > .t
 	mv .t sdb/config.mk
 	echo all clean mrproper: | tee sdb/test/Makefile > sdb/memcache/Makefile
-	git add $I/sdb*
 	git add sdb
 
 .PHONY: ptrace-wrap ptrace-wrap-sync sync-ptrace-wrap ptrace-wrap-clean clean-ptrace-wrap
@@ -396,8 +374,7 @@ SHLRS+=grub/libgrubfs.a
 SHLRS+=java/libr_java.a
 SHLRS+=lz4/liblz4.a
 SHLRS+=qnx/lib/libqnxr.a
-#SHLRS+=sdb/src/libsdb.a
-#SHLRS+=tcc/libr_tcc.a
+SHLRS+=yxml/libyxml.a
 SHLRS+=windbg/libr_windbg.a
 SHLRS+=zip/librz.a
 
@@ -408,13 +385,13 @@ ifeq ($(CC),emcc)
 	for LIB in ${SHLRS} ; do \
 		if [ -f "$${LIB}" ]; then emcc -emit-llvm -nostdlib -Wl,--whole-archive -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
 	done
-	${AR} crs $@ .libr/*.o
+	${AR} rs $@ .libr/*.o
 	$(RANLIB) $@
 else
 	for LIB in ${SHLRS} ; do \
 		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
 	done
-	${AR} crs $@ .libr/*.o
+	${AR} rs $@ .libr/*.o
 	$(RANLIB) $@
 endif
 

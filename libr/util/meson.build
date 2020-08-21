@@ -6,17 +6,16 @@ r_util_sources = [
   'donut.c',
   'table.c',
   'getopt.c',
+  'print_code.c',
   'base85.c',
   'base91.c',
   'bdiff.c',
-  #'big.c',
   'binheap.c',
   'bitmap.c',
   'buf.c',
   'cache.c',
   'calc.c',
   'chmod.c',
-  'constr.c',
   'debruijn.c',
   'udiff.c',
   'event.c',
@@ -25,13 +24,13 @@ r_util_sources = [
   'graph.c',
   'hex.c',
   'idpool.c',
+  'json.c',
   'json_indent.c',
   'lib.c',
   'list.c',
   'log.c',
   'mem.c',
   'name.c',
-  'date.c',
   'format.c',
   'pie.c',
   'seven.c',
@@ -66,7 +65,7 @@ r_util_sources = [
   'thread_lock.c',
   'thread_cond.c',
   'thread_pipe.c',
-  'tinyrange.c',
+  'time.c',
   'tree.c',
   'pj.c',
   'ubase64.c',
@@ -81,13 +80,21 @@ r_util_sources = [
   'protobuf.c',
   'regex/regcomp.c',
   'regex/regexec.c',
-  'regex/regerror.c'
+  'regex/regerror.c',
+  'annotated_code.c'
 ]
 
-r_util_deps = [ldl, mth, pth, utl, sdb_dep, zlib_dep, platform_deps]
-if host_machine.system().startswith('freebsd') or host_machine.system().startswith('netbsd')
+r_util_deps = [ldl, mth, spp_dep, pth, utl, sdb_dep, zlib_dep, platform_deps]
+if host_machine.system().startswith('freebsd') or host_machine.system().startswith('netbsd') or host_machine.system().startswith('haiku')
   # backtrace_symbols_fd requires -lexecinfo
   r_util_deps += [cc.find_library('execinfo')]
+endif
+
+if use_sys_openssl
+  r_util_deps += [sys_openssl]
+  r_util_sources += ['big-ssl.c']
+else
+  r_util_sources += ['big.c']
 endif
 
 r_util = library('r_util', r_util_sources,
@@ -100,11 +107,13 @@ r_util = library('r_util', r_util_sources,
 )
 
 r_util_dep = declare_dependency(link_with: r_util,
-                                include_directories: platform_inc)
+                                include_directories: platform_inc,
+                                dependencies: r_util_deps)
 
 pkgconfig_mod.generate(r_util,
-  subdirs: 'libr',
+  subdirs: ['libr', 'libr/sdb'],
   version: r2_version,
+  libraries: pkgcfg_sanitize_libs,
   name: 'r_util',
   filebase: 'r_util',
   description: 'radare foundation libraries'

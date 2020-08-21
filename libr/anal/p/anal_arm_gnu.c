@@ -43,8 +43,6 @@ static int op_thumb(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 	arm_set_thumb (arminsn, true);
 	arm_set_input_buffer (arminsn, data);
 	arm_set_pc (arminsn, addr);
-	op->jump = op->fail = -1;
-	op->ptr = op->val = -1;
 	op->delay = 0;
 	op->size = arm_disasm_one_insn (arminsn);
 	op->jump = arminsn->jmp;
@@ -177,13 +175,10 @@ static int arm_op32(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int le
 	if (!data) {
 		return 0;
 	}
-	memset (op, '\0', sizeof (RAnalOp));
 	arminsn = arm_new ();
 	arm_set_thumb (arminsn, false);
 	arm_set_input_buffer (arminsn, data);
 	arm_set_pc (arminsn, addr);
-	op->jump = op->fail = -1;
-	op->ptr = op->val = -1;
 	op->addr = addr;
 	op->type = R_ANAL_OP_TYPE_UNK;
 
@@ -358,7 +353,6 @@ static ut64 getaddr(ut64 addr, const ut8 *d) {
 }
 
 static int arm_op64(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *d, int len) {
-	memset (op, 0, sizeof (RAnalOp));
 	if (d[3] == 0) {
 		return -1;      // invalid
 	}

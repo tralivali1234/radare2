@@ -30,6 +30,7 @@
 #include "r_util/r_print.h"
 #include "r_crypto.h"
 #include "r_bind.h"
+#include "r_util/r_annotated_code.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -262,7 +263,7 @@ typedef struct r_core_t {
 	RCmdDescriptor root_cmd_descriptor;
 	RList/*<RCmdDescriptor>*/ *cmd_descriptors;
 	RAnal *anal;
-	RAsm *assembler;
+	RAsm *rasm;
 	/* ^^ */
 	RCoreTimes *times;
 	RParse *parser;
@@ -329,6 +330,9 @@ typedef struct r_core_t {
 	bool log_events; // core.c:cb_event_handler : log actions from events if cfg.log.events is set
 	RList *ropchain;
 	bool use_tree_sitter_r2cmd;
+
+	bool marks_init;
+	ut64 marks[UT8_MAX + 1];
 
 	RMainCallback r_main_radare2;
 	// int (*r_main_radare2)(int argc, char **argv);
@@ -466,7 +470,7 @@ R_API char* r_core_add_asmqjmp(RCore *core, ut64 addr);
 R_API void r_core_anal_type_init(RCore *core);
 R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn);
 R_API void r_core_anal_inflags (RCore *core, const char *glob);
-R_API int cmd_anal_objc (RCore *core, const char *input, bool auto_anal);
+R_API bool cmd_anal_objc (RCore *core, const char *input, bool auto_anal);
 R_API void r_core_anal_cc_init(RCore *core);
 R_API void r_core_anal_paths(RCore *core, ut64 from, ut64 to, bool followCalls, int followDepth, bool is_json);
 R_API void r_core_anal_esil_graph(RCore *core, const char *expr);
@@ -641,9 +645,12 @@ R_API RList *r_core_asm_back_disassemble_byte (RCore *core, ut64 addr, int len, 
 R_API ut32 r_core_asm_bwdis_len (RCore* core, int* len, ut64* start_addr, ut32 l);
 R_API int r_core_print_disasm(RPrint *p, RCore *core, ut64 addr, ut8 *buf, int len, int lines, int invbreak, int nbytes, bool json, PJ *pj, RAnalFunction *pdf);
 R_API int r_core_print_disasm_json(RCore *core, ut64 addr, ut8 *buf, int len, int lines, PJ *pj);
-R_API int r_core_print_disasm_instructions (RCore *core, int len, int l);
-R_API int r_core_print_disasm_all (RCore *core, ut64 addr, int l, int len, int mode);
+R_API int r_core_print_disasm_instructions_with_buf(RCore *core, ut64 address, ut8 *buf, int nb_bytes, int nb_opcodes);
+R_API int r_core_print_disasm_instructions(RCore *core, int nb_bytes, int nb_opcodes);
+R_API int r_core_print_disasm_all(RCore *core, ut64 addr, int l, int len, int mode);
+R_API int r_core_disasm_pdi_with_buf(RCore *core, ut64 address, ut8 *buf, ut32 nb_opcodes, ut32 nb_bytes, int fmt);
 R_API int r_core_disasm_pdi(RCore *core, int nb_opcodes, int nb_bytes, int fmt);
+R_API int r_core_disasm_pde(RCore *core, int nb_opcodes, int mode);
 R_API int r_core_print_fcn_disasm(RPrint *p, RCore *core, ut64 addr, int l, int invbreak, int cbytes);
 R_API int r_core_get_prc_cols(RCore *core);
 R_API int r_core_flag_in_middle(RCore *core, ut64 at, int oplen, int *midflags);
@@ -657,7 +664,7 @@ R_API int r_core_bin_set_by_name (RCore *core, const char *name);
 R_API int r_core_bin_reload(RCore *core, const char *file, ut64 baseaddr);
 R_API bool r_core_bin_load(RCore *core, const char *file, ut64 baseaddr);
 R_API int r_core_bin_rebase(RCore *core, ut64 baddr);
-R_API void r_core_bin_export_info_rad(RCore *core);
+R_API void r_core_bin_export_info(RCore *core, int mode);
 R_API int r_core_bin_list(RCore *core, int mode);
 R_API bool r_core_bin_delete (RCore *core, ut32 binfile_idx);
 R_API ut64 r_core_bin_impaddr(RBin *bin, int va, const char *name);
@@ -675,7 +682,7 @@ R_API bool r_core_project_open(RCore *core, const char *file, bool thready);
 R_API int r_core_project_cat(RCore *core, const char *name);
 R_API int r_core_project_delete(RCore *core, const char *prjfile);
 R_API int r_core_project_list(RCore *core, int mode);
-R_API bool r_core_project_save_rdb(RCore *core, const char *file, int opts);
+R_API bool r_core_project_save_script(RCore *core, const char *file, int opts);
 R_API bool r_core_project_save(RCore *core, const char *file);
 R_API char *r_core_project_info(RCore *core, const char *file);
 R_API char *r_core_project_notes_file (RCore *core, const char *file);
@@ -738,7 +745,7 @@ R_API int r_core_bin_info (RCore *core, int action, int mode, int va, RCoreBinFi
 R_API int r_core_bin_set_arch_bits (RCore *r, const char *name, const char * arch, ut16 bits);
 R_API int r_core_bin_update_arch_bits (RCore *r);
 R_API char *r_core_bin_method_flags_str(ut64 flags, int mode);
-R_API int r_core_pdb_info(RCore *core, const char *file, ut64 baddr, int mode);
+R_API bool r_core_pdb_info(RCore *core, const char *file, int mode);
 
 /* rtr */
 R_API int r_core_rtr_cmds (RCore *core, const char *port);
@@ -923,6 +930,38 @@ R_API void r_core_anal_propagate_noreturn(RCore *core, ut64 addr);
 /* PLUGINS */
 extern RCorePlugin r_core_plugin_java;
 extern RCorePlugin r_core_plugin_a2f;
+
+/* DECOMPILER PRINTING FUNCTIONS */
+/**
+ * @brief Prints the data contained in the specified RAnnotatedCode in JSON format.
+ * 
+ * The function will print the output in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ */
+R_API void r_core_annotated_code_print_json(RAnnotatedCode *code);
+/**
+ * @brief Prints the decompiled code from the specified RAnnotatedCode.
+ * 
+ * This function is used for printing the output of commands pdg and pdgo.
+ * It can print the decompiled code with or without offsets. If line_offsets is a null pointer,
+ * the output will be printed without offsets (pdg), otherwise, the output will be
+ * printed with offsets.
+ * This function will print the output in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ * @param line_offsets Pointer to a @ref RVector that contains offsets for the decompiled code.
+ */
+R_API void r_core_annotated_code_print(RAnnotatedCode *code, RVector *line_offsets);
+/**
+ * @brief  Prints the decompiled code as comments
+ * 
+ * This function is used for the output of command pdg*
+ * Output will be printed in console using the function r_cons_printf();
+ * 
+ * @param code Pointer to a RAnnotatedCode.
+ */
+R_API void r_core_annotated_code_print_comment_cmds(RAnnotatedCode *code);
 
 #endif
 

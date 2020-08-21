@@ -55,6 +55,7 @@ include ../../libr/config.mk
 include ../../libr/socket/deps.mk
 include ../../libr/magic/deps.mk
 include ../../libr/main/deps.mk
+include ../../shlr/sdb.mk
 include ../../shlr/zip/deps.mk
 include ../../shlr/gdb/deps.mk
 include ../../shlr/java/deps.mk
@@ -62,7 +63,9 @@ include ../../shlr/bochs/deps.mk
 include ../../shlr/grub/deps.mk
 include ../../shlr/qnx/deps.mk
 include ../../shlr/ar/deps.mk
+include ../../shlr/sdb.mk
 include ../../shlr/capstone.mk
+include ../../shlr/radare2-shell-parser-deps.mk
 
 all: symlinks
 

@@ -1,9 +1,5 @@
 /* radare - LGPL - Copyright 2009-2020 - pancake */
 
-#if __linux__
-#include <time.h>
-#endif
-
 #include <r_userconf.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,6 +16,10 @@
 #  define FREEBSD_WITH_BACKTRACE
 # endif
 #endif
+#if defined(__HAIKU__)
+# include <kernel/image.h>
+# include <sys/param.h>
+#endif
 #include <sys/types.h>
 #include <r_types.h>
 #include <r_util.h>
@@ -28,7 +28,7 @@
 static char** env = NULL;
 
 #if (__linux__ && __GNU_LIBRARY__) || defined(NETBSD_WITH_BACKTRACE) || \
-  defined(FREEBSD_WITH_BACKTRACE) || __DragonFly__
+  defined(FREEBSD_WITH_BACKTRACE) || __DragonFly__ || __sun || __HAIKU__
 # include <execinfo.h>
 #endif
 #if __APPLE__
@@ -131,7 +131,7 @@ static const struct {const char* name; ut64 bit;} arch_bit_array[] = {
     {NULL, 0}
 };
 
-R_API int r_sys_fork() {
+R_API int r_sys_fork(void) {
 #if HAVE_FORK
 #if __WINDOWS__
 	return -1;
@@ -199,19 +199,6 @@ R_API void r_sys_exit(int status, bool nocleanup) {
 	} else {
 		exit (status);
 	}
-}
-
-/* TODO: import stuff from bininfo/p/bininfo_addr2line */
-/* TODO: check endianness issues here */
-R_API ut64 r_sys_now(void) {
-	ut64 ret;
-	struct timeval now;
-	gettimeofday (&now, NULL);
-	ret = now.tv_sec;
-	ret <<= 20;
-	ret |= now.tv_usec;
-	//(sizeof (now.tv_sec) == 4
-	return ret;
 }
 
 R_API int r_sys_truncate(const char *file, int sz) {
@@ -296,7 +283,7 @@ R_API char *r_sys_cmd_strf(const char *fmt, ...) {
 
 #if (__linux__ && __GNU_LIBRARY__) || (__APPLE__ && APPLE_WITH_BACKTRACE) || \
   defined(NETBSD_WITH_BACKTRACE) || defined(FREEBSD_WITH_BACKTRACE) || \
-  __DragonFly__
+  __DragonFly__ || __sun || __HAIKU__
 #define HAVE_BACKTRACE 1
 #endif
 
@@ -367,14 +354,12 @@ R_API int r_sys_clearenv(void) {
 #if __APPLE__ && !HAVE_ENVIRON
 	/* do nothing */
 	if (!env) {
-		env = r_sys_get_environ ();
+		r_sys_env_init ();
 		return 0;
 	}
-	if (env) {
-		char **e = env;
-		while (*e) {
-			*e++ = NULL;
-		}
+	char **e = env;
+	while (*e) {
+		*e++ = NULL;
 	}
 #else
 	if (!environ) {
@@ -660,6 +645,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 		}
 		// we should handle broken pipes somehow better
 		r_sys_signal (SIGPIPE, SIG_IGN);
+		size_t err_len = 0, out_len = 0;
 		for (;;) {
 			fd_set rfds, wfds;
 			int nfd;
@@ -680,20 +666,29 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 				break;
 			}
 			if (output && FD_ISSET (sh_out[0], &rfds)) {
-				if (!(bytes = read (sh_out[0], buffer, sizeof (buffer)-1))) {
+				if ((bytes = read (sh_out[0], buffer, sizeof (buffer))) < 1) {
 					break;
 				}
-				buffer[sizeof (buffer) - 1] = '\0';
-				if (len) {
-					*len += bytes;
+				char *tmp = realloc (outputptr, out_len + bytes + 1);
+				if (!tmp) {
+					R_FREE (outputptr);
+					break;
 				}
-				outputptr = r_str_append (outputptr, buffer);
+				outputptr = tmp;
+				memcpy (outputptr + out_len, buffer, bytes);
+				out_len += bytes;
 			} else if (FD_ISSET (sh_err[0], &rfds) && sterr) {
-				if (!read (sh_err[0], buffer, sizeof (buffer)-1)) {
+				if ((bytes = read (sh_err[0], buffer, sizeof (buffer))) < 1) {
 					break;
 				}
-				buffer[sizeof (buffer) - 1] = '\0';
-				*sterr = r_str_append (*sterr, buffer);
+				char *tmp = realloc (*sterr, err_len + bytes + 1);
+				if (!tmp) {
+					R_FREE (*sterr);
+					break;
+				}
+				*sterr = tmp;
+				memcpy (*sterr + err_len, buffer, bytes);
+				err_len += bytes;
 			} else if (FD_ISSET (sh_in[1], &wfds) && inputptr && *inputptr) {
 				int inputptr_len = strlen (inputptr);
 				bytes = write (sh_in[1], inputptr, inputptr_len);
@@ -727,6 +722,15 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 			ret = false;
 		}
 
+		if (len) {
+			*len = out_len;
+		}
+		if (*sterr) {
+			(*sterr)[err_len] = 0;
+		}
+		if (outputptr) {
+			outputptr[out_len] = 0;
+		}
 		if (output) {
 			*output = outputptr;
 		} else {
@@ -747,7 +751,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 }
 #endif
 
-R_API int r_sys_cmdf (const char *fmt, ...) {
+R_API int r_sys_cmdf(const char *fmt, ...) {
 	int ret;
 	char cmd[4096];
 	va_list ap;
@@ -829,7 +833,7 @@ R_API bool r_sys_mkdirp(const char *dir) {
 	{
 		char *p = strstr (ptr, ":\\");
 		if (p) {
-			ptr = p + 2;
+			ptr = p + 3;
 		}
 	}
 #endif
@@ -880,7 +884,8 @@ R_API void r_sys_perror_str(const char *fun) {
 			0, NULL )) {
 		char *err = r_sys_conv_win_to_utf8 (lpMsgBuf);
 		if (err) {
-			eprintf ("%s: %s\n", fun, err);
+			eprintf ("%s: (%#x) %s%s", fun, dw, err,
+			         r_str_endswith (err, "\n") ? "" : "\n");
 			free (err);
 		}
 		LocalFree (lpMsgBuf);
@@ -1156,6 +1161,22 @@ R_API char *r_sys_pid_to_path(int pid) {
 	if (ret != 0) {
 		return NULL;
 	}
+#elif __HAIKU__
+	char pathbuf[MAXPATHLEN];
+	int32_t group = 0;
+	image_info ii;
+
+	while (get_next_image_info (0, &group, &ii) == B_OK) {
+		if (ii.type == B_APP_IMAGE) {
+			break;
+		}
+	}
+
+	if (ii.type == B_APP_IMAGE) {
+		r_str_ncpy (pathbuf, ii.name, MAXPATHLEN);
+	} else {
+		pathbuf[0] = '\0';
+	}
 #else
 	char buf[128], pathbuf[1024];
 	snprintf (buf, sizeof (buf), "/proc/%d/exe", pid);
@@ -1169,8 +1190,14 @@ R_API char *r_sys_pid_to_path(int pid) {
 #endif
 }
 
-// TODO: rename to r_sys_env_init()
-R_API char **r_sys_get_environ () {
+R_API void r_sys_env_init(void) {
+	char **envp = r_sys_get_environ ();
+	if (envp) {
+		r_sys_set_environ (envp);
+	}
+}
+
+R_API char **r_sys_get_environ(void) {
 #if __APPLE__ && !HAVE_ENVIRON
 	env = *_NSGetEnviron();
 #else
@@ -1183,7 +1210,7 @@ R_API char **r_sys_get_environ () {
 	return env;
 }
 
-R_API void r_sys_set_environ (char **e) {
+R_API void r_sys_set_environ(char **e) {
 	env = e;
 }
 
@@ -1198,7 +1225,7 @@ R_API char *r_sys_whoami (char *buf) {
 	return hasbuf? buf: strdup (buf);
 }
 
-R_API int r_sys_getpid() {
+R_API int r_sys_getpid(void) {
 #if __UNIX__
 	return getpid ();
 #elif __WINDOWS__

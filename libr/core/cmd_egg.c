@@ -22,7 +22,7 @@ static const char *help_msg_g[] = {
 	NULL
 };
 
-static void cmd_egg_init(RCore *core) {
+static void cmd_egg_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR (core, g);
 }
 
@@ -136,7 +136,7 @@ static int cmd_egg(void *data, const char *input) {
 	char *oa, *p;
 	r_egg_setup (egg,
 		r_config_get (core->config, "asm.arch"),
-		core->assembler->bits, 0,
+		core->rasm->bits, 0,
 		r_config_get (core->config, "asm.os")); // XXX
 	switch (*input) {
 	case 's': // "gs"

@@ -70,11 +70,10 @@ static const char *help_msg_ob[] = {
 	"oba", " [addr] [baddr]", "Open file and load bin info at given address",
 	"oba", " [addr] [filename]", "Open file and load bin info at given address",
 	"oba", " [addr]", "Open bin info from the given address",
-	"obb", " [bfid]", "Switch to open binfile by fd number (Same as op)",
 	"obf", " ([file])", "Load bininfo for current file (useful for r2 -n)",
 	"obj", "", "List opened binary files and objid (JSON format)",
 	"obn", " [name]", "Select binfile by name",
-	"obo", " [iofd]", "Switch to open binary file by objid (DEPRECATED)",
+	"obo", " [fd]", "Switch to open binfile by fd number",
 	"obr", " [baddr]", "Rebase current bin object",
 	NULL
 };
@@ -151,16 +150,20 @@ static const char *help_msg_ood[] = {
 };
 
 static const char *help_msg_oon[] = {
-	"Usage:", "oon", " # reopen without loading rbin info",
+	"Usage:", "oon[+]", " # reopen without loading rbin info",
+	"oon", "", "reopen without loading rbin info",
+	"oon+", "", "reopen in read-write mode without loading rbin info",
 	NULL
 };
 
 static const char *help_msg_oonn[] = {
 	"Usage:", "oonn", " # reopen without loading rbin info, but with header flags",
+	"oonn", "", "reopen without loading rbin info, but with header flags",
+	"oonn+", "", "reopen in read-write mode without loading rbin info, but with",
 	NULL
 };
 
-static void cmd_open_init(RCore *core) {
+static void cmd_open_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR (core, o);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, o*, o_star);
 	DEFINE_CMD_DESCRIPTOR (core, oa);
@@ -283,16 +286,6 @@ static void cmd_open_bin(RCore *core, const char *input) {
 			r_list_free (files);
 		}
 		break;
-	case 'b': // "obb"
-		if (input[2] == ' ') {
-			ut32 id = r_num_math (core->num, input + 3);
-			if (!r_core_bin_raise (core, id)) {
-				eprintf ("Invalid RBinFile.id number.\n");
-			}
-		} else {
-			eprintf ("Usage: obb [bfid]\n");
-		}
-		break;
 	case ' ': // "ob "
 	{
 		ut32 id;
@@ -388,7 +381,9 @@ static void cmd_open_bin(RCore *core, const char *input) {
 			RTable *table = r_core_table (core);
 			r_table_visual_list (table, list, core->offset, core->blocksize,
 				r_cons_get_size (NULL), r_config_get_i (core->config, "scr.color"));
-			r_cons_printf ("\n%s\n", r_table_tostring (table));
+			char *table_text = r_table_tostring (table);
+			r_cons_printf ("\n%s\n", table_text);
+			r_free (table_text);
 			r_table_free (table);
 			r_list_free (list);
 		} break;
@@ -1019,14 +1014,7 @@ static void __rebase_everything(RCore *core, RList *old_sections, ut64 old_base)
 	r_flag_foreach (core->flags, __rebase_flags, &reb);
 
 	// META
-	RList *meta_list = r_meta_enumerate (core->anal, R_META_TYPE_ANY);
-	RAnalMetaItem *item;
-	r_list_foreach (meta_list, it, item) {
-		r_meta_del (core->anal, item->type, item->from, item->size);
-		item->from += diff;
-		r_meta_add_with_subtype (core->anal, item->type, item->subtype, item->from, item->from + item->size, item->str);
-	}
-	r_list_free (meta_list);
+	r_meta_rebase (core->anal, diff);
 
 	// REFS
 	HtUP *old_refs = core->anal->dict_refs;
@@ -1058,7 +1046,7 @@ R_API void r_core_file_reopen_remote_debug(RCore *core, char *uri, ut64 addr) {
 
 	RList *old_sections = __save_old_sections (core);
 	ut64 old_base = core->bin->cur->o->baddr_shift;
-	int bits = core->assembler->bits;
+	int bits = core->rasm->bits;
 	r_config_set_i (core->config, "asm.bits", bits);
 	r_config_set_i (core->config, "cfg.debug", true);
 	// Set referer as the original uri so we could return to it with `oo`
@@ -1124,7 +1112,7 @@ R_API void r_core_file_reopen_debug(RCore *core, const char *args) {
 
 	RList *old_sections = __save_old_sections (core);
 	ut64 old_base = core->bin->cur->o->baddr_shift;
-	int bits = core->assembler->bits;
+	int bits = core->rasm->bits;
 	char *bin_abspath = r_file_abspath (binpath);
 	char *escaped_path = r_str_arg_escape (bin_abspath);
 	char *newfile = r_str_newf ("dbg://%s %s", escaped_path, args);
@@ -1695,24 +1683,38 @@ static int cmd_open(void *data, const char *input) {
 			}
 			break;
 		case 'n': // "oon"
-			if ('n' == input[2]) {
-				RIODesc *desc = r_io_desc_get (core->io, core->file->fd);
-				if ('?' == input[3]) {
+			switch (input[2]) {
+			case 0: // "oon"
+				r_core_file_reopen (core, NULL, 0, 0);
+				break;
+			case '+': // "oon+"
+				r_core_file_reopen (core, NULL, R_PERM_RW, 0);
+				break;
+			case 'n': // "oonn"
+				if ('?' == input[3] || !core->file) {
 					r_core_cmd_help (core, help_msg_oonn);
 					break;
 				}
-				perms = (input[3] == '+')? R_PERM_R|R_PERM_W: 0;
-				r_core_file_reopen (core, input + 4, perms, 0);
+				RIODesc *desc = r_io_desc_get (core->io, core->file->fd);
 				if (desc) {
-					r_core_bin_load_structs (core, desc->name);
+					perms = core->io->desc->perm;
+					if (input[3] == '+') {
+						perms |= R_PERM_RW;
+					}
+					char *fname = strdup (desc->name);
+					if (fname) {
+						r_core_bin_load_structs (core, fname);
+						r_core_file_reopen (core, fname, perms, 0);
+						free (fname);
+					}
+					break;
 				}
-			} else if ('?' == input[2]) {
+				break;
+			case '?':
+			default:
 				r_core_cmd_help (core, help_msg_oon);
 				break;
 			}
-
-			perms = ('+' == input[2])? R_PERM_R | R_PERM_W: 0;
-			r_core_file_reopen (core, input + 3, perms, 0);
 			break;
 		case '+': // "oo+"
 			if ('?' == input[2]) {

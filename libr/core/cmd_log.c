@@ -44,7 +44,7 @@ static const char *help_msg_T[] = {
 };
 
 // TODO #7967 help refactor: move L to another place
-static void cmd_log_init(RCore *core) {
+static void cmd_log_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR (core, L);
 	DEFINE_CMD_DESCRIPTOR (core, T);
 }
@@ -68,7 +68,7 @@ static void screenlock(RCore *core) {
 	}
 	bool running = true;
 	r_cons_clear_buffer ();
-	ut64 begin = r_sys_now ();
+	ut64 begin = r_time_now ();
 	ut64 last = UT64_MAX;
 	ut64 tries = 0;
 	do {
@@ -85,7 +85,7 @@ static void screenlock(RCore *core) {
 			running = false;
 		} else {
 			eprintf ("\nInvalid password.\n");
-			last = r_sys_now ();
+			last = r_time_now ();
 			tries++;
 		}
 		free (msg);

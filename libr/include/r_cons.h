@@ -21,7 +21,7 @@ extern "C" {
 #include <r_util/r_file.h>
 #include <r_vector.h>
 #include <sdb.h>
-#include <sdb/ht_up.h>
+#include <ht_up.h>
 
 #include <stdio.h>
 #include <sys/types.h>
@@ -421,6 +421,18 @@ typedef struct r_cons_canvas_t {
 #define UTF_CIRCLE "\u25EF"
 #define UTF_BLOCK "\u2588"
 
+// Emoji
+#define UTF8_POLICE_CARS_REVOLVING_LIGHT "🚨"
+#define UTF8_WHITE_HEAVY_CHECK_MARK "✅"
+#define UTF8_SEE_NO_EVIL_MONKEY "🙈"
+#define UTF8_SKULL_AND_CROSSBONES "☠"
+#define UTF8_KEYBOARD "⌨"
+#define UTF8_LEFT_POINTING_MAGNIFYING_GLASS "🔍"
+#define UTF8_DOOR "🚪"
+
+// Variation Selectors
+#define UTF8_VS16 "\xef\xb8\x8f"
+
 typedef char *(*RConsEditorCallback)(void *core, const char *file, const char *str);
 typedef int (*RConsClickCallback)(void *core, int x, int y);
 typedef void (*RConsBreakCallback)(void *core);
@@ -435,8 +447,8 @@ typedef struct r_cons_context_t {
 	RConsGrep grep;
 	RStack *cons_stack;
 	char *buffer;
-	int buffer_len;
-	int buffer_sz;
+	size_t buffer_len;
+	size_t buffer_sz;
 
 	bool breaked;
 	RStack *break_stack;
@@ -498,6 +510,7 @@ typedef struct r_cons_t {
 	struct termios term_raw, term_buf;
 #elif __WINDOWS__
 	DWORD term_raw, term_buf, term_xterm;
+	UINT old_cp;
 #endif
 	RNum *num;
 	/* Pager (like more or less) to use if the output doesn't fit on the
@@ -522,7 +535,7 @@ typedef struct r_cons_t {
 	int pagesize;
 	char *break_word;
 	int break_word_len;
-	ut64 timeout;
+	ut64 timeout; // must come from r_time_now_mono()
 	bool grep_color;
 	bool grep_highlight;
 	bool use_tts;
@@ -568,6 +581,10 @@ typedef struct r_cons_t {
 #define R_CONS_CURSOR_SAVE "\x1b[s"
 #define R_CONS_CURSOR_RESTORE "\x1b[u"
 #define R_CONS_GET_CURSOR_POSITION "\x1b[6n"
+#define R_CONS_CURSOR_UP "\x1b[A"
+#define R_CONS_CURSOR_DOWN "\x1b[B"
+#define R_CONS_CURSOR_RIGHT "\x1b[C"
+#define R_CONS_CURSOR_LEFT "\x1b[D"
 
 #define Color_BLINK        "\x1b[5m"
 #define Color_INVERT       "\x1b[7m"
@@ -965,7 +982,7 @@ R_API void r_cons_invert(int set, int color);
 R_API bool r_cons_yesno(int def, const char *fmt, ...);
 R_API char *r_cons_input(const char *msg);
 R_API char *r_cons_password(const char *msg);
-R_API void r_cons_set_cup(int enable);
+R_API bool r_cons_set_cup(bool enable);
 R_API void r_cons_column(int c);
 R_API int r_cons_get_column(void);
 R_API char *r_cons_message(const char *msg);
@@ -1199,8 +1216,18 @@ typedef struct r_panels_root_t {
 	RPanelsRootState root_state;
 } RPanelsRoot;
 
-#ifdef __cplusplus
+
+#ifdef __sun
+static inline void cfmakeraw(struct termios *tm) {
+	tm->c_cflag &= ~(CSIZE | PARENB);
+	tm->c_cflag |= CS8;
+	tm->c_iflag &= ~(IMAXBEL | IGNBRK | BRKINT | PARMRK | ISTRIP | INLCR | IGNCR | ICRNL | IXON);
+	tm->c_oflag &= ~OPOST;
+	tm->c_lflag &= ~(ECHO | ECHONL | ICANON | ISIG | IEXTEN);
 }
 #endif
 
+#ifdef __cplusplus
+}
+#endif
 #endif

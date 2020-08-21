@@ -67,7 +67,7 @@ static const char *help_msg_eco[] = {
 static char *curtheme = "default";
 static bool getNext = false;
 
-static void cmd_eval_init(RCore *core) {
+static void cmd_eval_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR (core, e);
 	DEFINE_CMD_DESCRIPTOR (core, ec);
 }
@@ -169,7 +169,7 @@ static void list_themes_in_path(RList *list, const char *path) {
 	r_list_free (files);
 }
 
-R_API char *r_core_get_theme () {
+R_API char *r_core_get_theme (void) {
 	return curtheme;
 }
 
@@ -473,19 +473,19 @@ static int cmd_eval(void *data, const char *input) {
 				r_str_argv_free (argv);
 				return false;
 			case '.':
-				r_meta_list_at (core->anal, R_META_TYPE_HIGHLIGHT, 0, core->offset);
+				r_meta_print_list_in_function (core->anal, R_META_TYPE_HIGHLIGHT, 0, core->offset);
 				r_str_argv_free (argv);
 				return false;
 			case '\0':
-				r_meta_list (core->anal, R_META_TYPE_HIGHLIGHT, 0);
+				r_meta_print_list_all (core->anal, R_META_TYPE_HIGHLIGHT, 0);
 				r_str_argv_free (argv);
 				return false;
 			case 'j':
-				r_meta_list (core->anal, R_META_TYPE_HIGHLIGHT, 'j');
+				r_meta_print_list_all (core->anal, R_META_TYPE_HIGHLIGHT, 'j');
 				r_str_argv_free (argv);
 				return false;
 			case '*':
-				r_meta_list (core->anal, R_META_TYPE_HIGHLIGHT, '*');
+				r_meta_print_list_all (core->anal, R_META_TYPE_HIGHLIGHT, '*');
 				r_str_argv_free (argv);
 				return false;
 			case ' ':
@@ -526,7 +526,7 @@ static int cmd_eval(void *data, const char *input) {
 				return true;
 			}
 			r_meta_set_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset, "");
-			char *str = r_meta_get_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset);
+			const char *str = r_meta_get_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset);
 			char *dup = r_str_newf ("%s \"%s%s\"", str?str:"", word?word:"", color_code?color_code:r_cons_singleton ()->context->pal.wordhl);
 			r_meta_set_string (core->anal, R_META_TYPE_HIGHLIGHT, core->offset, dup);
 			r_str_argv_free (argv);

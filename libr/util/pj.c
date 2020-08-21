@@ -21,7 +21,7 @@ static void pj_comma(PJ *j) {
 	j->is_key = false;
 }
 
-R_API PJ *pj_new() {
+R_API PJ *pj_new(void) {
 	PJ *j = R_NEW0 (PJ);
 	if (j) {
 		r_strbuf_init (&j->sb);
@@ -35,6 +35,14 @@ R_API void pj_free(PJ *pj) {
 		r_strbuf_fini (&pj->sb);
 		free (pj);
 	}
+}
+
+R_API void pj_reset(PJ *j) {
+	r_return_if_fail (j);
+	r_strbuf_set (&j->sb, "");
+	j->level = 0;
+	j->is_first = true;
+	j->is_key = false;
 }
 
 R_API char *pj_drain(PJ *pj) {

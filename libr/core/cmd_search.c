@@ -1,6 +1,6 @@
 /* radare - LGPL - Copyright 2010-2019 - pancake */
 
-#include <sdb/ht_uu.h>
+#include <ht_uu.h>
 #include <r_core.h>
 #include <r_hash.h>
 #include "r_io.h"
@@ -11,12 +11,25 @@ static int cmd_search(void *data, const char *input);
 
 #define USE_EMULATION 0
 
+#define AES_SEARCH_LENGTH 40
+#define PRIVATE_KEY_SEARCH_LENGTH 11
+
+static const char *help_msg_search_esil[] = {
+	"/E", " [esil-expr]", "search offsets matching a specific esil expression",
+	"/Ej", " [esil-expr]", "same as above but using the given magic file",
+	"/E?", " ", "show this help",
+	"\nExamples:", "", "",
+	"", "/E $$,0x100001060,-,!", "hit when address is 0x100001060",
+	NULL
+};
+
 static const char *help_msg_slash_m[] = {
 	"/m", "", "search for known magic patterns",
 	"/m", " [file]", "same as above but using the given magic file",
 	"/me", " ", "like ?e similar to IRC's /me",
 	"/mm", " ", "search for known filesystems and mount them automatically",
 	"/mb", "", "search recognized RBin headers",
+	NULL
 };
 
 static const char *help_msg_slash[] = {
@@ -30,10 +43,10 @@ static const char *help_msg_slash[] = {
 	"//", "", "repeat last search",
 	"/a", "[?][1aoditfmsltf] jmp eax", "assemble opcode and search its bytes",
 	"/b", "", "search backwards, command modifier, followed by other command",
-	"/c", "[ar]", "search for crypto materials",
+	"/c", "[?][adr]", "search for crypto materials",
 	"/d", " 101112", "search for a deltified sequence of bytes",
 	"/e", " /E.F/i", "match regular expression",
-	"/E", " esil-expr", "offset matching given esil expressions %%= here",
+	"/E", " esil-expr", "offset matching given esil expressions $$ = here",
 	"/f", "", "search forwards, (command modifier)",
 	"/F", " file [off] [sz]", "search contents of file with offset and size",
 	// TODO: add subcommands to find paths between functions and filter only function names instead of offsets, etc
@@ -150,7 +163,6 @@ struct search_parameters {
 	const char *cmd_hit;
 	int outmode; // 0 or R_MODE_RADARE or R_MODE_JSON
 	bool inverse;
-	bool crypto_search;
 	bool aes_search;
 	bool privkey_search;
 };
@@ -160,7 +172,7 @@ struct endlist_pair {
 	int delay_size;
 };
 
-static void cmd_search_init(RCore *core) {
+static void cmd_search_init(RCore *core, RCmdDesc *parent) {
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, /, slash);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, /a, slash_a);
 	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, /c, slash_c);
@@ -860,7 +872,7 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 			append_bound (list, core->io, search_itv, core->offset, 1, 5);
 		}
 	} else if (!strncmp (mode, "dbg.", 4)) {
-		if (core->io->debug) {
+		if (core->bin->is_debugger) {
 			int mask = 0;
 			int add = 0;
 			bool heap = false;
@@ -973,7 +985,7 @@ R_API RList *r_core_get_boundaries_prot(RCore *core, int perm, const char *mode,
 }
 
 static bool is_end_gadget(const RAnalOp *aop, const ut8 crop) {
-	if (aop->family == R_ANAL_OP_FAMILY_PAC) {
+	if (aop->family == R_ANAL_OP_FAMILY_SECURITY) {
 		return false;
 	}
 	switch (aop->type) {
@@ -1065,8 +1077,8 @@ static RList *construct_rop_gadget(RCore *core, ut64 addr, ut8 *buf, int buflen,
 		if (!opst) {
 			R_LOG_WARN ("Anal plugin %s did not return disassembly\n", core->anal->cur->name);
 			RAsmOp asmop;
-			r_asm_set_pc (core->assembler, addr);
-			if (!r_asm_disassemble (core->assembler, &asmop, buf + idx, buflen - idx)) {
+			r_asm_set_pc (core->rasm, addr);
+			if (!r_asm_disassemble (core->rasm, &asmop, buf + idx, buflen - idx)) {
 				valid = false;
 				goto ret;
 			}
@@ -1182,8 +1194,8 @@ static void print_rop(RCore *core, RList *hitlist, char mode, bool *json_first) 
 		r_list_foreach (hitlist, iter, hit) {
 			ut8 *buf = malloc (hit->len);
 			r_io_read_at (core->io, hit->addr, buf, hit->len);
-			r_asm_set_pc (core->assembler, hit->addr);
-			r_asm_disassemble (core->assembler, &asmop, buf, hit->len);
+			r_asm_set_pc (core->rasm, hit->addr);
+			r_asm_disassemble (core->rasm, &asmop, buf, hit->len);
 			r_anal_op (core->anal, &analop, hit->addr, buf, hit->len, R_ANAL_OP_MASK_ESIL);
 			size += hit->len;
 			if (analop.type != R_ANAL_OP_TYPE_RET) {
@@ -1215,8 +1227,8 @@ static void print_rop(RCore *core, RList *hitlist, char mode, bool *json_first) 
 		r_list_foreach (hitlist, iter, hit) {
 			ut8 *buf = malloc (hit->len);
 			r_io_read_at (core->io, hit->addr, buf, hit->len);
-			r_asm_set_pc (core->assembler, hit->addr);
-			r_asm_disassemble (core->assembler, &asmop, buf, hit->len);
+			r_asm_set_pc (core->rasm, hit->addr);
+			r_asm_disassemble (core->rasm, &asmop, buf, hit->len);
 			r_anal_op (core->anal, &analop, hit->addr, buf, hit->len, R_ANAL_OP_MASK_BASIC);
 			size += hit->len;
 			const char *opstr = R_STRBUF_SAFEGET (&analop.esil);
@@ -1245,8 +1257,7 @@ static void print_rop(RCore *core, RList *hitlist, char mode, bool *json_first) 
 	default:
 		// Print gadgets with new instruction on a new line.
 		r_list_foreach (hitlist, iter, hit) {
-			char *comment = rop_comments? r_meta_get_string (core->anal,
-				R_META_TYPE_COMMENT, hit->addr): NULL;
+			const char *comment = rop_comments? r_meta_get_string (core->anal, R_META_TYPE_COMMENT, hit->addr): NULL;
 			if (hit->len < 0) {
 				eprintf ("Invalid hit length here\n");
 				continue;
@@ -1257,8 +1268,8 @@ static void print_rop(RCore *core, RList *hitlist, char mode, bool *json_first) 
 			}
 			buf[hit->len] = 0;
 			r_io_read_at (core->io, hit->addr, buf, hit->len);
-			r_asm_set_pc (core->assembler, hit->addr);
-			r_asm_disassemble (core->assembler, &asmop, buf, hit->len);
+			r_asm_set_pc (core->rasm, hit->addr);
+			r_asm_disassemble (core->rasm, &asmop, buf, hit->len);
 			r_anal_op (core->anal, &analop, hit->addr, buf, hit->len, R_ANAL_OP_MASK_ESIL);
 			size += hit->len;
 			if (analop.type != R_ANAL_OP_TYPE_RET) {
@@ -1504,9 +1515,9 @@ static int r_core_search_rop(RCore *core, RInterval search_itv, int opt, const c
 						R_MIN ((delta - i), 4096));
 					end = i + 2048;
 				}
-				ret = r_asm_disassemble (core->assembler, &asmop, buf + i, delta - i);
+				ret = r_asm_disassemble (core->rasm, &asmop, buf + i, delta - i);
 				if (ret) {
-					r_asm_set_pc (core->assembler, from + i);
+					r_asm_set_pc (core->rasm, from + i);
 					RList *hitlist = construct_rop_gadget (core,
 						from + i, buf, delta, i, grep, regexp,
 						rx_list, end_gadget, badstart);
@@ -1601,8 +1612,18 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 	const bool cfgDebug = r_config_get_i (core->config, "cfg.debug");
 	RSearch *search = core->search;
 	RSearchKeyword kw = R_EMPTY;
-	if (input[0] == 'E' && input[1] != ' ') {
-		eprintf ("Usage: /E [esil-expr]\n");
+	if (input[0] != 'E') {
+		return;
+	}
+	PJ *pj = NULL;
+	if (input[1] == 'j') { // "/Ej"
+		// BUGGY and dupe not using pj, param->outmode = R_MODE_JSON;
+		pj = pj_new ();
+		pj_a (pj);
+		input++;
+	}
+	if (input[1] != ' ') { // "/E?"
+		r_core_cmd_help (core, help_msg_search_esil);
 		return;
 	}
 	if (!core->anal->esil) {
@@ -1619,8 +1640,8 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 		const int iotrap = r_config_get_i (core->config, "esil.iotrap");
 		const int stacksize = r_config_get_i (core->config, "esil.stacksize");
 		int nonull = r_config_get_i (core->config, "esil.nonull");
-		int hit_happens = 0;
-		int hit_combo = 0;
+		bool hit_happens = false;
+		size_t hit_combo = 0;
 		char *res;
 		ut64 nres, addr;
 		ut64 from = map->itv.addr;
@@ -1672,17 +1693,19 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 					eprintf ("RES 0x%08"PFMT64x" %"PFMT64d"\n", addr, nres);
 				}
 				if (nres) {
-					if (!_cb_hit (&kw, param, addr)) {
-						free (res);
-						break;
-					}
-					// eprintf (" HIT AT 0x%"PFMT64x"\n", addr);
-					kw.type = 0; // R_SEARCH_TYPE_ESIL;
-					kw.kwidx = search->n_kws;
-					kw.count++;
 					eprintf ("hits: %d\r", kw.count);
-					kw.keyword_length = 0;
 					hit_happens = true;
+					if (!pj) {
+						if (!_cb_hit (&kw, param, addr)) {
+							free (res);
+							break;
+						}
+						// eprintf (" HIT AT 0x%"PFMT64x"\n", addr);
+						kw.type = 0; // R_SEARCH_TYPE_ESIL;
+						kw.kwidx = search->n_kws;
+						kw.count++;
+						kw.keyword_length = 0;
+					}
 				}
 			} else {
 				eprintf ("Cannot parse esil (%s)\n", input + 2);
@@ -1694,6 +1717,12 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 			free (res);
 
 			if (hit_happens) {
+				if (pj) {
+					pj_o (pj);
+					pj_kn (pj, "addr", addr);
+					pj_kn (pj, "value", nres);
+					pj_end (pj);
+				}
 				hit_combo++;
 				if (hit_combo > hit_combo_limit) {
 					eprintf ("Hit search.esilcombo reached (%d). Stopping search. Use f-\n", hit_combo_limit);
@@ -1707,6 +1736,12 @@ static void do_esil_search(RCore *core, struct search_parameters *param, const c
 		r_cons_break_pop ();
 	}
 	r_cons_clear_line (1);
+	if (pj) {
+		pj_end (pj);
+		char *s = pj_drain (pj);
+		r_cons_printf ("%s\n", s);
+		free (s);
+	}
 }
 
 #define MAXINSTR 8
@@ -1907,7 +1942,6 @@ beach:
 static void do_ref_search(RCore *core, ut64 addr,ut64 from, ut64 to, struct search_parameters *param) {
 	const int size = 12;
 	char str[512];
-	char *comment;
 	RAnalFunction *fcn;
 	RAnalRef *ref;
 	RListIter *iter;
@@ -1917,17 +1951,23 @@ static void do_ref_search(RCore *core, ut64 addr,ut64 from, ut64 to, struct sear
 	if (list) {
 		r_list_foreach (list, iter, ref) {
 			r_io_read_at (core->io, ref->addr, buf, size);
-			r_asm_set_pc (core->assembler, ref->addr);
-			r_asm_disassemble (core->assembler, &asmop, buf, size);
+			r_asm_set_pc (core->rasm, ref->addr);
+			r_asm_disassemble (core->rasm, &asmop, buf, size);
 			fcn = r_anal_get_fcn_in (core->anal, ref->addr, 0);
 			RAnalHint *hint = r_anal_hint_get (core->anal, ref->addr);
 			r_parse_filter (core->parser, ref->addr, core->flags, hint, r_strbuf_get (&asmop.buf_asm),
 				str, sizeof (str), core->print->big_endian);
 			r_anal_hint_free (hint);
-			comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, ref->addr);
+			const char *comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, ref->addr);
+			char *print_comment = NULL;
+			const char *nl = comment ? strchr (comment, '\n') : NULL;
+			if (nl) { // display only until the first newline
+				comment = print_comment = r_str_ndup (comment, nl - comment);
+			}
 			char *buf_fcn = comment
-				? r_str_newf ("%s; %s", fcn ?  fcn->name : "(nofunc)", strtok (comment, "\n"))
+				? r_str_newf ("%s; %s", fcn ?  fcn->name : "(nofunc)", comment)
 				: r_str_newf ("%s", fcn ? fcn->name : "(nofunc)");
+			free (print_comment);
 			if (from <= ref->addr && to >= ref->addr) {
 				r_cons_printf ("%s 0x%" PFMT64x " [%s] %s\n",
 						buf_fcn, ref->addr, r_anal_xrefs_type_tostring (ref->type), str);
@@ -2317,7 +2357,7 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 	if (param->inverse) {
 		core->search->maxhits = 1;
 	}
-	if (core->search->n_kws > 0 || param->crypto_search) {
+	if (core->search->n_kws > 0) {
 		/* set callback */
 		/* TODO: handle last block of data */
 		/* TODO: handle ^C */
@@ -2361,10 +2401,10 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 			}
 
 			const ut64 from = itv.addr, to = r_itv_end (itv),
-					from1 = search->bckwrds ? to : from,
-					to1 = search->bckwrds ? from : to;
+					from1 = search->bckwrds? to: from,
+					to1 = search->bckwrds? from: to;
 			ut64 len;
-			for (at = from1; at != to1; at = search->bckwrds ? at - len : at + len) {
+			for (at = from1; at != to1; at = search->bckwrds? at - len: at + len) {
 				print_search_progress (at, to1, search->nhits, param);
 				if (r_cons_is_breaked ()) {
 					eprintf ("\n\n");
@@ -2384,22 +2424,20 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 					}
 					(void)r_io_read_at (core->io, at, buf, len);
 				}
-				if (param->crypto_search) {
-					// TODO support backward search
-					int t = 0;
-					if (param->aes_search) {
-						t = r_search_aes_update (core->search, at, buf, len);
-					} else if (param->privkey_search) {
-						t = r_search_privkey_update (core->search, at, buf, len);
+				r_search_update (core->search, at, buf, len);
+				if (param->aes_search) {
+					// Adjust length to search between blocks.
+					if (len == core->blocksize) {
+						len -= AES_SEARCH_LENGTH - 1;
 					}
-					if (!t || t > 1) {
-						break;
+				} else if (param->privkey_search) {
+					// Adjust length to search between blocks.
+					if (len == core->blocksize) {
+						len -= PRIVATE_KEY_SEARCH_LENGTH - 1;
 					}
-				} else {
-					(void)r_search_update (core->search, at, buf, len);
-					if (core->search->maxhits > 0 && core->search->nhits >= core->search->maxhits) {
-						goto done;
-					}
+				}
+				if (core->search->maxhits > 0 && core->search->nhits >= core->search->maxhits) {
+					goto done;
 				}
 			}
 			print_search_progress (at, to1, search->nhits, param);
@@ -2409,7 +2447,7 @@ static void do_string_search(RCore *core, RInterval search_itv, struct search_pa
 				eprintf ("hits: %" PFMT64d "\n", search->nhits - saved_nhits);
 			}
 		}
-done:
+	done:
 		r_cons_break_pop ();
 		free (buf);
 	} else {
@@ -2568,7 +2606,7 @@ static void search_similar_pattern(RCore *core, int count, struct search_paramet
 }
 
 static bool isArm(RCore *core) {
-	RAsm *as = core ? core->assembler : NULL;
+	RAsm *as = core ? core->rasm : NULL;
 	if (as && as->cur && as->cur->arch) {
 		if (r_str_startswith (as->cur->arch, "arm")) {
 			if (as->cur->bits < 64) {
@@ -2771,12 +2809,12 @@ static void search_collisions(RCore *core, const char *hashName, const ut8 *hash
 		return;
 	}
 	r_cons_break_push (NULL, NULL);
-	ut64 prev = r_sys_now ();
+	ut64 prev = r_time_now_mono ();
 	ut64 inc = 0;
 	int amount = 0;
 	int mount = 0;
 	while (!r_cons_is_breaked ()) {
-		ut64 now = r_sys_now ();
+		ut64 now = r_time_now_mono ();
 		if (now < (prev + 1000000)) {
 			amount++;
 		} else {
@@ -2873,7 +2911,7 @@ static void __core_cmd_search_asm_byteswap (RCore *core, int nth) {
 	}
 	for (i = 0; i <= 0xff; i++) {
 		buf[nth] = i;
-		if (r_asm_disassemble (core->assembler, &asmop, buf, sizeof (buf)) > 0) {
+		if (r_asm_disassemble (core->rasm, &asmop, buf, sizeof (buf)) > 0) {
 			const char *asmstr = r_strbuf_get (&asmop.buf_asm);
 			if (!strstr (asmstr, "invalid") && !strstr (asmstr, "unaligned")) {
 				r_cons_printf ("%02x  %s\n", i, asmstr);
@@ -2891,7 +2929,6 @@ static int cmd_search(void *data, const char *input) {
 		.cmd_hit = r_config_get (core->config, "cmd.hit"),
 		.outmode = 0,
 		.inverse = false,
-		.crypto_search = false,
 		.aes_search = false,
 		.privkey_search = false,
 	};
@@ -3233,7 +3270,6 @@ reread:
 		break;
 	case 'c': { // "/c"
 		dosearch = true;
-		param.crypto_search = true;
 		switch (input[1]) {
 		case 'c': // "/cc"
 			{
@@ -3288,7 +3324,6 @@ reread:
 			break;
 		case 'd': // "cd"
 			{
-				param.crypto_search = false;
 				RSearchKeyword *kw;
 				kw = r_search_keyword_new_hex ("308200003082", "ffff0000ffff", NULL);
 				if (kw) {
@@ -3305,6 +3340,9 @@ reread:
 			{
 				RSearchKeyword *kw;
 				kw = r_search_keyword_new_hexmask ("00", NULL);
+				// AES search is done over 40 bytes
+				kw->keyword_length = AES_SEARCH_LENGTH;
+				r_search_reset (core->search, R_SEARCH_AES);
 				r_search_kw_add (search, kw);
 				r_search_begin (core->search);
 				param.aes_search = true;
@@ -3314,6 +3352,9 @@ reread:
 			{
 				RSearchKeyword *kw;
 				kw = r_search_keyword_new_hexmask ("00", NULL);
+				// Private key search is at least 11 bytes
+				kw->keyword_length = PRIVATE_KEY_SEARCH_LENGTH;
+				r_search_reset (core->search, R_SEARCH_PRIV_KEY);
 				r_search_kw_add (search, kw);
 				r_search_begin (core->search);
 				param.privkey_search = true;
@@ -3321,7 +3362,6 @@ reread:
 			}
 		default: {
 			dosearch = false;
-			param.crypto_search = false;
 			r_core_cmd_help (core, help_msg_slash_c);
 		}
 		}
@@ -3650,7 +3690,7 @@ reread:
 		}
 		break;
 	case 'E': // "/E"
-		if (core->io && core->io->debug) {
+		if (core->bin && core->bin->is_debugger) {
 			r_debug_map_sync (core->dbg);
 		}
 		do_esil_search (core, &param, input);
@@ -3818,7 +3858,7 @@ reread:
 			int ochunksize;
 			int i, len, chunksize = r_config_get_i (core->config, "search.chunk");
 			if (chunksize < 1) {
-				chunksize = core->assembler->bits / 8;
+				chunksize = core->rasm->bits / 8;
 			}
 			len = r_str_unescape (str);
 			ochunksize = chunksize = R_MIN (len, chunksize);

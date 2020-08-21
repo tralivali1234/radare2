@@ -310,13 +310,14 @@ static void type_match(RCore *core, char *fcn_name, ut64 addr, ut64 baddr, const
 		return;
 	}
 	int i, j, pos = 0, size = 0, max = r_type_func_args_count (TDB, fcn_name);
-	const char *place = r_anal_cc_arg (anal, cc, 0);
+	const char *place = r_anal_cc_arg (anal, cc, ST32_MAX);
 	r_cons_break_push (NULL, NULL);
 
 	if (place && !strcmp (place, "stack_rev")) {
 		stack_rev = true;
 	}
-	if (place && !strncmp (place, "stack", 5)) {
+	place = r_anal_cc_arg (anal, cc, 0);
+	if (place && r_str_startswith ("stack", place)) {
 		in_stack = true;
 	}
 	if (verbose && !strncmp (fcn_name, "sym.imp.", 8)) {
@@ -348,6 +349,9 @@ static void type_match(RCore *core, char *fcn_name, ut64 addr, ut64 baddr, const
 		if (!in_stack) {
 			//XXX: param arg_num must be fixed to support floating point register
 			place = r_anal_cc_arg (anal, cc, arg_num);
+			if (place && r_str_startswith ("stack", place)) {
+				in_stack = true;
+			}
 		}
 		char regname[REGNAME_SIZE] = {0};
 		ut64 xaddr = UT64_MAX;
@@ -390,8 +394,8 @@ static void type_match(RCore *core, char *fcn_name, ut64 addr, ut64 baddr, const
 							sdb_fmt ("%s%s%s", type, r_str_endswith (type, "*") ? "" : " ", name));
 					cmt_set = true;
 					if ((op->ptr && op->ptr != UT64_MAX) && !strcmp (name, "format")) {
-						RFlagItem *f = r_flag_get_i (core->flags, op->ptr);
-						if (f && f->space && !strcmp (f->space->name, R_FLAGS_FS_STRINGS)) {
+						RFlagItem *f = r_flag_get_by_spaces (core->flags, op->ptr, R_FLAGS_FS_STRINGS, NULL);
+						if (f) {
 							char formatstr[0x200];
 							int read = r_io_nread_at (core->io, f->offset, (ut8 *)formatstr, R_MIN (sizeof (formatstr) - 1, f->size));
 							if (read > 0) {
@@ -567,8 +571,8 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 						callee_addr = fcn_call->addr;
 					}
 				} else if (aop.ptr != UT64_MAX) {
-					RFlagItem *flag = r_flag_get_i (core->flags, aop.ptr);
-					if (flag && flag->space && flag->space->name && !strcmp (flag->space->name, R_FLAGS_FS_IMPORTS) && flag->realname) {
+					RFlagItem *flag = r_flag_get_by_spaces (core->flags, aop.ptr, R_FLAGS_FS_IMPORTS, NULL);
+					if (flag && flag->realname) {
 						full_name = flag->realname;
 						callee_addr = aop.ptr;
 					}
@@ -723,8 +727,8 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 						r_io_read_at (core->io, aop.ptr, buf, sizeof (buf) - 1);
 						ut64 ptr = r_read_ble (buf, core->print->big_endian, aop.refptr * 8);
 						if (ptr && ptr != UT64_MAX) {
-							RFlagItem *f = r_flag_get_i (core->flags, ptr);
-							if (f && !strncmp (f->name, "str", 3)) {
+							RFlagItem *f = r_flag_get_by_spaces (core->flags, ptr, R_FLAGS_FS_STRINGS, NULL);
+							if (f) {
 								str_flag = true;
 							}
 						}
@@ -793,11 +797,12 @@ R_API void r_core_anal_type_match(RCore *core, RAnalFunction *fcn) {
 		if (anal->verbose) {
 			eprintf ("[-] place: %s\n", place);
 		}
-		if (place && !strncmp (place, "stack", 5)) {
+		if (place && r_str_startswith ("stack", place)) {
 			RList *list2 = r_anal_var_list (anal, fcn, R_ANAL_VAR_KIND_BPV);
 			r_list_foreach (list2, iter2, bp_var) {
 				if (bp_var->isarg) {
-					const char *query = sdb_fmt ("fcn.0x%08" PFMT64x ".arg.%d", fcn->addr, (bp_var->delta - 8));
+					const char *query = sdb_fmt ("fcn.0x%08" PFMT64x ".arg.%d",
+						fcn->addr, (int)(bp_var->delta + fcn->bp_off - 8));
 					char *type = (char *)sdb_const_get (anal->sdb_fcns, query, NULL);
 					if (type) {
 						__var_retype (anal, bp_var, NULL, type, false, false);

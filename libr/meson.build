@@ -167,6 +167,7 @@ bin_plugins = [
   'smd',
   'sms',
   'spc700',
+  'symbols',
   'te',
   'vsf',
   'wasm',
@@ -263,6 +264,7 @@ fs_plugins = [
 
 io_plugins = [
   'ar',
+  'fd',
   'bfdbg',
   'bochs',
   'debug',
@@ -301,13 +303,18 @@ if host_machine.system() == 'windows'
 endif
 
 lang_plugins = [
-  'c',
-  'cpipe',
   'lib',
   'pipe',
   'rust',
   'vala'
 ]
+
+if host_machine.system() != 'windows'
+  lang_plugins += [
+    'c',
+    'cpipe'
+  ]
+endif
 
 parse_plugins = [
   '6502_pseudo',
@@ -368,14 +375,13 @@ include_files =[
   'include/r_socket.h',
   'include/r_syscall.h',
   'include/r_th.h',
+  'include/r_types_overflow.h',
   'include/r_types_base.h',
   'include/r_types.h',
   'include/r_util.h',
   'include/r_vector.h',
-  'include/sdb.h'
 ]
-install_headers(include_files,
-  subdir: 'libr')
+install_headers(include_files, install_dir: r2_incdir)
 
 r_util_files = [
   'include/r_util/pj.h',
@@ -389,7 +395,6 @@ r_util_files = [
   'include/r_util/r_bitmap.h',
   'include/r_util/r_buf.h',
   'include/r_util/r_cache.h',
-  'include/r_util/r_constr.h',
   'include/r_util/r_ctypes.h',
   'include/r_util/r_debruijn.h',
   'include/r_util/r_event.h',
@@ -398,6 +403,7 @@ r_util_files = [
   'include/r_util/r_hex.h',
   'include/r_util/r_idpool.h',
   'include/r_util/r_itv.h',
+  'include/r_util/r_json.h',
   'include/r_util/r_log.h',
   'include/r_util/r_mem.h',
   'include/r_util/r_name.h',
@@ -423,40 +429,21 @@ r_util_files = [
   'include/r_util/r_str_util.h',
   'include/r_util/r_sys.h',
   'include/r_util/r_alloc.h',
-  'include/r_util/r_date.h',
   'include/r_util/r_time.h',
   'include/r_util/r_tree.h',
   'include/r_util/r_uleb128.h',
   'include/r_util/r_utf16.h',
   'include/r_util/r_utf32.h',
   'include/r_util/r_utf8.h',
-  'include/r_util/r_x509.h'
+  'include/r_util/r_x509.h',
+  'include/r_util/r_annotated_code.h'
 ]
-install_headers(r_util_files, subdir: 'libr/r_util')
+install_headers(r_util_files, install_dir: join_paths(r2_incdir, 'r_util'))
 
 r_crypto_files = [
   'include/r_crypto/r_des.h'
 ]
-install_headers(r_crypto_files, subdir: 'libr/r_crypto')
-
-sdb_files = [
-  'include/sdb/buffer.h',
-  'include/sdb/cdb.h',
-  'include/sdb/set.h',
-  'include/sdb/cdb_make.h',
-  'include/sdb/config.h',
-  'include/sdb/dict.h',
-  'include/sdb/ht_inc.h',
-  'include/sdb/ht_pp.h',
-  'include/sdb/ht_up.h',
-  'include/sdb/ht_uu.h',
-  'include/sdb/ls.h',
-  'include/sdb/sdb.h',
-  'include/sdb/sdbht.h',
-  'include/sdb/sdb_version.h',
-  'include/sdb/types.h'
-]
-install_headers(sdb_files, subdir: 'libr/sdb')
+install_headers(r_crypto_files, install_dir: join_paths(r2_incdir, 'r_crypto'))
 
 sflib_common_files = [
   'include/sflib/common/sftypes.h',
@@ -479,10 +466,10 @@ sflib_arch_files = [
   'sfsysnr.h'
 ]
 
-install_headers(sflib_common_files, subdir: 'libr/sflib/common')
+install_headers(sflib_common_files, install_dir: join_paths(r2_incdir, 'sflib/common'))
 foreach arch : sflib_arch
   foreach file : sflib_arch_files
-    install_headers(join_paths('include/sflib', arch, file), subdir: join_paths('libr/sflib', arch))
+    install_headers(join_paths('include/sflib', arch, file), install_dir: join_paths(r2_incdir, 'sflib', arch))
   endforeach
 endforeach
 

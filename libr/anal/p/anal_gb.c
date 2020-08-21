@@ -714,9 +714,11 @@ static bool gb_custom_daa (RAnalEsil *esil) {
 static int gb_anop(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len, RAnalOpMask mask) {
 	int ilen = gbOpLength (gb_op[data[0]].type);
 	if (ilen > len) {
-		ilen = 0;
-	} else if (mask & R_ANAL_OP_MASK_DISASM) {
-		memset (op, '\0', sizeof (RAnalOp));
+		op->type = R_ANAL_OP_TYPE_ILL;
+		op->size = 0;
+		return 0;
+	} 
+	if (mask & R_ANAL_OP_MASK_DISASM) {
 		char mn[32];
 		memset (mn, '\0', sizeof (char) * sizeof (mn));
 		char reg[32];
@@ -740,14 +742,11 @@ static int gb_anop(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len
 			break;
 		}
 		op->mnemonic = strdup (mn);
-	} else {
-		memset (op, '\0', sizeof (RAnalOp));
 	}
 	op->addr = addr;
 	op->type = R_ANAL_OP_TYPE_UNK;
 	op->size = ilen;
 	op->nopcode = 1;
-	r_strbuf_init (&op->esil);
 	switch (data[0])
 	{
 		case 0x00:

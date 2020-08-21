@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2019 - xvilka, deroad */
+/* radare2 - LGPL - Copyright 2017-2020 - xvilka, deroad */
 
 #include <string.h>
 #include <r_types.h>
@@ -75,22 +75,21 @@ static bool advance_till_scope_end(RAnal* anal, RAnalOp *op, ut64 address, ut32 
 static int wasm_op(RAnal *anal, RAnalOp *op, ut64 addr, const ut8 *data, int len, RAnalOpMask mask) {
 	WasmOp wop = {{0}};
 	RAnalHint *hint = NULL;
-	memset (op, '\0', sizeof (RAnalOp));
 	int ret = wasm_dis (&wop, data, len);
-	op->jump = UT64_MAX;
-	op->fail = UT64_MAX;
-	op->ptr = op->val = UT64_MAX;
 	op->size = ret;
 	op->addr = addr;
 	op->sign = true;
 	op->type = R_ANAL_OP_TYPE_UNK;
 	switch (wop.type) {
-		case WASM_TYPE_OP_CORE:
-			op->id = wop.op.core;
-			break;
-		case WASM_TYPE_OP_ATOMIC:
-			op->id = (0xfe << 8) | wop.op.atomic;
-			break;
+	case WASM_TYPE_OP_CORE:
+		op->id = wop.op.core;
+		break;
+	case WASM_TYPE_OP_ATOMIC:
+		op->id = (0xfe << 8) | wop.op.atomic;
+		break;
+	case WASM_TYPE_OP_SIMD:
+		op->id = 0xfd;
+		break;
 	}
 
 	if (!wop.txt || !strncmp (wop.txt, "invalid", 7)) {

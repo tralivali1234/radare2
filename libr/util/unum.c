@@ -29,8 +29,8 @@ static int r_rand(int mod) {
 #endif
 }
 
-R_API void r_num_irand() {
-	r_srand (r_sys_now ());
+R_API void r_num_irand(void) {
+	r_srand (r_time_now ());
 }
 
 R_API int r_num_rand(int max) {
