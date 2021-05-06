@@ -1,6 +1,8 @@
 NAME=noreturn errno
 FILE=malloc://32
 CMDS=<<EOF
+e asm.arch=arm
+e asm.bits=16
 s main
 af
 afi~^size
@@ -378,22 +380,6 @@ ldr sb, [sl, 0xae7]
 EOF
 RUN
 
-NAME=arm: no afterjmp or nopskip
-FILE=malloc://32
-CMDS=<<EOF
-e asm.arch=arm
-e asm.bits=64
-wx 1f2003d5d0d8065800021fd61f2003d5
-e anal.nopskip=false
-e anal.jmp.after=false
-af
-afl~[2]
-EOF
-EXPECT=<<EOF
-12
-EOF
-RUN
-
 NAME=arm: afterjmp
 FILE=malloc://32
 CMDS=<<EOF
@@ -401,7 +387,6 @@ e asm.arch=arm
 e asm.bits=64
 wx 1f2003d5d0d8065800021fd61f2003d5
 e anal.nopskip=false
-e anal.jmp.after=true
 af
 afl~[2]
 EOF
@@ -417,7 +402,6 @@ e asm.arch=arm
 e asm.bits=64
 wx 1f2003d5d0d8065800021fd61f2003d5
 e anal.nopskip=true
-e anal.jmp.after=false
 af
 afl~[2]
 EOF
@@ -906,12 +890,13 @@ EOF
 EXPECT=<<EOF
 address: 0x568
 opcode: push {r3, lr}
+esilcost: 16
 disasm: push {r3, lr}
 pseudo: push (r3, lr) 
 mnemonic: push
 mask: ffffffff
 prefix: 0
-id: 424
+id: 128
 bytes: 08402de9
 refptr: 0
 size: 4
@@ -925,6 +910,7 @@ stackptr: 8
 --
 address: 0x50e
 opcode: add r7, sp, 0
+esilcost: 0
 disasm: add r7, sp, 0
 pseudo: r7 = sp + 0
 mnemonic: add
@@ -973,15 +959,12 @@ e asm.bits=32
 ar=
 EOF
 EXPECT=<<EOF
-     sb 0x00000000            sl 0x00000000            fp 0x00000000
-     ip 0x00000000            sp 0x00000000            lr 0x00000000
-     pc 0x00000000            r0 0x00000000            r1 0x00000000
-     r2 0x00000000            r3 0x00000000            r4 0x00000000
-     r5 0x00000000            r6 0x00000000            r7 0x00000000
-     r8 0x00000000            r9 0x00000000           r10 0x00000000
-    r11 0x00000000           r12 0x00000000           r13 0x00000000
-    r14 0x00000000           r15 0x00000000          cpsr 0x00000000
-  blank 0x00000000       
+     sb 0x00000000       sl 0x00000000       fp 0x00000000       ip 0x00000000
+     sp 0x00000000       lr 0x00000000       pc 0x00000000       r0 0x00000000
+     r1 0x00000000       r2 0x00000000       r3 0x00000000       r4 0x00000000
+     r5 0x00000000       r6 0x00000000       r7 0x00000000       r8 0x00000000
+     r9 0x00000000      r10 0x00000000      r11 0x00000000      r12 0x00000000
+    r13 0x00000000      r14 0x00000000      r15 0x00000000     cpsr 0x00000000
 EOF
 RUN
 
@@ -1066,7 +1049,7 @@ CMDS=<<EOF
 aav
 aae
 af
-axt str.helloradareworld
+axt str.helloradareworld_n
 EOF
 EXPECT=<<EOF
 main 0xbf9c [DATA] add r0, pc

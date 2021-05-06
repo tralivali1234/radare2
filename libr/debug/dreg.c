@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_core.h> // just to get the RPrint instance
 #include <r_debug.h>
@@ -46,12 +46,14 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 		if (write) {
 			ut8 *buf = r_reg_get_bytes (dbg->reg, i, &size);
 			if (!buf || !dbg->h->reg_write (dbg, i, buf, size)) {
-				if (!i) {
+				if (i == R_REG_TYPE_GPR) {
 					eprintf ("r_debug_reg: error writing "
 						"registers %d to %d\n", i, dbg->tid);
 				}
-				free (buf);
-				return false;
+				if (type != R_REG_TYPE_ALL || i == R_REG_TYPE_GPR) {
+					free (buf);
+					return false;
+				}
 			}
 			free (buf);
 		} else {
@@ -82,7 +84,7 @@ R_API int r_debug_reg_sync(RDebug *dbg, int type, int write) {
 	return true;
 }
 
-R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char *use_color) {
+R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, const char *use_color) {
 	int delta, cols, n = 0;
 	const char *fmt, *fmt2, *kwhites;
 	RPrint *pr = NULL;
@@ -93,6 +95,10 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 	ut64 diff;
 	char strvalue[256];
 	bool isJson = (rad == 'j' || rad == 'J');
+	if (isJson && !pj) {
+		eprintf ("rad=='j' requires pj != NULL\n");
+		return false;
+	}
 	if (!dbg || !dbg->reg) {
 		return false;
 	}
@@ -121,15 +127,8 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 	if (dbg->regcols) {
 		cols = dbg->regcols;
 	}
-	PJ *pj;
 	if (isJson) {
-		pj = pj_new ();
-		if (!pj) {
-			return false;
-		}
-		if (rad == 'j') {
-			pj_o (pj);
-		}
+		pj_o (pj);
 	}
 	// with the new field "arena" into reg items why need
 	// to get all arenas.
@@ -139,6 +138,9 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 	head = r_reg_get_list (dbg->reg, type);
 	if (!head) {
 		return false;
+	}
+	if (rad == 1 || rad == '*') {
+		dbg->cb_printf ("fs+%s\n", R_FLAGS_FS_REGISTERS);
 	}
 	r_list_foreach (head, iter, item) {
 		ut64 value;
@@ -275,7 +277,7 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 				break;
 			default:
 				if (delta && use_color) {
-					dbg->cb_printf (use_color);
+					dbg->cb_printf ("%s", use_color);
 					dbg->cb_printf (fmt, item->name, strvalue, Color_RESET"\n");
 				} else {
 					dbg->cb_printf (fmt, item->name, strvalue, "\n");
@@ -284,13 +286,12 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, int rad, const char
 		}
 		n++;
 	}
+	if (rad == 1 || rad == '*') {
+		dbg->cb_printf ("fs-\n");
+	}
 beach:
 	if (isJson) {
-		if (rad == 'j') {
-			pj_end (pj);
-		}
-		dbg->cb_printf ("%s\n", pj_string (pj));
-		pj_free (pj);
+		pj_end (pj);
 	} else if (n > 0 && (rad == 2 || rad == '=') && ((n%cols))) {
 		dbg->cb_printf ("\n");
 	}

@@ -27,7 +27,6 @@ s@hit0_0
 EOF
 EXPECT=<<EOF
 [{"addr":134513508,"value":1}]
-
 EOF
 RUN
 
@@ -285,7 +284,7 @@ CMDS=<<EOF
 EOF
 EXPECT=<<EOF
 0x08048515   # 3: mov ebx, dword [esp]
-0x08048527   # 5: mov ebx, obj.__CTOR_LIST
+0x08048527   # 5: mov ebx, obj.__CTOR_LIST__
 --
 --
 [{"offset":134513941,"len":3,"code":"mov ebx, dword [esp]"},{"offset":134513959,"len":5,"code":"mov ebx, 0x8049f0c"}]
@@ -307,10 +306,10 @@ CMDS=<<EOF
 EOF
 EXPECT=<<EOF
 0x08048515   # 3: mov ebx, dword [esp]
-0x08048527   # 5: mov ebx, obj.__CTOR_LIST
+0x08048527   # 5: mov ebx, obj.__CTOR_LIST__
 --
 0x08048515   # 3: mov ebx, dword [esp]
-0x08048527   # 5: mov ebx, obj.__CTOR_LIST
+0x08048527   # 5: mov ebx, obj.__CTOR_LIST__
 --
 [{"offset":134513941,"len":3,"code":"mov ebx, dword [esp]"},{"offset":134513959,"len":5,"code":"mov ebx, 0x8049f0c"}]
 --
@@ -475,6 +474,20 @@ EXPECT=<<EOF
 0x004019d2   # 2: ror esp, cl
 0x004019d5   # 2: ror bh, 1
 0x004019da   # 3: ror ebp, 0xe5
+EOF
+RUN
+
+NAME=/c/ search multiple instructions
+FILE=bins/pe/standard.exe
+CMDS=<<EOF
+e asm.arch = x86
+e anal.arch = x86
+e asm.bits=32
+"/ad/ ror bh, 1; shr ebp, cl; clc"
+q
+EOF
+EXPECT=<<EOF
+0x004019d5   # 5: ror bh, 1; shr ebp, cl; clc
 EOF
 RUN
 

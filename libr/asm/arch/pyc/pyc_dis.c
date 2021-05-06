@@ -31,11 +31,13 @@ int r_pyc_disasm(RAsmOp *opstruct, const ut8 *code, RList *cobjs, RList *interne
 
 		ut8 op = code[i];
 		i++;
-		char *name = ops->opcodes[op].op_name;
-		r_strbuf_set (&opstruct->buf_asm, name);
+		char *name = strdup (ops->opcodes[op].op_name);
 		if (!name) {
 			return 0;
 		}
+		r_str_case (name, 0);
+		r_strbuf_set (&opstruct->buf_asm, name);
+		free (name);
 		if (op >= ops->have_argument) {
 			if (ops->bits == 16) {
 				oparg = code[i] + code[i + 1] * 256 + extended_arg;
@@ -54,7 +56,7 @@ int r_pyc_disasm(RAsmOp *opstruct, const ut8 *code, RList *cobjs, RList *interne
 			}
 			const char *arg = parse_arg (&ops->opcodes[op], oparg, names, consts, varnames, interned_table, freevars, cellvars, ops->opcode_arg_fmt);
 			if (arg != NULL) {
-				r_strbuf_appendf (&opstruct->buf_asm, "%20s", arg);
+				r_strbuf_appendf (&opstruct->buf_asm, " %s", arg);
 				free ((char *)arg);
 			}
 		} else if (ops->bits == 8) {
@@ -90,7 +92,7 @@ static const char *parse_arg(pyc_opcode_object *op, ut32 oparg, RList *names, RL
 		case TYPE_CODE_v0:
 		case TYPE_CODE_v1:
 			tmp_cobj = t->data;
-			arg = r_str_newf ("CodeObject(%s) from %s", tmp_cobj->name->data, tmp_cobj->filename->data);
+			arg = r_str_newf ("CodeObject(%s) from %s", (char *)tmp_cobj->name->data, (char *)tmp_cobj->filename->data);
 			break;
 		case TYPE_TUPLE:
 		case TYPE_SET:
@@ -102,7 +104,7 @@ static const char *parse_arg(pyc_opcode_object *op, ut32 oparg, RList *names, RL
 		case TYPE_STRING:
 		case TYPE_INTERNED:
 		case TYPE_STRINGREF:
-			arg = r_str_newf ("'%s'", t->data);
+			arg = r_str_newf ("'%s'", (char *)t->data);
 			break;
 		default:
 			arg = r_str_new (t->data);

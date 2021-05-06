@@ -9,6 +9,7 @@ typedef struct r_ascii_node_t {
 	RGraphNode *gnode;
 	char *title;
 	char *body;
+	char *color;
 
 	int x;
 	int y;
@@ -85,7 +86,7 @@ typedef struct r_ascii_graph_t {
 	RList *back_edges;
 	RList *long_edges;
 	struct layer_t *layers;
-	int n_layers;
+	unsigned int n_layers;
 	RList *dists; /* RList<struct dist_t> */
 	RList *edges; /* RList<AEdge> */
 	RAGraphHits ghits;
@@ -98,10 +99,9 @@ R_API void r_agraph_reset(RAGraph *g);
 R_API void r_agraph_set_title(RAGraph *g, const char *title);
 R_API RANode *r_agraph_get_first_node(const RAGraph *g);
 R_API RANode *r_agraph_get_node(const RAGraph *g, const char *title);
-R_API RANode *r_agraph_add_node(const RAGraph *g, const char *title, const char *body);
-R_API RANode *r_agraph_add_node_with_color(const RAGraph *g, const char *title, const char *body, int color);
+R_API RANode *r_agraph_add_node(const RAGraph *g, const char *title, const char *body, const char *color);
 R_API bool r_agraph_del_node(const RAGraph *g, const char *title);
-R_API void r_agraph_add_edge(const RAGraph *g, RANode *a, RANode *b);
+R_API void r_agraph_add_edge(const RAGraph *g, RANode *a, RANode *b, bool highlight);
 R_API void r_agraph_add_edge_at(const RAGraph *g, RANode *a, RANode *b, int nth);
 R_API void r_agraph_del_edge(const RAGraph *g, RANode *a, RANode *b);
 R_API void r_agraph_print(RAGraph *g);

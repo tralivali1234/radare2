@@ -52,6 +52,7 @@ static const char *help_msg_sl[] = {
 	"sl", "[+-][line]", "Seek to relative line",
 	"slc", "", "Clear line cache",
 	"sll", "", "Show total number of lines",
+	"sleep", " [seconds]", "Sleep for an specific amount of time",
 	NULL
 };
 
@@ -200,9 +201,8 @@ beach:
 }
 
 static void seek_to_register(RCore *core, const char *input, bool is_silent) {
-	ut64 off;
-	if (core->bin->is_debugger) {
-		off = r_debug_reg_get (core->dbg, input);
+	if (r_config_get_b (core->config, "cfg.debug")) {
+		ut64 off = r_debug_reg_get (core->dbg, input);
 		if (!is_silent) {
 			r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
 		}
@@ -210,7 +210,7 @@ static void seek_to_register(RCore *core, const char *input, bool is_silent) {
 	} else {
 		RReg *orig = core->dbg->reg;
 		core->dbg->reg = core->anal->reg;
-		off = r_debug_reg_get (core->dbg, input);
+		ut64 off = r_debug_reg_get (core->dbg, input);
 		core->dbg->reg = orig;
 		if (!is_silent) {
 			r_io_sundo_push (core->io, core->offset, r_print_get_cursor (core->print));
@@ -447,7 +447,7 @@ static int cmd_seek(void *data, const char *input) {
 			r_config_set_i (core->config, "search.from", core->offset + 1);
 			r_config_set_i (core->config, "search.maxhits", 1);
 			r_core_cmdf (core, "s+1; %s; s-1; s %s%d_0; f-%s%d_0",
-				input, pfx, kwidx, pfx, kwidx, pfx, kwidx);
+				input, pfx, kwidx, pfx, kwidx);
 			r_config_set_i (core->config, "search.from", saved_from);
 			r_config_set_i (core->config, "search.maxhits", saved_maxhits);
 			break;
@@ -554,7 +554,7 @@ static int cmd_seek(void *data, const char *input) {
 						}
 					}
 					if (mode) {
-						r_cons_printf ("0x%"PFMT64x" %s\n", undo->off, name? name: "");
+						r_cons_printf ("0x%"PFMT64x" %s\n", undo->off, r_str_get (name));
 					} else {
 						if (!name) {
 							name = r_str_newf ("0x%"PFMT64x, undo->off);
@@ -725,9 +725,9 @@ static int cmd_seek(void *data, const char *input) {
 		break;
 	case 'g': // "sg"
 	{
-		RIOMap *map  = r_io_map_get (core->io, core->offset);
+		RIOMap *map  = r_io_map_get_at (core->io, core->offset);
 		if (map) {
-			r_core_seek (core, map->itv.addr, true);
+			r_core_seek (core, r_io_map_begin (map), true);
 		} else {
 			r_core_seek (core, 0, true);
 		}
@@ -735,15 +735,15 @@ static int cmd_seek(void *data, const char *input) {
 	break;
 	case 'G': // "sG"
 	{
-		if (!core->file) {
+		if (!core->io->desc) {
 			break;
 		}
-		RIOMap *map = r_io_map_get (core->io, core->offset);
+		RIOMap *map = r_io_map_get_at (core->io, core->offset);
 		// XXX: this +2 is a hack. must fix gap between sections
 		if (map) {
-			r_core_seek (core, map->itv.addr + map->itv.size + 2, true);
+			r_core_seek (core, r_io_map_end (map) + 2, true);
 		} else {
-			r_core_seek (core, r_io_fd_size (core->io, core->file->fd), true);
+			r_core_seek (core, r_io_fd_size (core->io, core->io->desc->fd), true);
 		}
 	}
 	break;
@@ -751,6 +751,18 @@ static int cmd_seek(void *data, const char *input) {
 	{
 		int sl_arg = r_num_math (core->num, input + 1);
 		switch (input[1]) {
+		case 'e': // "sleep"
+			{
+				const char *arg = strchr (input, ' ');
+				if (arg) {
+					void *bed = r_cons_sleep_begin ();
+					r_sys_sleep (atoi (arg + 1));
+					r_cons_sleep_end (bed);
+				} else {
+					eprintf ("Usage: sleep [seconds]\n");
+				}
+			}
+			break;
 		case '\0': // "sl"
 			if (!core->print->lines_cache) {
 				__init_seek_line (core);

@@ -222,6 +222,9 @@ R_API int r_sandbox_system(const char *x, int n) {
 			char *argv0 = r_file_path (argv[0]);
 			pid_t pid = 0;
 			int r = posix_spawn (&pid, argv0, NULL, NULL, argv, NULL);
+			if (r != 0) {
+				return -1;
+			}
 			int status;
 			int s = waitpid (pid, &status, 0);
 			return WEXITSTATUS (s);
@@ -230,7 +233,10 @@ R_API int r_sandbox_system(const char *x, int n) {
 		return system (x);
 #endif
 	}
-	return execl ("/bin/sh", "sh", "-c", x, (const char*)NULL);
+	char *bin_sh = r_file_binsh ();
+	int rc = execl (bin_sh, "sh", "-c", x, (const char*)NULL);
+	free (bin_sh);
+	return rc;
 #else
 	#include <spawn.h>
 	if (n && !strchr (x, '|')) {
@@ -270,9 +276,11 @@ R_API int r_sandbox_system(const char *x, int n) {
 	if (child) {
 		return waitpid (child, NULL, 0);
 	}
-	if (execl ("/bin/sh", "sh", "-c", x, (const char*)NULL) == -1) {
+	char *bin_sh = r_file_binsh ();
+	if (execl (bin_sh, "sh", "-c", x, (const char*)NULL) == -1) {
 		perror ("execl");
 	}
+	free (bin_sh);
 	exit (1);
 #endif
 #endif
@@ -369,7 +377,7 @@ R_API int r_sandbox_open(const char *path, int perm, int mode) {
 			if (perm & O_EXCL) {
 				creation = CREATE_NEW;
 			} else {
-				creation = CREATE_ALWAYS;
+				creation = OPEN_ALWAYS;
 			}
 			if (mode & S_IREAD && !(mode & S_IWRITE)) {
 				flags = FILE_ATTRIBUTE_READONLY;
@@ -389,6 +397,9 @@ R_API int r_sandbox_open(const char *path, int perm, int mode) {
 		} else {
 			permission = GENERIC_READ;
 		}
+		if (perm & O_APPEND) {
+			permission |= FILE_APPEND_DATA;
+		}
 
 		wchar_t *wepath = r_utf8_to_utf16 (epath);
 		if (!wepath) {
@@ -397,7 +408,7 @@ R_API int r_sandbox_open(const char *path, int perm, int mode) {
 		}
 		HANDLE h = CreateFileW (wepath, permission, FILE_SHARE_READ | (read_only ? 0 : FILE_SHARE_WRITE), NULL, creation, flags, NULL);
 		if (h != INVALID_HANDLE_VALUE) {
-			ret = _open_osfhandle ((intptr_t)h, 0);
+			ret = _open_osfhandle ((intptr_t)h, perm);
 		}
 		free (wepath);
 	}

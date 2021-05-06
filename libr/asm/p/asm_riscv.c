@@ -1,9 +1,10 @@
-/* radare - LGPL - Copyright 2015-2016 - qnix */
+/* radare - LGPL - Copyright 2015-2021 - qnix */
 
 #include <r_types.h>
 #include <r_util.h>
 #include <r_asm.h>
 #include <r_lib.h>
+#include "cs_version.h"
 #include "../arch/riscv/riscv-opc.c"
 #include "../arch/riscv/riscv.c"
 
@@ -13,7 +14,7 @@ static int disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 
 RAsmPlugin r_asm_plugin_riscv = {
 	.name = "riscv",
-	.desc = "RISC-V",
+	.desc = "Capstone "CAPSTONE_VERSION_STRING" RISC-V disassembler",
 	.arch = "riscv",
 	.bits = 32|64,
 	.endian = R_SYS_ENDIAN_LITTLE | R_SYS_ENDIAN_BIG,

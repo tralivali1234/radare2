@@ -43,7 +43,21 @@ typedef struct r_diff_t {
 	int (*callback)(struct r_diff_t *diff, void *user, RDiffOp *op);
 } RDiff;
 
-typedef int (*RDiffCallback)(RDiff *diff, void *user, RDiffOp *op);
+typedef enum {
+	LEVEND, // array terminator
+	LEVNOP, // no change
+	LEVSUB, // substitution
+	LEVADD, // add byte in bufb to bufa
+	LEVDEL // delete byte from bufa
+} RLevOp;
+
+typedef struct r_lev_buf {
+	void *buf;
+	ut32 len;
+} RLevBuf;
+typedef bool (*RLevMatches)(RLevBuf *a, RLevBuf *b, ut32 ia, ut32 ib);
+
+typedef int (*RDiffCallback) (RDiff *diff, void *user, RDiffOp *op);
 
 typedef struct r_diffchar_t {
 	const ut8 *align_a;
@@ -67,7 +81,7 @@ R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *
 R_API int r_diff_set_callback(RDiff *d, RDiffCallback callback, void *user);
 R_API bool r_diff_buffers_distance(RDiff *d, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity);
 R_API bool r_diff_buffers_distance_myers(RDiff *diff, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity);
-R_API bool r_diff_buffers_distance_levenstein(RDiff *d, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity);
+R_API bool r_diff_buffers_distance_levenshtein(RDiff *d, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity);
 R_API char *r_diff_buffers_unified(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb);
 /* static method !??! */
 R_API int r_diff_lines(const char *file1, const char *sa, int la, const char *file2, const char *sb, int lb);
@@ -77,6 +91,7 @@ R_API int r_diff_gdiff(const char *file1, const char *file2, int rad, int va);
 R_API RDiffChar *r_diffchar_new(const ut8 *a, const ut8 *b);
 R_API void r_diffchar_print(RDiffChar *diffchar);
 R_API void r_diffchar_free(RDiffChar *diffchar);
+R_API st32 r_diff_levenshtein_path(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst, RLevMatches levdiff, RLevOp **chgs);
 #endif
 
 #ifdef __cplusplus

@@ -271,7 +271,7 @@ R_API R2Pipe *r2pipe_open(const char *cmd) {
 	env ("R2PIPE_OUT", r2p->output[1]);
 
 	if (r2p->child) {
-		char ch = -1;
+		signed char ch = -1;
 		// eprintf ("[+] r2pipeipe child is %d\n", r2pipe->child);
 		if (read (r2p->output[0], &ch, 1) != 1) {
 			eprintf ("Failed to read 1 byte\n");
@@ -300,11 +300,11 @@ R_API R2Pipe *r2pipe_open(const char *cmd) {
 			r2p->input[1] = -1;
 			r2p->output[0] = -1;
 			rc = r_sandbox_system (cmd, 1);
-			fprintf (stderr, "return code %d for %s\n", rc, cmd);
-			fflush (stderr);
+			if (rc != 0) {
+				eprintf ("return code %d for %s\n", rc, cmd);
+			}
 			// trigger the blocking read
 			write (1, "\xff", 1);
-			close (r2p->output[0]);
 			close (r2p->output[1]);
 			close (0);
 			close (1);

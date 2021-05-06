@@ -31,7 +31,6 @@ static ut64 __find_next_valid_addr(HANDLE h, ut64 from, ut64 to) {
 
 static int debug_os_read_at(W32DbgWInst *dbg, ut8 *buf, int len, ut64 addr) {
 	SIZE_T ret = 0;
-	const int page_size = 0x1000;
 	if (!ReadProcessMemory (dbg->pi.hProcess, (void*)(size_t)addr, buf, len, &ret)
 		&& GetLastError () == ERROR_PARTIAL_COPY) {
 		int skipped = 0;
@@ -249,7 +248,7 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 				}
 			}
 		}
-		return r_str_newf ("%d", wrap->pi.dwProcessId);
+		return r_str_newf ("%lu", wrap->pi.dwProcessId);
 	} else {
 		eprintf ("Try: '=!pid'\n");
 	}

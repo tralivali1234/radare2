@@ -9,6 +9,8 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     capstone_path = 'capstone'
   endif
 
+  capstone_version = get_option('use_capstone_version')
+
   res = run_command(py3_exe, '-c', '__import__("sys").exit(__import__("os").path.exists("@0@"))'.format(capstone_path))
   if res.returncode() == 0
     if not git_exe.found()
@@ -16,13 +18,17 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     endif
 
     # NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/Makefile
-    use_capstone5 = get_option('use_capstone5')
-    if use_capstone5
-      CS_TIP = 'd956ceddabcbe544ee8f074ba75c86c6381b34e6'
+    if capstone_version == 'v5'
+      CS_TIP = 'baa1f94cfdacd921744769bf7d93f00892ef53fa'
       CS_BRA = 'next'
-    else
+    elif capstone_version == 'v3'
+      CS_TIP = '61bf71c771680033651f16cff832446e421847b1'
+      CS_BRA = 'v3'
+    elif capstone_version == 'v4'
       CS_TIP = '2edae851d9fee511a57d4da32d5acecedd95d7ed'
       CS_BRA = 'v4'
+    else
+      error('Wrong capstone version selected. Please use one of the supported versions.')
     endif
 
     capstone_git_user = 'aquynh'
@@ -49,7 +55,7 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
 
     message('Patching capstone with radare\'s patches')
     foreach file : patches_files
-      patch_path = join_paths(meson.current_source_dir(), 'capstone-patches', file)
+      patch_path = join_paths(meson.current_source_dir(), 'capstone-patches', capstone_version, file)
       patch_cmd_str = '-C @0@ apply -p1 @1@'.format(capstone_path, patch_path)
       patch_cmd = run_command(git_exe, patch_cmd_str.split())
       if patch_cmd.returncode() != 0
@@ -68,12 +74,6 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     'arch/ARM/ARMInstPrinter.c',
     'arch/ARM/ARMMapping.c',
     'arch/ARM/ARMModule.c',
-    'arch/M680X/M680XDisassembler.c',
-    'arch/M680X/M680XInstPrinter.c',
-    'arch/M680X/M680XModule.c',
-    'arch/M68K/M68KDisassembler.c',
-    'arch/M68K/M68KInstPrinter.c',
-    'arch/M68K/M68KModule.c',
     'arch/Mips/MipsDisassembler.c',
     'arch/Mips/MipsInstPrinter.c',
     'arch/Mips/MipsMapping.c',
@@ -91,10 +91,6 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     'arch/SystemZ/SystemZMapping.c',
     'arch/SystemZ/SystemZMCTargetDesc.c',
     'arch/SystemZ/SystemZModule.c',
-    'arch/TMS320C64x/TMS320C64xDisassembler.c',
-    'arch/TMS320C64x/TMS320C64xInstPrinter.c',
-    'arch/TMS320C64x/TMS320C64xMapping.c',
-    'arch/TMS320C64x/TMS320C64xModule.c',
     'arch/X86/X86ATTInstPrinter.c',
     'arch/X86/X86Disassembler.c',
     'arch/X86/X86DisassemblerDecoder.c',
@@ -112,35 +108,91 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     'SStream.c',
     'utils.c',
   ]
+  rel_cs4_files = [
+    'arch/M680X/M680XDisassembler.c',
+    'arch/M680X/M680XInstPrinter.c',
+    'arch/M680X/M680XModule.c',
+    'arch/M68K/M68KDisassembler.c',
+    'arch/M68K/M68KInstPrinter.c',
+    'arch/M68K/M68KModule.c',
+    'arch/TMS320C64x/TMS320C64xDisassembler.c',
+    'arch/TMS320C64x/TMS320C64xInstPrinter.c',
+    'arch/TMS320C64x/TMS320C64xMapping.c',
+    'arch/TMS320C64x/TMS320C64xModule.c',
+  ]
+  rel_cs5_files = [
+    'arch/X86/X86InstPrinterCommon.c',
+    # Add riscv files
+    'arch/RISCV/RISCVMapping.c',
+    'arch/RISCV/RISCVModule.c',
+    'arch/RISCV/RISCVInstPrinter.c',
+    'arch/RISCV/RISCVDisassembler.c'
+  ]
+
+  user_plugins = get_option('plugins').split(',')
+  no_user_plugins = get_option('plugins') == ''
+  cs_c_args = [
+    '-DCAPSTONE_USE_SYS_DYN_MEM',
+    '-DCAPSTONE_DIET_NO',
+  ]
+  if user_plugins.contains('x86') or no_user_plugins
+    cs_c_args += [
+      '-DCAPSTONE_HAS_X86',
+      '-DCAPSTONE_X86_ATT_DISABLE_NO',
+      '-DCAPSTONE_X86_REDUCE_NO',
+    ]
+  endif
+  if user_plugins.contains('arm') or no_user_plugins
+    cs_c_args += [
+      '-DCAPSTONE_HAS_ARM',
+      '-DCAPSTONE_HAS_ARM64',
+    ]
+  endif
+  if user_plugins.contains('sparc') or no_user_plugins
+    cs_c_args += [
+      '-DCAPSTONE_HAS_SPARC',
+    ]
+  endif
+  if user_plugins.contains('mips') or no_user_plugins
+    cs_c_args += [
+      '-DCAPSTONE_HAS_MIPS',
+    ]
+  endif
+  if no_user_plugins
+    cs_c_args += [
+      '-DCAPSTONE_HAS_M68K',
+      '-DCAPSTONE_HAS_M680X',
+      '-DCAPSTONE_HAS_POWERPC',
+      '-DCAPSTONE_HAS_SPARC',
+      '-DCAPSTONE_HAS_SYSZ',
+      '-DCAPSTONE_HAS_XCORE',
+      '-DCAPSTONE_HAS_TMS320C64X',
+    ]
+  endif
 
   cs_files = []
   foreach rel_cs_file : rel_cs_files
     cs_files += [join_paths(capstone_path, rel_cs_file)]
   endforeach
-  if get_option('use_capstone5')
-    cs_files += [join_paths(capstone_path, 'arch/X86/X86InstPrinterCommon.c')]
+  if capstone_version == 'v4' or capstone_version == 'v5'
+    foreach rel_cs_file : rel_cs4_files
+      cs_files += [join_paths(capstone_path, rel_cs_file)]
+    endforeach
+  endif
+  if capstone_version == 'v5'
+    foreach rel_cs_file : rel_cs5_files
+      cs_files += [join_paths(capstone_path, rel_cs_file)]
+    endforeach
+    cs_c_args += [ '-DCAPSTONE_HAS_RISCV' ]
   endif
 
   capstone_includes = [platform_inc, include_directories('capstone/include')]
+  if capstone_version == 'v4' or capstone_version == 'v5'
+    capstone_includes += [include_directories('capstone/include/capstone')]
+  endif
 
   libr2capstone = static_library('r2capstone', cs_files,
-    c_args: [
-      '-DCAPSTONE_X86_ATT_DISABLE_NO',
-      '-DCAPSTONE_X86_REDUCE_NO',
-      '-DCAPSTONE_USE_SYS_DYN_MEM',
-      '-DCAPSTONE_DIET_NO',
-      '-DCAPSTONE_HAS_ARM',
-      '-DCAPSTONE_HAS_ARM64',
-      '-DCAPSTONE_HAS_M68K',
-      '-DCAPSTONE_HAS_M680X',
-      '-DCAPSTONE_HAS_MIPS',
-      '-DCAPSTONE_HAS_POWERPC',
-      '-DCAPSTONE_HAS_SPARC',
-      '-DCAPSTONE_HAS_SYSZ',
-      '-DCAPSTONE_HAS_X86',
-      '-DCAPSTONE_HAS_XCORE',
-      '-DCAPSTONE_HAS_TMS320C64X',
-    ],
+    c_args: cs_c_args,
     include_directories: capstone_includes,
     implicit_include_directories: false
   )
@@ -152,96 +204,6 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
 else
   message('Use system-provided capstone library')
 endif
-
-
-# handle tree-sitter
-tree_sitter_cflags = ''
-if cc.has_argument('-std=gnu99')
-  tree_sitter_cflags = '-std=gnu99'
-elif cc.has_argument('std=c99')
-  tree_sitter_cflags = '-std=c99'
-endif
-
-tree_sitter_dep = dependency('tree-sitter', required: false)
-if not tree_sitter_dep.found() or not get_option('use_sys_tree_sitter')
-  message('Use bundled tree-sitter')
-  tree_sitter_path = 'tree-sitter'
-  tree_sitter_vc_path = 'tree-sitter.vc'
-  if get_option('tree-sitter-sync')
-    if not git_exe.found()
-      error('Cannot sync tree-sitter library. Either provide tree-sitter in ./shlr/tree-sitter or install git, so it can be downloaded')
-    endif
-
-    # NOTE: when you update TS_TIP or TS_BRA, also update them in shlr/Makefile
-    TS_TIP = '86a5dabbcbdac650c53a889183bf56d7e721e09e'
-    TS_BRA = 'master'
-
-    message('Deleting existing directories @0@ and @1@'.format(tree_sitter_vc_path, tree_sitter_path))
-    res = run_command('rm', '-rf @0@ @1@'.format(tree_sitter_vc_path, tree_sitter_path).split())
-    message('Cloning tree-sitter ' + TS_BRA + ' branch, commit ' + TS_TIP + ', into ' + tree_sitter_vc_path)
-    git_cmd = 'clone -b @0@ https://github.com/tree-sitter/tree-sitter.git @1@'.format(TS_BRA, tree_sitter_vc_path)
-    clone_cmd = run_command(git_exe, git_cmd.split())
-    if clone_cmd.returncode() != 0
-      error('Cannot execute git clone command')
-    endif
-
-    reset_cmd_str = '-C @0@ reset --hard @1@'.format(tree_sitter_vc_path, TS_TIP)
-    reset_cmd = run_command(git_exe, reset_cmd_str.split())
-    if reset_cmd.returncode() != 0
-      error('Cannot execute git reset command')
-    endif
-
-    message('Copying files from @0@ to @1@'.format(tree_sitter_vc_path, tree_sitter_path))
-    res = run_command('mkdir',  '-p @0@/lib'.format(tree_sitter_path).split())
-    res = run_command('cp',  '-r @0@/lib/src @1@/lib'.format(tree_sitter_vc_path, tree_sitter_path).split())
-    res = run_command('cp',  '-r @0@/lib/include @1@/lib'.format(tree_sitter_vc_path, tree_sitter_path).split())
-    message('Deleting @0@'.format(tree_sitter_vc_path))
-    res = run_command('rm', '-rf @0@'.format(tree_sitter_vc_path).split())
-  endif
-
-  tree_sitter_files = [
-    join_paths(tree_sitter_path, 'lib/src/lib.c'),
-  ]
-
-  tree_sitter_inc = [platform_inc, include_directories('tree-sitter/lib/src'), include_directories('tree-sitter/lib/include')]
-
-  libtree_sitter = static_library('tree_sitter', tree_sitter_files,
-    include_directories: tree_sitter_inc,
-    implicit_include_directories: false,
-    c_args: tree_sitter_cflags,
-  )
-
-  tree_sitter_dep = declare_dependency(
-    compile_args: tree_sitter_cflags,
-    link_with: libtree_sitter,
-    include_directories: tree_sitter_inc
-  )
-else
-  message('Use system-provided tree-sitter library')
-endif
-
-
-# new radare2 shell parser
-shell_parser_path = 'radare2-shell-parser'
-shell_parser_files = [
-  join_paths(shell_parser_path, 'src/parser.c'),
-  join_paths(shell_parser_path, 'src/scanner.c'),
-]
-
-shell_parser_inc = [platform_inc, include_directories('radare2-shell-parser/src/tree_sitter')]
-
-libshell_parser = static_library('shell_parser', shell_parser_files,
-  include_directories: shell_parser_inc,
-  dependencies: tree_sitter_dep.partial_dependency(includes: true),
-  implicit_include_directories: true
-)
-
-shell_parser_dep = declare_dependency(
-  link_with: libshell_parser,
-  include_directories: shell_parser_inc,
-  dependencies: tree_sitter_dep
-)
-
 
 # handle bochs dependency
 bochs_files = [
@@ -308,28 +270,7 @@ qnx_dep = declare_dependency(
 )
 
 
-# handle tcc dependency (heavily modified version)
-tcc_files = [
-  'tcc/libtcc.c',
-  'tcc/tccgen.c',
-  'tcc/tccpp.c'
-]
-
-tcc_inc = [platform_inc, include_directories('tcc')]
-
-libr2tcc = static_library('r2tcc', tcc_files,
-  dependencies: [r_util_dep],
-  include_directories: tcc_inc,
-  implicit_include_directories: false
-)
-
-tcc_dep = declare_dependency(
-  link_with: libr2tcc,
-  include_directories: tcc_inc
-)
-
-
-# handle lz4 dependency
+# handle lz4 dependency (unused?)
 lz4_dep = dependency('liblz4', required: false)
 if not lz4_dep.found() or not get_option('use_sys_lz4')
   message('Use bundled lz4')
@@ -526,26 +467,26 @@ grub_dep = declare_dependency(
   include_directories: grub_inc
 )
 
-
-# handle windbg dependency
-windbg_files = [
-  'windbg/iob_pipe.c',
-  'windbg/kd.c',
-  'windbg/transport.c',
-  'windbg/windbg.c',
+# handle winkd dependency
+winkd_files = [
+  'winkd/iob_pipe.c',
+  'winkd/iob_net.c',
+  'winkd/kd.c',
+  'winkd/transport.c',
+  'winkd/winkd.c',
 ]
 
-windbg_inc = [platform_inc, include_directories('windbg')]
+winkd_inc = [platform_inc, include_directories('winkd')]
 
-libr2windbg = static_library('r2windbg', windbg_files,
-  dependencies: [r_util_dep],
-  include_directories: windbg_inc,
+libr2winkd = static_library('r2winkd', winkd_files,
+  dependencies: [r_hash_dep, r_crypto_dep, r_socket_dep, r_util_dep],
+  include_directories: winkd_inc,
   implicit_include_directories: false
 )
 
-windbg_dep = declare_dependency(
-  link_with: libr2windbg,
-  include_directories: windbg_inc
+winkd_dep = declare_dependency(
+  link_with: libr2winkd,
+  include_directories: winkd_inc
 )
 
 
@@ -567,11 +508,6 @@ ar_dep = declare_dependency(
   include_directories: ar_inc
 )
 
-
-# handle ptrace-wrap dependency
-if use_ptrace_wrap
-  subdir('ptrace-wrap')
-endif
 
 if host_machine.system() == 'windows'
   subdir('w32dbg_wrap')

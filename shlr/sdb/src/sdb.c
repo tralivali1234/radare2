@@ -1,4 +1,4 @@
-/* sdb - MIT - Copyright 2011-2018 - pancake */
+/* sdb - MIT - Copyright 2011-2021 - pancake */
 
 #include <stdio.h>
 #include <fcntl.h>
@@ -60,13 +60,14 @@ SDB_API Sdb* sdb_new(const char *path, const char *name, int lock) {
 	s->db.fd = -1;
 	s->fd = -1;
 	s->refs = 1;
+	s->ht = sdb_ht_new ();
 	if (path && !*path) {
 		path = NULL;
 	}
 	if (name && *name && strcmp (name, "-")) {
 		if (path && *path) {
-			int plen = strlen (path);
-			int nlen = strlen (name);
+			size_t plen = strlen (path);
+			size_t nlen = strlen (name);
 			s->dir = malloc (plen + nlen + 2);
 			if (!s->dir) {
 				free (s);
@@ -112,7 +113,6 @@ SDB_API Sdb* sdb_new(const char *path, const char *name, int lock) {
 	if (!s->ns) {
 		goto fail;
 	}
-	s->ht = sdb_ht_new ();
 	s->lock = lock;
 	// if open fails ignore
 	if (global_hook) {
@@ -184,7 +184,7 @@ SDB_API int sdb_count(Sdb *s) {
 	return count;
 }
 
-static void sdb_fini(Sdb* s, int donull) {
+static void sdb_fini(Sdb* s, bool donull) {
 	if (!s) {
 		return;
 	}
@@ -218,7 +218,7 @@ SDB_API bool sdb_free(Sdb* s) {
 		s->refs--;
 		if (s->refs < 1) {
 			s->refs = 0;
-			sdb_fini (s, 0);
+			sdb_fini (s, false);
 			s->ht = NULL;
 			free (s);
 			return true;
@@ -245,34 +245,40 @@ SDB_API const char *sdb_const_get_len(Sdb* s, const char *key, int *vlen, ut32 *
 	size_t keylen = strlen (key);
 
 	/* search in memory */
-	SdbKv *kv = (SdbKv*) sdb_ht_find_kvp (s->ht, key, &found);
-	if (found) {
-		if (!sdbkv_value (kv) || !*sdbkv_value (kv)) {
-			return NULL;
-		}
-		if (s->timestamped && kv->expire) {
-			if (!now) {
-				now = sdb_now ();
-			}
-			if (now > kv->expire) {
-				sdb_unset (s, key, 0);
+	if (s->ht) {
+		SdbKv *kv = (SdbKv*) sdb_ht_find_kvp (s->ht, key, &found);
+		if (found) {
+			if (!sdbkv_value (kv) || !*sdbkv_value (kv)) {
 				return NULL;
 			}
+			if (s->timestamped && kv->expire) {
+				if (!now) {
+					now = sdb_now ();
+				}
+				if (now > kv->expire) {
+					sdb_unset (s, key, 0);
+					return NULL;
+				}
+			}
+			if (cas) {
+				*cas = kv->cas;
+			}
+			if (vlen) {
+				*vlen = sdbkv_value_len (kv);
+			}
+			return sdbkv_value (kv);
 		}
-		if (cas) {
-			*cas = kv->cas;
-		}
-		if (vlen) {
-			*vlen = sdbkv_value_len (kv);
-		}
-		return sdbkv_value (kv);
+	}
+	/* search in gperf */
+	if (s->gp && s->gp->get) {
+		return s->gp->get (key);
 	}
 	/* search in disk */
 	if (s->fd == -1) {
 		return NULL;
 	}
 	(void) cdb_findstart (&s->db);
-	if (cdb_findnext (&s->db, s->ht->opt.hashfn (key), key, keylen) < 1) {
+	if (!s->ht || cdb_findnext (&s->db, s->ht->opt.hashfn (key), key, keylen) < 1) {
 		return NULL;
 	}
 	len = cdb_datalen (&s->db);
@@ -369,7 +375,7 @@ SDB_API bool sdb_exists(Sdb* s, const char *key) {
 	ut32 pos;
 	char ch;
 	bool found;
-	int klen = strlen (key) + 1;
+	size_t klen = strlen (key) + 1;
 	if (!s) {
 		return false;
 	}
@@ -390,12 +396,30 @@ SDB_API bool sdb_exists(Sdb* s, const char *key) {
 	return false;
 }
 
+SDB_API int sdb_open_gperf(Sdb *s, SdbGperf *gp) {
+	if (!s || !gp) {
+		return -1;
+	}
+	s->gp = gp;
+	return 0;
+}
+
+static int sdb_open_text(Sdb *s, const char *file) {
+	if (!sdb_text_load (s, file)) {
+		return -1;
+	}
+	return s->fd;
+}
+
 SDB_API int sdb_open(Sdb *s, const char *file) {
         struct stat st;
 	if (!s) {
 		return -1;
 	}
 	if (file) {
+		if (sdb_text_check (s, file)) {
+			return sdb_open_text (s, file);
+		}
 		if (s->fd != -1) {
 			close (s->fd);
 			s->fd = -1;
@@ -437,6 +461,7 @@ SDB_API void sdb_close(Sdb *s) {
 			free (s->dir);
 			s->dir = NULL;
 		}
+		s->gp = NULL;
 	}
 }
 
@@ -546,7 +571,7 @@ SDB_API void sdbkv_free(SdbKv *kv) {
 	}
 }
 
-static ut32 sdb_set_internal(Sdb* s, const char *key, char *val, int owned, ut32 cas) {
+static ut32 sdb_set_internal(Sdb* s, const char *key, char *val, bool owned, ut32 cas) {
 	ut32 vlen, klen;
 	SdbKv *kv;
 	bool found;
@@ -623,16 +648,16 @@ static ut32 sdb_set_internal(Sdb* s, const char *key, char *val, int owned, ut32
 		sdb_hook_call (s, key, val);
 		return cas;
 	}
-// kv set failed, no need to callback	sdb_hook_call (s, key, val);
+	// kv set failed, no need to callback	sdb_hook_call (s, key, val);
 	return 0;
 }
 
 SDB_API int sdb_set_owned(Sdb* s, const char *key, char *val, ut32 cas) {
-	return sdb_set_internal (s, key, val, 1, cas);
+	return sdb_set_internal (s, key, val, true, cas);
 }
 
 SDB_API int sdb_set(Sdb* s, const char *key, const char *val, ut32 cas) {
-	return sdb_set_internal (s, key, (char*)val, 0, cas);
+	return sdb_set_internal (s, key, (char *)val, false, cas);
 }
 
 static bool sdb_foreach_list_cb(void *user, const char *k, const char *v) {
@@ -867,8 +892,7 @@ SDB_API SdbKv *sdb_dump_next(Sdb* s) {
 		return NULL;
 	}
 	vl--;
-	strncpy (sdbkv_key (&s->tmpkv), k, SDB_KSZ - 1);
-	sdbkv_key (&s->tmpkv)[SDB_KSZ - 1] = '\0';
+	snprintf (sdbkv_key (&s->tmpkv), SDB_KSZ, "%s", k);
 	free (sdbkv_value (&s->tmpkv));
 	s->tmpkv.base.value = v;
 	s->tmpkv.base.value_len = vl;
@@ -953,7 +977,7 @@ SDB_API bool sdb_dump_dupnext(Sdb* s, char *key, char **value, int *_vlen) {
 	return true;
 }
 
-static inline ut64 parse_expire (ut64 e) {
+static inline ut64 parse_expire(ut64 e) {
 	const ut64 month = 30 * 24 * 60 * 60;
 	if (e > 0 && e < month) {
 		e += sdb_now ();
@@ -1096,14 +1120,14 @@ SDB_API void sdb_config(Sdb *s, int options) {
 }
 
 SDB_API bool sdb_unlink(Sdb* s) {
-	sdb_fini (s, 1);
+	sdb_fini (s, true);
 	return sdb_disk_unlink (s);
 }
 
 SDB_API void sdb_drain(Sdb *s, Sdb *f) {
 	if (s && f) {
 		f->refs = s->refs;
-		sdb_fini (s, 1);
+		sdb_fini (s, true);
 		*s = *f;
 		free (f);
 	}
@@ -1166,7 +1190,7 @@ static bool like_cb(void *user, const char *k, const char *v) {
 	if (lcd->array) {
 		int idx = lcd->array_index;
 		int newsize = lcd->array_size + sizeof (char*) * 2;
-		const char **newarray = (const char **)realloc (lcd->array, newsize);
+		const char **newarray = (const char **)realloc ((void*)lcd->array, newsize);
 		if (!newarray) {
 			return false;
 		}

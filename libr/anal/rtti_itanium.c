@@ -302,6 +302,7 @@ static const char *type_to_string(RTypeInfoType type) {
 	default:
 		r_return_val_if_reached (CLASS_TYPE_INFO_NAME);
 	}
+	return NULL;
 }
 static void rtti_itanium_print_class_type_info(class_type_info *cti, const char *prefix) {
 	r_cons_printf ("%sType Info at 0x%08" PFMT64x ":\n"
@@ -336,7 +337,7 @@ static void rtti_itanium_print_class_type_info_json(class_type_info *cti) {
 	pj_kb (pj, "name_unique", cti->name_unique);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -364,7 +365,7 @@ static void rtti_itanium_print_vmi_class_type_info(vmi_class_type_info *vmi_cti,
 	int i;
 	for (i = 0; i < vmi_cti->vmi_base_count; i++) {
 		r_cons_printf ("%s    Base class type descriptor address: 0x%08" PFMT64x "\n"
-			       "%s    Base class flags: 0x%x"
+			       "%s    Base class flags: 0x%" PFMT64x
 			       "\n",
 			prefix, vmi_cti->vmi_bases[i].base_class_addr,
 			prefix, vmi_cti->vmi_bases[i].flags);
@@ -398,7 +399,7 @@ static void rtti_itanium_print_vmi_class_type_info_json(vmi_class_type_info *vmi
 	pj_end (pj);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -438,7 +439,7 @@ static void rtti_itanium_print_si_class_type_info_json(si_class_type_info *si_ct
 	pj_kn (pj, "ref_to_parent_type", si_cti->base_class_addr);
 	pj_end (pj);
 
-	r_cons_printf (pj_string (pj));
+	r_cons_print (pj_string (pj));
 	pj_free (pj);
 }
 
@@ -532,10 +533,10 @@ static vmi_class_type_info *create_vmi_class_type(ut64 vtable_addr, char *name, 
 
 /**
  * @brief Try to parse as much valid looking RTTI as you can
- * 
- * @param context 
- * @param vtable_addr 
- * @param rtti_addr 
+ *
+ * @param context
+ * @param vtable_addr
+ * @param rtti_addr
  * @return class_type_info* NULL if not even default class RTTI could be parsed or error
  */
 static class_type_info *raw_rtti_parse(RVTableContext *context, ut64 vtable_addr, ut64 rtti_addr) {
@@ -544,7 +545,7 @@ static class_type_info *raw_rtti_parse(RVTableContext *context, ut64 vtable_addr
 		                   |--------------------------------------|
 		                   |               type_name              |
 		                   |--------------------------------------| --- enough for __class_type_info
-		                   |  __class_type_info *base_type        | 
+		                   |  __class_type_info *base_type        |
 		                   |--------------------------------------| --- enough for __si_class_type_info
 		                   |              uint flags              | --- must be atleast 16bits, it's 32 bit for 64-bit Itanium ABI
 		                   |--------------------------------------|
@@ -669,6 +670,7 @@ static class_type_info *rtti_itanium_type_info_new(RVTableContext *context, ut64
 	default:
 		r_return_val_if_reached (NULL);
 	}
+	return false;
 }
 
 static void rtti_itanium_type_info_free(void *info) {
@@ -733,6 +735,7 @@ R_API bool r_anal_rtti_itanium_print_at_vtable(RVTableContext *context, ut64 add
 		rtti_itanium_class_type_info_free (cti);
 		r_return_val_if_reached (false);
 	}
+	return false;
 }
 
 R_API char *r_anal_rtti_itanium_demangle_class_name(RVTableContext *context, const char *name) {
@@ -767,7 +770,7 @@ static void recovery_apply_vtable(RVTableContext *context, const char *class_nam
 		RAnalMethod meth;
 		meth.addr = vmeth->addr;
 		meth.vtable_offset = vmeth->vtable_offset;
-		meth.name = r_str_newf ("virtual_%d", meth.vtable_offset);
+		meth.name = r_str_newf ("virtual_%" PFMT64d, meth.vtable_offset);
 		r_anal_class_method_set (context->anal, class_name, &meth);
 		r_anal_class_method_fini (&meth);
 	}
@@ -775,9 +778,9 @@ static void recovery_apply_vtable(RVTableContext *context, const char *class_nam
 
 /**
  * @brief Add any base class information about the type into anal/classes
- * 
- * @param context 
- * @param cti 
+ *
+ * @param context
+ * @param cti
  */
 static void add_class_bases(RVTableContext *context, const class_type_info *cti) {
 	class_type_info base_info;
@@ -794,7 +797,8 @@ static void add_class_bases(RVTableContext *context, const class_type_info *cti)
 			r_anal_class_base_set (context->anal, cti->name, &base);
 			r_anal_class_base_fini (&base);
 		}
-	} break;
+		break;
+	}
 	case R_TYPEINFO_TYPE_VMI_CLASS: {
 		vmi_class_type_info *vmi_class = (void *)cti;
 		for (i = 0; i < vmi_class->vmi_base_count; i++) {
@@ -807,7 +811,8 @@ static void add_class_bases(RVTableContext *context, const class_type_info *cti)
 				r_anal_class_base_fini (&base);
 			}
 		}
-	} break;
+		break;
+	}
 	default: // other types have no parent classes
 		break;
 	}

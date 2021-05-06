@@ -138,8 +138,7 @@ static int analop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf) {
 		setZ;
 		return 0;
 	case H8300_ADDX_4BIT:
-		r_strbuf_appendf(&op->esil, "0x%02x,C,+,r%u%c,+= ", imm,
-				rdB(0), rdB(0));
+		r_strbuf_appendf(&op->esil, "0x%02x,C,+,r%u%c,+= ", imm, rdB(0));
 		//setZ
 		setV("%o");
 		setN;
@@ -240,7 +239,7 @@ static int analop_esil(RAnal *a, RAnalOp *op, ut64 addr, const ut8 *buf) {
 	case H8300_ADDX:
 		//Rd + (Rs) + C → Rd
 		r_strbuf_appendf (&op->esil, "r%u%c,C,+,r%u%c,+=",
-				rsB(), rdB(1), rdB(1));
+				rsB(), rdB(1));
 		//setZ
 		setV("%o");
 		setN;
@@ -684,6 +683,7 @@ static bool set_reg_profile(RAnal *anal) {
 	char *p =
 		"=PC	pc\n"
 		"=SP	r7\n"
+		"=A0	r0\n"
 		"gpr	r0	.16	0	0\n"
 		"gpr	r0h	.8	0	0\n"
 		"gpr	r0l	.8	1	0\n"

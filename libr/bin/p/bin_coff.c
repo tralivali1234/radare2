@@ -67,6 +67,9 @@ static bool _fill_bin_symbol(RBin *rbin, struct r_bin_coff_obj *bin, int idx, RB
 		//first index is 0 that is why -1
 		sc_hdr = &bin->scn_hdrs[s->n_scnum - 1];
 		ptr->paddr = sc_hdr->s_scnptr + s->n_value;
+		if (bin->scn_va) {
+			ptr->vaddr = bin->scn_va[s->n_scnum - 1] + s->n_value;
+		}
 	}
 
 	switch (s->n_sclass) {
@@ -82,7 +85,7 @@ static bool _fill_bin_symbol(RBin *rbin, struct r_bin_coff_obj *bin, int idx, RB
 	case COFF_SYM_CLASS_EXTERNAL:
 		if (s->n_scnum == COFF_SYM_SCNUM_UNDEF) {
 			ptr->is_imported = true;
-			ptr->paddr = UT64_MAX;
+			ptr->paddr = ptr->vaddr = UT64_MAX;
 			ptr->bind = "NONE";
 		} else {
 			ptr->bind = R_BIN_BIND_GLOBAL_STR;
@@ -94,7 +97,7 @@ static bool _fill_bin_symbol(RBin *rbin, struct r_bin_coff_obj *bin, int idx, RB
 	case COFF_SYM_CLASS_STATIC:
 		if (s->n_scnum == COFF_SYM_SCNUM_ABS) {
 			ptr->type = "ABS";
-			ptr->paddr = UT64_MAX;
+			ptr->paddr = ptr->vaddr = UT64_MAX;
 			ptr->name = r_str_newf ("%s-0x%08x", coffname, s->n_value);
 			if (ptr->name) {
 				R_FREE (coffname);
@@ -113,7 +116,6 @@ static bool _fill_bin_symbol(RBin *rbin, struct r_bin_coff_obj *bin, int idx, RB
 		ptr->type = r_str_constpool_get (&rbin->constpool, sdb_fmt ("%i", s->n_sclass));
 		break;
 	}
-	ptr->vaddr = ptr->paddr;
 	ptr->size = 4;
 	ptr->ordinal = 0;
 	return true;
@@ -184,7 +186,7 @@ static RList *sections(RBinFile *bf) {
 				free (tmp);
 				return ret;
 			}
-			ptr->name = r_str_newf ("%s-%d", tmp, i);
+			ptr->name = r_str_newf ("%s-%zu", tmp, i);
 			free (tmp);
 			if (strstr (ptr->name, "data")) {
 				ptr->is_data = true;
@@ -192,6 +194,9 @@ static RList *sections(RBinFile *bf) {
 			ptr->size = obj->scn_hdrs[i].s_size;
 			ptr->vsize = obj->scn_hdrs[i].s_size;
 			ptr->paddr = obj->scn_hdrs[i].s_scnptr;
+			if (obj->scn_va) {
+				ptr->vaddr = obj->scn_va[i];
+			}
 			ptr->add = true;
 			ptr->perm = 0;
 			if (obj->scn_hdrs[i].s_flags & COFF_SCN_MEM_READ) {
@@ -269,6 +274,14 @@ static ut32 _read_le32(RBin *rbin, ut64 addr) {
 	return r_read_le32 (data);
 }
 
+static ut16 _read_le16(RBin *rbin, ut64 addr) {
+	ut8 data[2] = { 0 };
+	if (!rbin->iob.read_at (rbin->iob.io, addr, data, sizeof (data))) {
+		return UT16_MAX;
+	}
+	return r_read_le16 (data);
+}
+
 #define BYTES_PER_IMP_RELOC		8
 
 static RList *_relocs_list(RBin *rbin, struct r_bin_coff_obj *bin, bool patch, ut64 imp_map) {
@@ -277,7 +290,7 @@ static RList *_relocs_list(RBin *rbin, struct r_bin_coff_obj *bin, bool patch, u
 	RBinReloc *reloc;
 	struct coff_reloc *rel;
 	int j, i = 0;
-	RList *list_rel = r_list_new ();
+	RList *list_rel = r_list_newf (free);
 	if (!list_rel) {
 		return NULL;
 	}
@@ -321,12 +334,14 @@ static RList *_relocs_list(RBin *rbin, struct r_bin_coff_obj *bin, bool patch, u
 
 			reloc->symbol = symbol;
 			reloc->paddr = bin->scn_hdrs[i].s_scnptr + rel[j].r_vaddr;
-			reloc->vaddr = reloc->paddr;
+			if (bin->scn_va) {
+				reloc->vaddr = bin->scn_va[i] + rel[j].r_vaddr;
+			}
 			reloc->type = rel[j].r_type;
 
 			ut64 sym_vaddr = symbol->vaddr;
 			if (symbol->is_imported) {
-				reloc->import = (RBinImport *)ht_up_find (bin->sym_ht, (ut64)rel[j].r_symndx, NULL);
+				reloc->import = (RBinImport *)ht_up_find (bin->imp_ht, (ut64)rel[j].r_symndx, NULL);
 				if (patch_imports) {
 					bool found;
 					sym_vaddr = ht_uu_find (imp_vaddr_ht, (ut64)rel[j].r_symndx, &found);
@@ -334,6 +349,7 @@ static RList *_relocs_list(RBin *rbin, struct r_bin_coff_obj *bin, bool patch, u
 						sym_vaddr = imp_map;
 						imp_map += BYTES_PER_IMP_RELOC;
 						ht_uu_insert (imp_vaddr_ht, (ut64)rel[j].r_symndx, sym_vaddr);
+						symbol->vaddr = sym_vaddr;
 					}
 				}
 			}
@@ -379,11 +395,50 @@ static RList *_relocs_list(RBin *rbin, struct r_bin_coff_obj *bin, bool patch, u
 						break;
 					}
 					break;
+				case COFF_FILE_MACHINE_ARMNT:
+					switch (rel[j].r_type) {
+					case COFF_REL_ARM_BRANCH24T:
+					case COFF_REL_ARM_BLX23T:
+						reloc->type = R_BIN_RELOC_32;
+						ut16 hiword = _read_le16 (rbin, reloc->vaddr);
+						if (hiword == UT16_MAX) {
+							break;
+						}
+						ut16 loword = _read_le16 (rbin, reloc->vaddr + 2);
+						if (loword == UT16_MAX) {
+							break;
+						}
+						ut64 dst = sym_vaddr - reloc->vaddr - 4;
+						if (dst & 1) {
+							break;
+						}
+						loword |= (ut16)(dst >> 1) & 0x7ff;
+						hiword |= (ut16)(dst >> 12) & 0x7ff;
+						r_write_le16 (patch_buf, hiword);
+						r_write_le16 (patch_buf + 2, loword);
+						plen = 4;
+						break;
+					}
+					break;
+				case COFF_FILE_MACHINE_ARM64:
+					switch (rel[j].r_type) {
+					case COFF_REL_ARM64_BRANCH26:
+						reloc->type = R_BIN_RELOC_32;
+						ut32 data = _read_le32 (rbin, reloc->vaddr);
+						if (data == UT32_MAX) {
+							break;
+						}
+						ut64 dst = sym_vaddr - reloc->vaddr;
+						data |= (ut32)((dst >> 2) & 0x3ffffffULL);
+						r_write_le32 (patch_buf, data);
+						plen = 4;
+						break;
+					}
+					break;
 				}
 				if (patch && plen) {
 					rbin->iob.write_at (rbin->iob.io, reloc->vaddr, patch_buf, plen);
 					if (symbol->is_imported) {
-						reloc->paddr = sym_vaddr;
 						reloc->vaddr = sym_vaddr;
 					}
 				}
@@ -429,7 +484,15 @@ static RList *patch_relocs(RBin *b) {
 	}
 	ut64 m_vaddr = UT64_MAX;
 	if (nimports) {
-		m_vaddr = bin->size;
+		void **it;
+		ut64 offset = 0;
+		r_pvector_foreach (&io->maps, it) {
+			RIOMap *map = *it;
+			if (r_io_map_end (map) > offset) {
+				offset = r_io_map_end (map);
+			}
+		}
+		m_vaddr = R_ROUND (offset, 16);
 		ut64 size = nimports * BYTES_PER_IMP_RELOC;
 		char *muri = r_str_newf ("malloc://%" PFMT64u, size);
 		RIODesc *desc = b->iob.open_at (io, muri, R_PERM_R, 0664, m_vaddr);
@@ -438,7 +501,7 @@ static RList *patch_relocs(RBin *b) {
 			return NULL;
 		}
 
-		RIOMap *map = b->iob.map_get (io, m_vaddr);
+		RIOMap *map = b->iob.map_get_at (io, m_vaddr);
 		if (!map) {
 			return NULL;
 		}
@@ -459,7 +522,7 @@ static RBinInfo *info(RBinFile *bf) {
 	ret->os = strdup ("any");
 	ret->subsystem = strdup ("any");
 	ret->big_endian = obj->endian;
-	ret->has_va = false;
+	ret->has_va = true;
 	ret->dbg_info = 0;
 	ret->has_lit = true;
 
@@ -499,6 +562,16 @@ static RBinInfo *info(RBinFile *bf) {
 		ret->machine = strdup ("amd29k");
 		ret->arch = strdup ("amd29k");
 		ret->bits = 32;
+		break;
+	case COFF_FILE_MACHINE_ARMNT:
+		ret->machine = strdup ("arm");
+		ret->arch = strdup ("arm");
+		ret->bits = 32;
+		break;
+	case COFF_FILE_MACHINE_ARM64:
+		ret->machine = strdup ("arm");
+		ret->arch = strdup ("arm");
+		ret->bits = 64;
 		break;
 	case COFF_FILE_TI_COFF:
 		switch (obj->target_id) {

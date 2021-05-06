@@ -197,12 +197,12 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 		r_list_free (flags);
 		return -1;
 	}
-	if (!(arch_regs = malloc (sizeof (gdb_reg_t) * (r_list_length (regs) + 1)))) {
+	if (!(arch_regs = calloc (sizeof (gdb_reg_t), (r_list_length (regs) + 1)))) {
 		goto exit_err;
 	}
 	// approximate per-reg size estimates
 	profile_max_len = r_list_length (regs) * 128 + r_list_length (flags) * 128;
-	if (!(profile = malloc (profile_max_len))) {
+	if (!(profile = calloc (1, profile_max_len))) {
 		goto exit_err;
 	}
 	r_list_foreach (regs, iter, tmpreg) {
@@ -334,7 +334,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 	}
 	r_list_free (flags);
 	r_list_free (regs);
-	free (g->target.regprofile);
+	R_FREE (g->target.regprofile);
 	if (profile) {
 		g->target.regprofile = strdup (profile);
 		free (profile);
@@ -513,7 +513,7 @@ static void _write_flag_bits(char *buf, const gdbr_xml_flags_t *flags) {
 		// To avoid duplicates. This skips flags if first char is same. i.e.
 		// for x86_64, it will skip VIF because VM already occurred. This is
 		// same as default reg-profiles in r2
-		c = tolower (flags->fields[i].name[0]) - 'a';
+		c = tolower ((unsigned char)flags->fields[i].name[0]) - 'a';
 		if (fc[c]) {
 			continue;
 		}
@@ -553,6 +553,10 @@ static int _resolve_arch(libgdbr_t *g, char *xml_data) {
 		// apple's debugserver on ios9
 		if (strstr (xml_data, "com.apple.debugserver.arm64")) {
 			g->target.arch = R_SYS_ARCH_ARM;
+			g->target.bits = 64;
+		} else if (strstr (xml_data, "org.gnu.gdb.riscv")) {
+			// openocd mips?
+			g->target.arch = R_SYS_ARCH_RISCV;
 			g->target.bits = 64;
 		} else if (strstr (xml_data, "org.gnu.gdb.mips")) {
 			// openocd mips?
@@ -643,7 +647,7 @@ static RList *_extract_flags(char *flagstr) {
 				goto exit_err;
 			}
 			tmp1 += 7;
-			if (!isdigit (*tmp1)) {
+			if (!isdigit ((unsigned char)*tmp1)) {
 				goto exit_err;
 			}
 			tmpflag->fields[num_fields].bit_num = (ut32) strtoul (tmp1, NULL, 10);
@@ -652,7 +656,7 @@ static RList *_extract_flags(char *flagstr) {
 				goto exit_err;
 			}
 			tmp1 += 5;
-			if (!isdigit (*tmp1)) {
+			if (!isdigit ((unsigned char)*tmp1)) {
 				goto exit_err;
 			}
 			tmpflag->fields[num_fields].sz = (ut32) strtoul (tmp1, NULL, 10) + 1;
@@ -724,7 +728,8 @@ static RDebugPid *_extract_pid_info(const char *info, const char *path, int tid)
 }
 
 static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
-	char *regstr_end, *regname, *regtype, *tmp1, *tmpregstr, *feature_end, *typegroup;
+	char *regstr_end, *regname, *tmp1, *tmpregstr, *feature_end;
+	const char *typegroup, *regtype;
 	ut32 flagnum, regname_len, regsize, regnum;
 	RList *regs;
 	RListIter *iter;
@@ -795,7 +800,7 @@ static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			goto exit_err;
 		}
 		tmp1 += 9;
-		if (!isdigit (*tmp1)) {
+		if (!isdigit ((unsigned char)*tmp1)) {
 			goto exit_err;
 		}
 		regsize = strtoul (tmp1, NULL, 10);
@@ -803,7 +808,7 @@ static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
 		regnum = UINT32_MAX;
 		if ((tmp1 = strstr (regstr, "regnum="))) {
 			tmp1 += 8;
-			if (!isdigit (*tmp1)) {
+			if (!isdigit ((unsigned char)*tmp1)) {
 				goto exit_err;
 			}
 			regnum = strtoul (tmp1, NULL, 10);

@@ -1,15 +1,11 @@
-/* DO NOT EDIT!  -*- buffer-read-only: t -*-  This file is automatically 
-   generated from "bfd-in.h", "init.c", "opncls.c", "libbfd.c", 
-   "bfdio.c", "bfdwin.c", "section.c", "archures.c", "reloc.c", 
-   "syms.c", "bfd.c", "archive.c", "corefile.c", "targets.c", "format.c", 
-   "linker.c" and "simple.c".
-   Run "make headers" in your build bfd/ to regenerate.  */
+/*
+  Based on commits 250d07de5cf6efc81ed934c25292beb63c7e3129 from master branch 
+  of binutils-gdb.
+  This file contains some manual modifications as additon of original generated file.  */
 
 /* Main header file for the bfd library -- portable access to object files.
 
-   Copyright 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997, 1998,
-   1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006
-   Free Software Foundation, Inc.
+   Copyright (C) 1990-2021 Free Software Foundation, Inc.
 
    Contributed by Cygnus Support.
 
@@ -17,7 +13,7 @@
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
-   the Free Software Foundation; either version 2 of the License, or
+   the Free Software Foundation; either version 3 of the License, or
    (at your option) any later version.
 
    This program is distributed in the hope that it will be useful,
@@ -1783,21 +1779,40 @@ enum bfd_architecture
 #define bfd_mach_mips5000              5000
 #define bfd_mach_mips5400              5400
 #define bfd_mach_mips5500              5500
+#define bfd_mach_mips5900              5900
 #define bfd_mach_mips6000              6000
 #define bfd_mach_mips7000              7000
 #define bfd_mach_mips8000              8000
 #define bfd_mach_mips9000              9000
 #define bfd_mach_mips10000             10000
 #define bfd_mach_mips12000             12000
+#define bfd_mach_mips14000             14000
+#define bfd_mach_mips16000             16000
 #define bfd_mach_mips16                16
 #define bfd_mach_mips5                 5
 #define bfd_mach_mips_loongson_2e      3001
 #define bfd_mach_mips_loongson_2f      3002
-#define bfd_mach_mips_sb1              12310201 /* octal 'SB', 01 */
+#define bfd_mach_mips_gs464            3003
+#define bfd_mach_mips_gs464e           3004
+#define bfd_mach_mips_gs264e           3005
+#define bfd_mach_mips_sb1              12310201 /* octal 'SB', 01.  */
+#define bfd_mach_mips_octeon           6501
+#define bfd_mach_mips_octeonp          6601
+#define bfd_mach_mips_octeon2          6502
+#define bfd_mach_mips_octeon3          6503
+#define bfd_mach_mips_xlr              887682   /* decimal 'XLR'.  */
+#define bfd_mach_mips_interaptiv_mr2   736550   /* decimal 'IA2'.  */
 #define bfd_mach_mipsisa32             32
 #define bfd_mach_mipsisa32r2           33
+#define bfd_mach_mipsisa32r3           34
+#define bfd_mach_mipsisa32r5           36
+#define bfd_mach_mipsisa32r6           37
 #define bfd_mach_mipsisa64             64
 #define bfd_mach_mipsisa64r2           65
+#define bfd_mach_mipsisa64r3           66
+#define bfd_mach_mipsisa64r5           68
+#define bfd_mach_mipsisa64r6           69
+#define bfd_mach_mips_micromips        96
   bfd_arch_i386,      /* Intel 386 */
 #define bfd_mach_i386_i386 1
 #define bfd_mach_i386_i8086 2
@@ -3339,6 +3354,7 @@ add3, load, and store instructions.  */
   BFD_RELOC_M32R_GOTPC_HI_SLO,
   BFD_RELOC_M32R_GOTPC_LO,
 
+
 /* This is a 9-bit reloc  */
   BFD_RELOC_V850_9_PCREL,
 
@@ -3406,6 +3422,72 @@ bits placed non-contiguously in the instruction.  */
 /* This is a variation of BFD_RELOC_LO16 that can be used in v850e ld.bu
 instructions.  */
   BFD_RELOC_V850_LO16_SPLIT_OFFSET,
+
+/* This is a 16-bit reloc.  */
+  BFD_RELOC_V850_16_PCREL,
+
+/* This is a 17-bit reloc.  */
+  BFD_RELOC_V850_17_PCREL,
+
+/* This is a 23-bit reloc.  */
+  BFD_RELOC_V850_23,
+
+/* This is a 32-bit reloc.  */
+  BFD_RELOC_V850_32_PCREL,
+
+/* This is a 32-bit reloc.  */
+  BFD_RELOC_V850_32_ABS,
+
+/* This is a 16-bit reloc.  */
+  BFD_RELOC_V850_16_SPLIT_OFFSET,
+
+/* This is a 16-bit reloc.  */
+  BFD_RELOC_V850_16_S1,
+
+/* Low 16 bits. 16 bit shifted by 1.  */
+  BFD_RELOC_V850_LO16_S1,
+
+/* This is a 16 bit offset from the call table base pointer.  */
+  BFD_RELOC_V850_CALLT_15_16_OFFSET,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_32_GOTPCREL,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_16_GOT,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_32_GOT,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_22_PLT_PCREL,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_32_PLT_PCREL,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_COPY,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_GLOB_DAT,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_JMP_SLOT,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_RELATIVE,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_16_GOTOFF,
+
+/* DSO relocations.  */
+  BFD_RELOC_V850_32_GOTOFF,
+
+/* start code.  */
+  BFD_RELOC_V850_CODE,
+
+/* start data in text.  */
+  BFD_RELOC_V850_DATA,
 
 /* This is a 32bit pcrel reloc for the mn10300, offset by two bytes in the
 instruction.  */
@@ -5227,4 +5309,5 @@ static inline bfd_vma bfd_getl32 (const void *p) {
   return v;
 }
 #define CONST_STRNEQ(STR1,STR2) (strncmp ((STR1), (STR2), sizeof (STR2) - 1) == 0)
+#define opcodes_error_handler _bfd_error_handler
 #endif

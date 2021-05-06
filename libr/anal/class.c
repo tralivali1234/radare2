@@ -2,6 +2,7 @@
 
 #include <r_anal.h>
 #include <r_vector.h>
+#include <r_util/r_graph_drawable.h>
 #include "../include/r_anal.h"
 #include "../include/r_util/r_graph.h"
 
@@ -508,7 +509,7 @@ R_API RAnalClassErr r_anal_class_method_get(RAnal *anal, const char *class_name,
 	}
 	sdb_anext (cur, NULL);
 
-	meth->vtable_offset = atoi (cur);
+	meth->vtable_offset = atoll (cur);
 
 	free (content);
 
@@ -555,7 +556,7 @@ R_API RVector/*<RAnalMethod>*/ *r_anal_class_method_get_all(RAnal *anal, const c
 }
 
 R_API RAnalClassErr r_anal_class_method_set(RAnal *anal, const char *class_name, RAnalMethod *meth) {
-	char *content = sdb_fmt ("%"PFMT64u"%c%d", meth->addr, SDB_RS, meth->vtable_offset);
+	char *content = sdb_fmt ("%"PFMT64u"%c%"PFMT64d, meth->addr, SDB_RS, meth->vtable_offset);
 	RAnalClassErr err = r_anal_class_set_attr (anal, class_name, R_ANAL_CLASS_ATTR_TYPE_METHOD, meth->name, content);
 	if (err != R_ANAL_CLASS_ERR_SUCCESS) {
 		return err;
@@ -727,8 +728,20 @@ R_API RAnalClassErr r_anal_class_base_set(RAnal *anal, const char *class_name, R
 		free (base_class_name_sanitized);
 		return R_ANAL_CLASS_ERR_NONEXISTENT_CLASS;
 	}
+	RVector /*<RAnalBaseClass>*/ *bases = r_anal_class_base_get_all (anal, class_name);
+	if (bases) {
+		RAnalBaseClass *existing_base;
+		r_vector_foreach (bases, existing_base) {
+			if (!strcmp (existing_base->class_name, base->class_name)) {
+				free (base_class_name_sanitized);
+				r_vector_free (bases);
+				return R_ANAL_CLASS_ERR_OTHER;
+			}
+		}
+	}
 	RAnalClassErr err = r_anal_class_base_set_raw (anal, class_name, base, base_class_name_sanitized);
 	free (base_class_name_sanitized);
+	r_vector_free (bases);
 	return err;
 }
 
@@ -868,7 +881,25 @@ R_API RVector/*<RAnalVTable>*/ *r_anal_class_vtable_get_all(RAnal *anal, const c
 	return vec;
 }
 
+static bool vtable_exists_at(RAnal *anal, const char *class_name, ut64 addr) {
+	RVector *vtables = r_anal_class_vtable_get_all (anal, class_name);
+	if (vtables) {
+		RAnalVTable *existing_vtable;
+		r_vector_foreach (vtables, existing_vtable) {
+			if (addr == existing_vtable->addr) {
+				r_vector_free (vtables);
+				return true;
+			}
+		}
+	}
+	r_vector_free (vtables);
+	return false;
+}
+
 R_API RAnalClassErr r_anal_class_vtable_set(RAnal *anal, const char *class_name, RAnalVTable *vtable) {
+	if (vtable_exists_at (anal, class_name, vtable->addr)) {
+		return R_ANAL_CLASS_ERR_OTHER;
+	}
 	char *content = sdb_fmt ("0x%"PFMT64x SDB_SS "%"PFMT64u SDB_SS "%"PFMT64u, vtable->addr, vtable->offset, vtable->size);
 	if (vtable->id) {
 		return r_anal_class_set_attr (anal, class_name, R_ANAL_CLASS_ATTR_TYPE_VTABLE, vtable->id, content);
@@ -1088,7 +1119,7 @@ static bool r_anal_class_list_json_cb(void *user, const char *k, const char *v) 
 }
 
 static void r_anal_class_list_json(RAnal *anal) {
-	PJ *j = pj_new ();
+	PJ *j = anal->coreb.pjWithEncoding (anal->coreb.core);
 	if (!j) {
 		return;
 	}
@@ -1252,15 +1283,10 @@ R_API RGraph *r_anal_class_get_inheritance_graph(RAnal *anal) {
 		// create nodes
 		RGraphNode *curr_node = ht_pp_find (hashmap, name, NULL);
 		if (!curr_node) {
-			RGraphNodeInfo *data = r_graph_create_node_info (strdup (name), NULL, 0);
-			if (!data) {
-				goto failure;
-			}
-			curr_node = r_graph_add_node (class_graph, data);
+			curr_node = r_graph_add_node_info (class_graph, name, NULL, 0);
 			if (!curr_node) {
 				goto failure;
 			}
-			curr_node->free = r_graph_free_node_info;
 			ht_pp_insert (hashmap, name, curr_node);
 		}
 		// create edges between node and it's parents
@@ -1271,15 +1297,10 @@ R_API RGraph *r_anal_class_get_inheritance_graph(RAnal *anal) {
 			RGraphNode *base_node = ht_pp_find (hashmap, base->class_name, &base_found);
 			// If base isn't processed, do it now
 			if (!base_found) {
-				RGraphNodeInfo *data = r_graph_create_node_info (strdup (base->class_name), NULL, 0);
-				if (!data) {
-					goto failure;
-				}
-				base_node = r_graph_add_node (class_graph, data);
+				base_node = r_graph_add_node_info (class_graph, base->class_name, NULL, 0);
 				if (!base_node) {
 					goto failure;
 				}
-				base_node->free = r_graph_free_node_info;
 				ht_pp_insert (hashmap, base->class_name, base_node);
 			}
 			r_graph_add_edge (class_graph, base_node, curr_node);

@@ -64,8 +64,10 @@ R_API bool r_debug_add_checkpoint(RDebug *dbg) {
 	for (i = 0; i < R_REG_TYPE_LAST; i++) {
 		RRegArena *a = dbg->reg->regset[i].arena;
 		RRegArena *b = r_reg_arena_new (a->size);
-		memcpy (b->bytes, a->bytes, b->size);
-		checkpoint.arena[i] = b;
+		if (a && a->bytes) {
+			memcpy (b->bytes, a->bytes, b->size);
+			checkpoint.arena[i] = b;
+		}
 	}
 
 	// Save current memory maps
@@ -358,7 +360,7 @@ static void serialize_checkpoints(Sdb *db, RVector *checkpoints) {
 		pj_end (j);
 
 		pj_end (j);
-		sdb_set (db, sdb_fmt ("0x%"PFMT64x, chkpt->cnum), pj_string (j), 0);
+		sdb_set (db, sdb_fmt ("0x%x", chkpt->cnum), pj_string (j), 0);
 		pj_free (j);
 	}
 }
@@ -477,6 +479,8 @@ static bool deserialize_memory_cb(void *user, const char *addr, const char *v) {
 	RVector *vmem = r_vector_new (sizeof (RDebugChangeMem), NULL, NULL);
 	if (!vmem) {
 		eprintf ("Error: failed to allocate RVector vmem.\n");
+		free (json_str);
+		r_json_free (reg_json);
 		return false;
 	}
 	ht_up_insert (memory, sdb_atoi (addr), vmem);
@@ -498,6 +502,8 @@ static bool deserialize_memory_cb(void *user, const char *addr, const char *v) {
 		r_vector_push (vmem, &mem);
 	}
 
+	free (json_str);
+	r_json_free (reg_json);
 	return true;
 }
 
@@ -576,6 +582,7 @@ static bool deserialize_checkpoints_cb(void *user, const char *cnum, const char 
 	// Extract RRegArena's from "registers"
 	const RJson *regs_json = r_json_get (chkpt_json, "registers");
 	if (!regs_json || regs_json->type != R_JSON_ARRAY) {
+		free (json_str);
 		return true;
 	}
 	for (child = regs_json->children.first; child; child = child->next) {
@@ -647,6 +654,8 @@ static bool deserialize_checkpoints_cb(void *user, const char *cnum, const char 
 		r_list_append (checkpoint.snaps, snap);
 	}
 end:
+	free (json_str);
+	r_json_free (chkpt_json);
 	r_vector_push (checkpoints, &checkpoint);
 	return true;
 }

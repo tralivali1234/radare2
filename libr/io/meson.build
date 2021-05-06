@@ -2,6 +2,7 @@ r_io_sources = [
   'io.c',
   'io_fd.c',
   'io_map.c',
+  'io_memory.c',
   'io_cache.c',
   'io_desc.c',
   'io_plugin.c',
@@ -35,7 +36,7 @@ r_io_sources = [
   'p/io_shm.c',
   'p/io_sparse.c',
   'p/io_tcp.c',
-  'p/io_windbg.c',
+  'p/io_winkd.c',
   'p/io_winedbg.c',
   'p/io_zip.c',
 ]
@@ -43,6 +44,7 @@ r_io_sources = [
 if host_machine.system() == 'windows'
   r_io_sources += [
     'p/io_r2k_windows.c',
+    'p/io_windbg.c',
     'p/io_w32.c',
     'p/io_w32dbg.c',
   ]
@@ -54,7 +56,7 @@ r_io_deps = [
   r_socket_dep,
   bochs_dep,
   gdb_dep,
-  windbg_dep,
+  winkd_dep,
   qnx_dep,
   zip_dep,
   ar_dep,
@@ -74,7 +76,7 @@ if host_machine.system() == 'linux' or host_machine.system() == 'android'
 endif
 
 if use_ptrace_wrap
-  r_io_deps += ptrace_wrap_dep
+  r_io_sources += 'ptrace_wrap.c'
 endif
 
 r_io = library('r_io', r_io_sources,
@@ -83,6 +85,7 @@ r_io = library('r_io', r_io_sources,
   c_args: library_cflags,
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

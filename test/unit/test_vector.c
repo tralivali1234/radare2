@@ -65,21 +65,20 @@ static bool test_vector_fini(void) {
 	RVector v;
 	r_vector_init (&v, sizeof (void *), NULL, free);
 	r_vector_push (&v, &v);
-	mu_assert_eq (v.elem_size, 8UL, "init elem_size");
+	mu_assert_eq (v.elem_size, sizeof (void *), "init elem_size");
 	mu_assert_eq (v.len, 1, "init len");
 	mu_assert_notnull (v.a, "init a");
-	mu_assert_eq (v.capacity, 4, "init capacity");
 	mu_assert_null (v.free, "init free");
 	mu_assert_eq (v.free_user, (void*)free, "init free_user");
 	r_vector_clear (&v);
-	mu_assert_eq (v.elem_size, 8UL, "init elem_size");
+	mu_assert_eq (v.elem_size, sizeof (void *), "init elem_size");
 	mu_assert_eq (v.len, 0, "init len");
 	mu_assert_null (v.a, "init a");
 	mu_assert_eq (v.capacity, 0, "init capacity");
 	mu_assert_null (v.free, "init free");
 	mu_assert_eq (v.free_user, (void*)free, "init free_user");
 	r_vector_fini (&v);
-	mu_assert_eq (v.elem_size, 8UL, "init elem_size");
+	mu_assert_eq (v.elem_size, sizeof (void *), "init elem_size");
 	mu_assert_eq (v.len, 0, "init len");
 	mu_assert_null (v.a, "init a");
 	mu_assert_eq (v.capacity, 0, "init capacity");
@@ -602,6 +601,18 @@ static bool test_vector_shrink(void) {
 	mu_end;
 }
 
+static bool test_vector_flush(void) {
+	RVector v;
+	init_test_vector (&v, 5, 5, NULL, NULL);
+	ut32 *r = r_vector_flush (&v);
+	r_vector_fini(&v);
+	size_t i;
+	for (i = 0; i < 5; i++) {
+		mu_assert_eq (r[i], i, "flushed contents");
+	}
+	mu_end;
+}
+
 static bool test_vector_foreach(void) {
 	RVector v;
 	init_test_vector (&v, 5, 5, NULL, NULL);
@@ -1095,6 +1106,7 @@ static int all_tests(void) {
 	mu_run_test (test_vector_push_front);
 	mu_run_test (test_vector_reserve);
 	mu_run_test (test_vector_shrink);
+	mu_run_test (test_vector_flush);
 	mu_run_test (test_vector_foreach);
 	mu_run_test (test_vector_lower_bound);
 

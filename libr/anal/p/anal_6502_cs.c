@@ -5,7 +5,7 @@
 #include <r_lib.h>
 #include <r_asm.h>
 #include <r_anal.h>
-#include <capstone/capstone.h>
+#include <capstone.h>
 
 #if CS_API_MAJOR >= 4 && CS_API_MINOR >= 1
 #define CAPSTONE_HAS_MOS65XX 1
@@ -14,7 +14,7 @@
 #endif
 
 #if CAPSTONE_HAS_MOS65XX
-#include <capstone/mos65xx.h>
+#include <mos65xx.h>
 
 static csh handle = 0;
 
@@ -172,6 +172,8 @@ static bool set_reg_profile(RAnal *anal) {
 	char *p =
 		"=PC	pc\n"
 		"=SP	sp\n"
+		"=A0	y\n"
+		"=A1	x\n"
 		"gpr	a	.8	0	0\n"
 		"gpr	x	.8	1	0\n"
 		"gpr	y	.8	2	0\n"

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2018 - pancake */
+/* radare - LGPL - Copyright 2015-2021 - pancake */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,8 +15,8 @@ static int replace(int argc, const char *argv[], char *newstr) {
 	char ch;
 	struct {
 		int narg;
-		char *op;
-		char *str;
+		const char *op;
+		const char *str;
 		int args[MAXPSEUDOOPS];
 	} ops[] = {
 		{ 0, "abs", "# = abs(#)", { 1, 1 } },
@@ -53,7 +53,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ 0, "cmn", "if (# != #)", { 1, 2 } },
 		{ 0, "cmp", "if (# == #)", { 1, 2 } },
 		{ 0, "fcmp", "if (# == #)", { 1, 2 } },
-		{ 0, "tst", "if (# == #)", { 1, 2 } },
+		{ 0, "tst", "if ((# & #) == 0)", { 1, 2 } },
 		{ 0, "dvf", "# = # / #", { 1, 2, 3 } },
 		{ 0, "eor", "# = # ^ #", { 1, 2, 3 } },
 		{ 1, "bkpt", "breakpoint #", { 1 } },
@@ -127,7 +127,7 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		{ 0, "vdiv.f64", "# = (float) # / #", { 1, 2, 3 } },
 		{ 0, "addw", "# = # + #", { 1, 2, 3 } },
 		{ 0, "sub.w", "# = # - #", { 1, 2, 3 } },
-		{ 0, "tst.w", "if (# == #)", { 1, 2 } },
+		{ 0, "tst.w", "if ((# & #) == 0)", { 1, 2 } },
 		{ 0, "lsr.w", "# = # >> #", { 1, 2, 3 } },
 		{ 0, "lsl.w", "# = # << #", { 1, 2, 3 } },
 		{ 0, "pop.w", "pop #", { 1 } },
@@ -303,9 +303,9 @@ static char *mount_oldstr(RParse* p, const char *reg, st64 delta, bool ucase) {
 			if (delta < 0) {
 				sign = '-';
 			}
-			oldstr = r_str_newf ("%s %c %d", reg, sign, R_ABS (delta));
+			oldstr = r_str_newf ("%s %c %" PFMT64d, reg, sign, R_ABS (delta));
 		} else {
-			oldstr = r_str_newf ("%s, %d", reg, delta);
+			oldstr = r_str_newf ("%s, %" PFMT64d, reg, delta);
 		}
 	} else if (delta > 0) {
 		tmplt = p->pseudo ? "%s + 0x%x" : (ucase ? "%s, 0x%X" : "%s, 0x%x");
@@ -325,7 +325,7 @@ static char *mount_oldstr(RParse* p, const char *reg, st64 delta, bool ucase) {
 	return oldstr;
 }
 
-static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
+static bool subvar(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
 	RList *spargs = NULL;
 	RList *bpargs = NULL;
 	RListIter *iter;
@@ -442,7 +442,7 @@ RParsePlugin r_parse_plugin_arm_pseudo = {
 	.name = "arm.pseudo",
 	.desc = "ARM/ARM64 pseudo syntax",
 	.parse = parse,
-	.varsub = &varsub,
+	.subvar = &subvar,
 };
 
 #ifndef R2_PLUGIN_INCORE

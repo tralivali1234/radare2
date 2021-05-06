@@ -82,23 +82,19 @@ static void print_string(RBinFile *bf, RBinString *string, int raw, PJ *pj) {
 		}
 		break;
 	case R_MODE_RADARE: {
-		char *f_name, *nstr;
-		f_name = strdup (string->string);
-		r_name_filter (f_name, 512);
+		char *f_name = strdup (string->string);
+		r_name_filter (f_name, 32);
 		if (bin->prefix) {
-			nstr = r_str_newf ("%s.str.%s", bin->prefix, f_name);
 			io->cb_printf ("f %s.str.%s %u @ 0x%08"PFMT64x"\n"
 					"Cs %u @ 0x%08"PFMT64x"\n",
 					bin->prefix, f_name, string->size, addr,
 					string->size, addr);
 		} else {
-			nstr = r_str_newf ("str.%s", f_name);
 			io->cb_printf ("f str.%s %u @ 0x%08"PFMT64x"\n"
 					"Cs %u @ 0x%08"PFMT64x"\n",
 					f_name, string->size, addr,
 					string->size, addr);
 		}
-		free (nstr);
 		free (f_name);
 		break;
 		}
@@ -169,7 +165,7 @@ static int string_scan_range(RList *list, RBinFile *bf, int min,
 				if (is_wide32) {
 					str_type = R_STRING_TYPE_WIDE32;
 				} else {
-					bool is_wide = needle + rc + 2 < to && !w[0] && w[1] && !w[2];
+					bool is_wide = needle + rc + 4 < to && !w[0] && w[1] && !w[2] && w[3] && !w[4];
 					str_type = is_wide? R_STRING_TYPE_WIDE: R_STRING_TYPE_ASCII;
 				}
 			} else {
@@ -355,9 +351,11 @@ static int string_scan_range(RList *list, RBinFile *bf, int min,
 	free (buf);
 	if (pj) {
 		pj_end (pj);
-		RIO *io = bin->iob.io;
-		if (io) {
-			io->cb_printf ("%s\n", pj_string (pj));
+		if (bin) {
+			RIO *io = bin->iob.io;
+			if (io) {
+				io->cb_printf ("%s", pj_string (pj));
+			}
 		}
 		pj_free (pj);
 	}
@@ -390,12 +388,19 @@ static void get_strings_range(RBinFile *bf, RList *list, int min, int raw, ut64 
 	if (min < 0) {
 		return;
 	}
-	if (!bf->rbin->is_debugger) {
-		if (!to || to > r_buf_size (bf->buf)) {
-			to = r_buf_size (bf->buf);
-		}
-		if (!to) {
-			return;
+	{
+		RIO *io = bf->rbin->iob.io;
+		RCoreBind *cb = &io->corebind;
+		if (cb && cb->cfgGet) {
+			const bool cfg_debug = cb->cfgGet (cb->core, "cfg.debug");
+			if (!cfg_debug) {
+				if (!to || to > r_buf_size (bf->buf)) {
+					to = r_buf_size (bf->buf);
+				}
+				if (!to) {
+					return;
+				}
+			}
 		}
 	}
 	if (raw != 2) {
@@ -403,7 +408,7 @@ static void get_strings_range(RBinFile *bf, RList *list, int min, int raw, ut64 
 		// in case of dump ignore here
 		if (bf->rbin->maxstrbuf && size && size > bf->rbin->maxstrbuf) {
 			if (bf->rbin->verbose) {
-				eprintf ("WARNING: bin_strings buffer is too big (0x%08" PFMT64x "). Use -zzz or set bin.maxstrbuf (RABIN2_MAXSTRBUF) in r2 (rabin2)\n",
+				eprintf ("Warning: bin_strings buffer is too big (0x%08" PFMT64x "). Use -zzz or set bin.maxstrbuf (RABIN2_MAXSTRBUF) in r2 (rabin2)\n",
 					size);
 			}
 			return;
@@ -627,26 +632,6 @@ R_API RBinFile *r_bin_file_find_by_name(RBin *bin, const char *name) {
 		}
 	}
 	return NULL;
-}
-
-R_IPI RBinFile *r_bin_file_find_by_name_n(RBin *bin, const char *name, int idx) {
-	RListIter *iter;
-	RBinFile *bf = NULL;
-	int i = 0;
-	if (!bin) {
-		return bf;
-	}
-
-	r_list_foreach (bin->binfiles, iter, bf) {
-		if (bf && bf->file && !strcmp (bf->file, name)) {
-			if (i == idx) {
-				break;
-			}
-			i++;
-		}
-		bf = NULL;
-	}
-	return bf;
 }
 
 R_API bool r_bin_file_set_cur_by_id(RBin *bin, ut32 bin_id) {
@@ -989,9 +974,10 @@ R_IPI RBinClass *r_bin_class_new(const char *name, const char *super, int view) 
 }
 
 R_IPI void r_bin_class_free(RBinClass *k) {
-	if (k && k->name) {
+	if (k) {
 		free (k->name);
 		free (k->super);
+		free (k->visibility_str);
 		r_list_free (k->methods);
 		r_list_free (k->fields);
 		free (k);

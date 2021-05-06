@@ -163,7 +163,7 @@ fd       3
 file     malloc://1024
 size     0x400
 file     malloc://1024
-blksz    0x0
+iorw     true
 block    0x100
 3
 3
@@ -188,6 +188,8 @@ i~or~true
 i~&or,true
 i~or~ny[0]
 i~&or,ny[0]
+i~or[1]~any
+i~or[1]~:1
 EOF
 EXPECT=<<EOF
 1
@@ -198,6 +200,8 @@ iorw     true
 iorw     true
 format
 format
+any
+true
 EOF
 RUN
 

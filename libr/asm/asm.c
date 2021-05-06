@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2021 - pancake, nibble */
 
 #include <stdio.h>
 #include <r_core.h>
@@ -139,7 +139,18 @@ static inline int r_asm_pseudo_byte(RAsmOp *op, char *input) {
 
 static inline int r_asm_pseudo_fill(RAsmOp *op, char *input) {
 	int i, repeat = 0, size=0, value=0;
-	sscanf (input, "%d,%d,%d", &repeat, &size, &value); // use r_num?
+	if (strchr (input, ',')) {
+		int res = sscanf (input, "%d,%d,%d", &repeat, &size, &value); // use r_num?
+		if (res != 3) {
+			eprintf ("Invalid usage of .fill repeat,size,value\n");
+			eprintf ("for example: .fill 1,0x100,0\n");
+			return -1;
+		}
+	} else {
+		ut64 v = r_num_math (NULL, input);
+		size = (int)v;
+		repeat = 1;
+	}
 	size *= (sizeof (value) * repeat);
 	if (size > 0) {
 		ut8 *buf = malloc (size);
@@ -219,7 +230,7 @@ R_API bool r_asm_setup(RAsm *a, const char *arch, int bits, int big_endian) {
 }
 
 // TODO: spagueti
-R_API int r_asm_filter_input(RAsm *a, const char *f) {
+R_API int r_asm_sub_names_input(RAsm *a, const char *f) {
 	r_return_val_if_fail (a && f, false);
 	if (!a->ifilter) {
 		a->ifilter = r_parse_new ();
@@ -232,7 +243,7 @@ R_API int r_asm_filter_input(RAsm *a, const char *f) {
 	return true;
 }
 
-R_API int r_asm_filter_output(RAsm *a, const char *f) {
+R_API int r_asm_sub_names_output(RAsm *a, const char *f) {
 	if (!a->ofilter) {
 		a->ofilter = r_parse_new ();
 	}
@@ -317,6 +328,24 @@ R_API bool r_asm_use_assembler(RAsm *a, const char *name) {
 	return false;
 }
 
+static void load_plugin(RAsm *a, RAsmPlugin *p) {
+	SdbGperf *gp = r_asm_get_gperf (p->name);
+	if (gp) {
+		sdb_free (a->pair);
+		a->pair = sdb_new0 ();
+		sdb_open_gperf (a->pair, gp);
+		return;
+	}
+	char *r2prefix = r_str_r2_prefix (R2_SDB_OPCODES);
+	char *file = r_str_newf ("%s/%s.sdb", r_str_getf (r2prefix), p->arch);
+	if (file) {
+		sdb_free (a->pair);
+		a->pair = sdb_new (NULL, file, 0);
+		free (file);
+	}
+	free (r2prefix);
+}
+
 // TODO: this can be optimized using r_str_hash()
 R_API bool r_asm_use(RAsm *a, const char *name) {
 	RAsmPlugin *h;
@@ -327,15 +356,9 @@ R_API bool r_asm_use(RAsm *a, const char *name) {
 	r_list_foreach (a->plugins, iter, h) {
 		if (!strcmp (h->name, name) && h->arch) {
 			if (!a->cur || (a->cur && strcmp (a->cur->arch, h->arch))) {
-				char *r2prefix = r_str_r2_prefix (R2_SDB_OPCODES);
-				char *file = r_str_newf ("%s/%s.sdb", r_str_get (r2prefix), h->arch);
-				if (file) {
-					r_asm_set_cpu (a, NULL);
-					sdb_free (a->pair);
-					a->pair = sdb_new (NULL, file, 0);
-					free (file);
-				}
-				free (r2prefix);
+				r_asm_set_cpu (a, NULL);
+				load_plugin (a, h);
+
 			}
 			a->cur = h;
 			return true;
@@ -616,7 +639,7 @@ R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len) {
 	ut64 pc = a->pc;
 	RAsmOp op;
 	ut64 idx;
-	size_t ret, slen;
+	size_t ret;
 	const size_t addrbytes = a->user? ((RCore *)a->user)->io->addrbytes: 1;
 
 	if (!(acode = r_asm_code_new ())) {
@@ -629,7 +652,7 @@ R_API RAsmCode* r_asm_mdisassemble(RAsm *a, const ut8 *buf, int len) {
 	if (!(buf_asm = r_strbuf_new (NULL))) {
 		return r_asm_code_free (acode);
 	}
-	for (idx = ret = slen = 0; idx + addrbytes <= len; idx += (addrbytes * ret)) {
+	for (idx = 0; idx + addrbytes <= len; idx += (addrbytes * ret)) {
 		r_asm_set_pc (a, pc + idx);
 		ret = r_asm_disassemble (a, &op, buf + idx, len - idx);
 		if (ret < 1) {
@@ -675,7 +698,7 @@ static void *__dup_val(const void *v) {
 }
 
 R_API RAsmCode *r_asm_massemble(RAsm *a, const char *assembly) {
-	int num, stage, ret, idx, ctr, i, j, linenum = 0;
+	int num, stage, ret, idx, ctr, i, linenum = 0;
 	char *lbuf = NULL, *ptr2, *ptr = NULL, *ptr_start = NULL;
 	const char *asmcpu = NULL;
 	RAsmCode *acode = NULL;
@@ -792,7 +815,7 @@ R_API RAsmCode *r_asm_massemble(RAsm *a, const char *assembly) {
 		}
 		inComment = false;
 		r_asm_set_pc (a, pc);
-		for (idx = ret = i = j = 0, off = a->pc; i <= ctr; i++, idx += ret) {
+		for (idx = ret = i = 0, off = a->pc; i <= ctr; i++, idx += ret) {
 			buf_token = tokens[i];
 			if (!buf_token) {
 				continue;
@@ -824,7 +847,7 @@ R_API RAsmCode *r_asm_massemble(RAsm *a, const char *assembly) {
 				if (cptr && ptr && cptr < ptr) {
 					likely_comment = false;
 					for (cptr += 1; cptr < ptr ; cptr += 1) {
-						if ( ! isspace ( *cptr)) {
+						if ( ! isspace ((unsigned char) *cptr)) {
 							likely_comment = true;
 							break;
 						}
@@ -921,6 +944,9 @@ R_API RAsmCode *r_asm_massemble(RAsm *a, const char *assembly) {
 					ret = r_asm_pseudo_bits (a, ptr+6);
 				} else if (!strncmp (ptr, ".fill ", 6)) {
 					ret = r_asm_pseudo_fill (&op, ptr+6);
+					if (ret == -1) {
+						goto fail;
+					}
 				} else if (!strncmp (ptr, ".kernel ", 8)) {
 					r_syscall_setup (a->syscall, a->cur->arch, a->bits, asmcpu, ptr + 8);
 				} else if (!strncmp (ptr, ".cpu ", 5)) {
@@ -1021,6 +1047,7 @@ R_API RAsmCode *r_asm_massemble(RAsm *a, const char *assembly) {
 				if (op.buf_inc && r_buf_size (op.buf_inc) > 1) {
 					char *inc = r_buf_to_string (op.buf_inc);
 					r_buf_free (op.buf_inc);
+					op.buf_inc = NULL;
 					if (inc) {
 						ret += r_hex_str2bin (inc, acode->bytes + idx + ret);
 						free (inc);

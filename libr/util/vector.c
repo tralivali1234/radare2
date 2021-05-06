@@ -212,6 +212,15 @@ R_API void *r_vector_shrink(RVector *vec) {
 	return vec->a;
 }
 
+R_API void *r_vector_flush(RVector *vec) {
+       r_return_val_if_fail (vec, NULL);
+       r_vector_shrink (vec);
+       void *r = vec->a;
+       vec->a = NULL;
+       vec->capacity = vec->len = 0;
+       return r;
+}
+
 // pvector
 
 static void pvector_free_elem(void *e, void *user) {
@@ -296,6 +305,9 @@ R_API void r_pvector_remove_data(RPVector *vec, void *x) {
 
 R_API void *r_pvector_pop(RPVector *vec) {
 	r_return_val_if_fail (vec, NULL);
+	if (r_pvector_len (vec) < 1) {
+		return NULL;
+	}
 	void *r = r_pvector_at (vec, vec->v.len - 1);
 	r_vector_pop (&vec->v, NULL);
 	return r;
@@ -303,6 +315,9 @@ R_API void *r_pvector_pop(RPVector *vec) {
 
 R_API void *r_pvector_pop_front(RPVector *vec) {
 	r_return_val_if_fail (vec, NULL);
+	if (r_pvector_len (vec) < 1) {
+		return NULL;
+	}
 	void *r = r_pvector_at (vec, 0);
 	r_vector_pop_front (&vec->v, NULL);
 	return r;

@@ -28,6 +28,13 @@ extern "C" {
 #define SZT_ADD_OVFCHK(x, y) ((SIZE_MAX - (x)) <= (y))
 #endif
 
+	/* printf format check attributes */
+#if defined(__clang__) || defined(__GNUC__)
+#define SDB_PRINTF_CHECK(fmt, dots) __attribute__ ((format (printf, fmt, dots)))
+#else
+#define SDB_PRINTF_CHECK(fmt, dots)
+#endif
+
 #if __SDB_WINDOWS__ && !__CYGWIN__
 #include <windows.h>
 #include <fcntl.h>
@@ -74,6 +81,11 @@ extern char *strdup (const char *);
 #define SDB_KSZ 0xff
 #define SDB_VSZ 0xffffff
 
+typedef struct sdb_gperf_t {
+	const char *name;
+	const char *(*get)(const char *k);
+	unsigned int *(*hash)(const char *k);
+} SdbGperf;
 
 typedef struct sdb_t {
 	char *dir; // path+name
@@ -88,6 +100,7 @@ typedef struct sdb_t {
 	HtPP *ht;
 	ut32 eod;
 	ut32 pos;
+	SdbGperf *gp;
 	int fdump;
 	char *ndump;
 	ut64 expire;
@@ -112,6 +125,7 @@ SDB_API Sdb* sdb_new0(void);
 SDB_API Sdb* sdb_new(const char *path, const char *file, int lock);
 
 SDB_API int sdb_open(Sdb *s, const char *file);
+SDB_API int sdb_open_gperf(Sdb *s, SdbGperf *g);
 SDB_API void sdb_close(Sdb *s);
 
 SDB_API void sdb_config(Sdb *s, int options);
@@ -205,6 +219,13 @@ SDB_API bool sdb_disk_create(Sdb* s);
 SDB_API bool sdb_disk_insert(Sdb* s, const char *key, const char *val);
 SDB_API bool sdb_disk_finish(Sdb* s);
 SDB_API bool sdb_disk_unlink(Sdb* s);
+
+/* plaintext sdb files */
+SDB_API bool sdb_text_save_fd(Sdb *s, int fd, bool sort);
+SDB_API bool sdb_text_save(Sdb *s, const char *file, bool sort);
+SDB_API bool sdb_text_load_buf(Sdb *s, char *buf, size_t sz);
+SDB_API bool sdb_text_load(Sdb *s, const char *file);
+SDB_API bool sdb_text_check(Sdb *s, const char *file);
 
 /* iterate */
 SDB_API void sdb_dump_begin(Sdb* s);
@@ -363,7 +384,7 @@ SDB_API void sdb_encode_raw(char *bout, const ut8 *bin, int len);
 SDB_API int sdb_decode_raw(ut8 *bout, const char *bin, int len);
 
 // binfmt
-SDB_API char *sdb_fmt(const char *fmt, ...);
+SDB_API char *sdb_fmt(const char *fmt, ...) SDB_PRINTF_CHECK(1, 2);
 SDB_API int sdb_fmt_init(void *p, const char *fmt);
 SDB_API void sdb_fmt_free(void *p, const char *fmt);
 SDB_API int sdb_fmt_tobin(const char *_str, const char *fmt, void *stru);

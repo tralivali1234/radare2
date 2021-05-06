@@ -92,7 +92,7 @@ int linux_handle_signals(RDebug *dbg, int tid) {
 		//ptrace (PTRACE_SETSIGINFO, dbg->pid, 0, &siginfo);
 		dbg->reason.type = R_DEBUG_REASON_SIGNAL;
 		dbg->reason.signum = siginfo.si_signo;
-		dbg->stopaddr = (ut64)siginfo.si_addr;
+		dbg->stopaddr = (ut64)(size_t)siginfo.si_addr;
 		//dbg->errno = siginfo.si_errno;
 		// siginfo.si_code -> HWBKPT, USER, KERNEL or WHAT
 		// TODO: DO MORE RDEBUGREASON HERE
@@ -319,6 +319,8 @@ static RDebugReasonType linux_handle_new_task(RDebug *dbg, int tid) {
 			if (ret == -1) {
 				continue;
 			}
+#ifdef PT_GETEVENTMSG
+			// NOTE: This API was added in Linux 2.5.46
 			if (siginfo.si_signo == SIGTRAP) {
 				// si_code = (SIGTRAP | PTRACE_EVENT_* << 8)
 				int pt_evt = siginfo.si_code >> 8;
@@ -333,6 +335,7 @@ static RDebugReasonType linux_handle_new_task(RDebug *dbg, int tid) {
 					break;
 				}
 			}
+#endif
 		}
 	}
 	return R_DEBUG_REASON_UNKNOWN;
@@ -473,7 +476,7 @@ static void linux_dbg_wait_break(RDebug *dbg) {
 
 RDebugReasonType linux_dbg_wait(RDebug *dbg, int pid) {
 	RDebugReasonType reason = R_DEBUG_REASON_UNKNOWN;
-	int tid;
+	int tid = pid;
 	int status, flags = __WALL;
 	int ret = -1;
 
@@ -1008,7 +1011,7 @@ static void print_fpu(void *f){
 	}
 #endif // __ANDROID__
 #elif __i386__
-	int i,j;
+	int i;
 #if __ANDROID__
 	struct user_fpxregs_struct fpxregs = *(struct user_fpxregs_struct*)f;
 	r_cons_printf ("---- x86-32 ----\n");
@@ -1173,10 +1176,6 @@ int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 			};
 			ret = r_debug_ptrace (dbg, PTRACE_GETREGSET, pid, 1, &io);
 			// ret = ptrace (PTRACE_GETREGSET, pid, (void*)(size_t)(NT_PRSTATUS), NULL); // &io);
-			if (ret != 0) {
-				r_sys_perror("PTRACE_GETREGSET");
-				return false;
-			}
 #elif __BSD__ && (__POWERPC__ || __sparc__)
 			ret = r_debug_ptrace (dbg, PTRACE_GETREGS, pid, &regs, NULL);
 #else
@@ -1203,11 +1202,14 @@ int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 #if HAVE_YMM && __x86_64__ && defined(PTRACE_GETREGSET)
 		ut32 ymm_space[128];	// full ymm registers
 		struct _xstate xstate;
-		struct iovec iov;
+		struct iovec iov = {};
 		iov.iov_base = &xstate;
 		iov.iov_len = sizeof(struct _xstate);
 		ret = r_debug_ptrace (dbg, PTRACE_GETREGSET, pid, (void*)NT_X86_XSTATE, &iov);
-		if (ret != 0) {
+		if (errno == ENODEV) {
+			// ignore ENODEV, it just means this CPU or kernel doesn't support XSTATE
+			ret = 0;
+		} else if (ret != 0) {
 			r_sys_perror ("PTRACE_GETREGSET");
 			return false;
 		}
@@ -1215,10 +1217,14 @@ int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 		int ri,rj;
 		for (ri = 0; ri < 16; ri++)	{
 			for (rj=0; rj < 4; rj++)	{
+#ifdef __ANDROID__
+				ymm_space[ri*8+rj] = ((struct _libc_fpstate*) &xstate.fpstate)->_xmm[ri].element[rj];
+#else
 				ymm_space[ri*8+rj] = xstate.fpstate._xmm[ri].element[rj];
+#endif
 			}
-			for (rj=0; rj < 4; rj++)	{
-				ymm_space[ri*8+(rj+4)] = xstate.ymmh.ymmh_space[ri*4+rj];
+			for (rj = 0; rj < 4; rj++)	{
+				ymm_space[ri * 8 + (rj + 4)] = xstate.ymmh.ymmh_space[ri * 4 + rj];
 			}
 		}
 		size = R_MIN (sizeof (ymm_space), size);
@@ -1232,7 +1238,7 @@ int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	return false;
 }
 
-int linux_reg_write (RDebug *dbg, int type, const ut8 *buf, int size) {
+int linux_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
 	int pid = dbg->tid;
 
 	if (type == R_REG_TYPE_DRX) {

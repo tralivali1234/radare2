@@ -201,12 +201,12 @@ CMDS=<<EOF
 e asm.calls=false
 e asm.bits=32
 e asm.arch=mips
-e anal.jmp.eob=true
 e anal.nopskip=false
 e asm.cmtcol=0
 e asm.comments=false
-e asm.lines.bb=0
-e asm.lines.fcn=0
+e asm.lines.bb=false
+e asm.lines.jmp=false
+e asm.lines.fcn=false
 e asm.nbytes=4
 wx 0800040c000000000000000000000000000000000000000040040408000000000800e00300000000
 aa 2> /dev/null
@@ -233,8 +233,8 @@ e io.va=true
 e asm.calls=false
 e asm.bits=32
 e asm.arch=mips
-e anal.jmp.eob=false
-e asm.lines.bb=0
+e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 e asm.nbytes=4
 wx 0800040c000000000000000000000000000000000000000040040408000000000800e00300000000
@@ -271,6 +271,7 @@ e asm.bits=32
 e asm.arch=mips
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=0
 e asm.lines.fcn=false
 s 0x80100000
 wx 0800e0030a184400000000000000000000000
@@ -311,10 +312,10 @@ e io.va=true
 e asm.calls=false
 e asm.bits=32
 e asm.arch=mips
-e anal.jmp.eob=false
 e asm.comments=false
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=0
 e asm.lines.fcn=false
 s 0x80100000
 wx e0ffbd27000000000100001000000000fdff09150a1844000800e0032000bd27000000000000000000000
@@ -343,10 +344,10 @@ e asm.calls=false
 e asm.bits=32
 e asm.arch=mips
 e asm.comments=false
-e anal.jmp.eob=false
 e anal.nopskip=false
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=0
 e asm.lines.fcn=false
 s 0x80100000
 wx e0ffbd27000000000100001000000000000000000a1844000800e003 2000bd27000000000000000000000
@@ -375,10 +376,10 @@ e asm.calls=false
 e asm.arch=mips
 e asm.bits=32
 e asm.comments=false
-e anal.jmp.eob=false
 e anal.nopskip=false
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 wx e0ffbd27000000000000000000000000fdff09150a1844000800e0032000bd27000000000000000000000
 af 2> /dev/null
@@ -406,10 +407,10 @@ e asm.calls=false
 e asm.arch=mips
 e asm.bits=32
 e asm.comments=false
-e anal.jmp.eob=false
 e anal.nopskip=false
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 wx e0ffbd27000000000000000000000000fdff09150000000001000010000000000a1844000800e0032000bd27000000000000000000000
 af 2> /dev/null
@@ -441,10 +442,10 @@ e asm.bits=32
 e asm.arch=mips
 e asm.comments=0
 e anal.hasnext=1
-e anal.jmp.eob=0
 e anal.nopskip=1
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 s 0x8060b4f8
 wx 0000000000000000002e0500032e05000f00801021100000492d1808000082900800e003211080000000829007004010000000000016020003160200f8ff451000000000482d180801008424211000000800e003000000000000a290050040100100a524000082a00000a290552d1808010084240800e003000080a000000000e0ffbd27542d180c000000000800e0032000bd270000000000000000
@@ -510,10 +511,10 @@ e asm.bits=32
 e asm.arch=mips.gnu
 e asm.comments=0
 e anal.hasnext=1
-e anal.jmp.eob=0
 e anal.nopskip=1
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 s 0x8060b4f8
 wx 0000000000000000002e0500032e05000f00801021100000492d1808000082900800e003211080000000829007004010000000000016020003160200f8ff451000000000482d180801008424211000000800e003000000000000a290050040100100a524000082a00000a290552d1808010084240800e003000080a000000000e0ffbd27542d180c000000000800e0032000bd270000000000000000
@@ -576,10 +577,10 @@ e asm.arch=mips
 e anal.noncode=1
 e asm.comments=0
 e anal.hasnext=1
-e anal.jmp.eob=0
 e anal.nopskip=1
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=false
 s 0x8060b4f8
 wx 0000000000000000002e0500032e05000f00801021100000492d1808000082900800e003211080000000829007004010000000000016020003160200f8ff451000000000482d180801008424211000000800e003000000000000a290050040100100a524000082a00000a290552d1808010084240800e003000080a000000000e0ffbd27542d180c000000000800e0032000bd270000000000000000
@@ -646,10 +647,10 @@ e asm.arch=mips
 e anal.noncode=1
 e asm.comments=0
 e anal.hasnext=1
-e anal.jmp.eob=0
 e anal.nopskip=1
 e asm.nbytes=4
 e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.fcn=true
 s 0x8060b4f8
 wx 0000000000000000002e0500032e05000f00801021100000492d1808000082900800e003211080000000829007004010000000000016020003160200f8ff451000000000482d180801008424211000000800e003000000000000a290050040100100a524000082a00000a290552d1808010084240800e003000080a000000000e0ffbd27542d180c000000000800e0032000bd270000000000000000

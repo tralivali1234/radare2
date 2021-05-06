@@ -68,7 +68,7 @@ SDB_API int sdb_queryf (Sdb *s, const char *fmt, ...) {
         return ret;
 }
 
-SDB_API char *sdb_querysf (Sdb *s, char *buf, size_t buflen, const char *fmt, ...) {
+SDB_API char *sdb_querysf(Sdb *s, char *buf, size_t buflen, const char *fmt, ...) {
         char string[4096];
         char *ret;
         va_list ap;
@@ -259,13 +259,10 @@ repeat:
 next_quote:
 		quot = strchr (quot, '"');
 		if (quot) {
-			quot--;
-			if (*quot=='\\') {
-				memmove (quot, quot + 1, strlen (quot));
-				quot++;
+			if (*(quot - 1) == '\\') {
+				memmove (quot - 1, quot, strlen (quot) + 1);
 				goto next_quote;
 			}
-			quot++;
 			*quot++ = 0; // crash on read only mem!!
 		} else {
 			eprintf ("Missing quote\n");

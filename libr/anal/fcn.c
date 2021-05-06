@@ -1,9 +1,8 @@
-/* radare - LGPL - Copyright 2010-2020 - nibble, alvaro, pancake */
+/* radare - LGPL - Copyright 2010-2021 - nibble, alvaro, pancake */
 
 #include <r_anal.h>
 #include <r_parse.h>
 #include <r_util.h>
-#include <r_list.h>
 
 #define READ_AHEAD 1
 #define SDB_KEY_BB "bb.0x%"PFMT64x ".0x%"PFMT64x
@@ -11,6 +10,7 @@
 #define JMPTBLSZ 512
 #define JMPTBL_LEA_SEARCH_SZ 64
 #define JMPTBL_MAXFCNSIZE 4096
+#define R_ANAL_MAX_INCSTACK 8096
 #define BB_ALIGN 0x10
 #define MAX_SCAN_SIZE 0x7ffffff
 
@@ -30,12 +30,6 @@
 #define DB a->sdb_fcns
 #define EXISTS(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__), sdb_exists (DB, key)
 #define SETKEY(x, ...) snprintf (key, sizeof (key) - 1, x, ## __VA_ARGS__);
-
-typedef struct fcn_tree_iter_t {
-	int len;
-	RBNode *cur;
-	RBNode *path[R_RBTREE_MAX_HEIGHT];
-} FcnTreeIter;
 
 R_API const char *r_anal_fcntype_tostring(int type) {
 	switch (type) {
@@ -122,6 +116,7 @@ R_API int r_anal_function_resize(RAnalFunction *fcn, int newsize) {
 		}
 		if (bb->addr + bb->size >= eof) {
 			r_anal_block_set_size (bb, eof - bb->addr);
+			r_anal_block_update_hash (bb);
 		}
 		if (bb->jump != UT64_MAX && bb->jump >= eof) {
 			bb->jump = UT64_MAX;
@@ -140,13 +135,14 @@ static RAnalBlock *fcn_append_basic_block(RAnal *anal, RAnalFunction *fcn, ut64 
 		return NULL;
 	}
 	r_anal_function_add_block (fcn, bb);
+	bb->stackptr = fcn->stack;
 	bb->parent_stackptr = fcn->stack;
 	return bb;
 }
 
 #define gotoBeach(x) ret = x; goto beach;
 
-static bool isInvalidMemory(RAnal *anal, const ut8 *buf, int len) {
+static bool is_invalid_memory(RAnal *anal, const ut8 *buf, int len) {
 	if (anal->opt.nonull > 0) {
 		int i;
 		const int count = R_MIN (len, anal->opt.nonull);
@@ -162,12 +158,18 @@ static bool isInvalidMemory(RAnal *anal, const ut8 *buf, int len) {
 	return !memcmp (buf, "\xff\xff\xff\xff", R_MIN (len, 4));
 }
 
-static bool isSymbolNextInstruction(RAnal *anal, RAnalOp *op) {
-	r_return_val_if_fail (anal && op && anal->flb.get_at, false);
+static bool is_symbol_flag(const char *name) {
+	return strstr (name, "imp.")
+		|| strstr (name, "dbg.")
+		|| strstr (name, "sym.")
+		|| !strncmp (name, "entry", 5)
+		|| !strcmp (name, "main");
+}
 
+static bool next_instruction_is_symbol(RAnal *anal, RAnalOp *op) {
+	r_return_val_if_fail (anal && op && anal->flb.get_at, false);
 	RFlagItem *fi = anal->flb.get_at (anal->flb.f, op->addr + op->size, false);
-	return (fi && fi->name && (strstr (fi->name, "imp.") || strstr (fi->name, "sym.")
-			|| strstr (fi->name, "entry") || strstr (fi->name, "main")));
+	return (fi && fi->name && is_symbol_flag (fi->name));
 }
 
 static bool is_delta_pointer_table(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 lea_ptr, ut64 *jmptbl_addr, ut64 *casetbl_addr, RAnalOp *jmp_aop) {
@@ -177,9 +179,10 @@ static bool is_delta_pointer_table(RAnal *anal, RAnalFunction *fcn, ut64 addr, u
 	/* check if current instruction is followed by an ujmp */
 	ut8 buf[JMPTBL_LEA_SEARCH_SZ];
 	RAnalOp *aop = jmp_aop;
-	RAnalOp omov_aop, mov_aop = { 0 };
+	RAnalOp omov_aop = {0};
+	RAnalOp mov_aop = {0};
 	RAnalOp add_aop = {0};
-	RRegItem *reg_src, *o_reg_dst = NULL;
+	RRegItem *reg_src = NULL, *o_reg_dst = NULL;
 	RAnalValue cur_scr, cur_dst = { 0 };
 	read_ahead (anal, addr, (ut8*)buf, sizeof (buf));
 	bool isValid = false;
@@ -192,6 +195,9 @@ static bool is_delta_pointer_table(RAnal *anal, RAnalFunction *fcn, ut64 addr, u
 		}
 		if (aop->type == R_ANAL_OP_TYPE_UJMP || aop->type == R_ANAL_OP_TYPE_RJMP) {
 			isValid = true;
+			break;
+		}
+		if (aop->type == R_ANAL_OP_TYPE_JMP || aop->type == R_ANAL_OP_TYPE_CJMP) {
 			break;
 		}
 		if (aop->type == R_ANAL_OP_TYPE_MOV) {
@@ -285,14 +291,14 @@ static bool regs_exist(RAnalValue *src, RAnalValue *dst) {
 }
 
 // 0 if not skipped; 1 if skipped; 2 if skipped before
-static int skip_hp(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, RAnalBlock *bb, ut64 addr,
-                   char *tmp_buf, int oplen, int un_idx, int *idx) {
+static int skip_hp(RAnal *anal, RAnalFunction *fcn, RAnalOp *op, RAnalBlock *bb, ut64 addr, int oplen, int un_idx, int *idx) {
 	// this step is required in order to prevent infinite recursion in some cases
 	if ((addr + un_idx - oplen) == fcn->addr) {
 		// use addr instead of op->addr to mark repeat
 		if (!anal->flb.exist_at (anal->flb.f, "skip", 4, addr)) {
-			snprintf (tmp_buf + 5, MAX_FLG_NAME_SIZE - 6, "%"PFMT64u, addr);
-			anal->flb.set (anal->flb.f, tmp_buf, addr, oplen);
+			char *name = r_str_newf ("skip.%"PFMT64x,  addr);
+			anal->flb.set (anal->flb.f, name, addr, oplen);
+			free (name);
 			fcn->addr += oplen;
 			r_anal_block_relocate (bb, bb->addr + oplen, bb->size - oplen);
 			*idx = un_idx;
@@ -347,7 +353,14 @@ static void check_purity(HtUP *ht, RAnalFunction *fcn) {
 typedef struct {
 	ut64 op_addr;
 	ut64 leaddr;
+	char *reg;
 } leaddr_pair;
+
+static void free_leaddr_pair(void *pair) {
+	leaddr_pair *_pair = pair;
+	free (_pair->reg);
+	free (_pair);
+}
 
 static RAnalBlock *bbget(RAnal *anal, ut64 addr, bool jumpmid) {
 	RList *intersecting = r_anal_get_blocks_in (anal, addr);
@@ -369,11 +382,11 @@ static RAnalBlock *bbget(RAnal *anal, ut64 addr, bool jumpmid) {
 					for (i = last_instr_idx; i >= 0; i--) {
 						const ut64 off = r_anal_bb_offset_inst (bb, i);
 						const ut64 at = bb->addr + off;
-						if (addr <= at) {
+						if (addr <= at || off >= bb->size) {
 							continue;
 						}
 						RAnalOp op;
-						int size = r_anal_op (anal, &op, at, buf + off, bb->size, R_ANAL_OP_MASK_BASIC);
+						int size = r_anal_op (anal, &op, at, buf + off, bb->size - off, R_ANAL_OP_MASK_BASIC);
 						if (size > 0 && op.delay) {
 							if (op.delay >= last_instr_idx - i) {
 								in_delay_slot = true;
@@ -398,24 +411,67 @@ static RAnalBlock *bbget(RAnal *anal, ut64 addr, bool jumpmid) {
 	return ret;
 }
 
+typedef struct {
+	RAnalFunction *fcn;
+	const int stack_diff;
+} BlockTakeoverCtx;
+
 static bool fcn_takeover_block_recursive_followthrough_cb(RAnalBlock *block, void *user) {
-	RAnalFunction *our_fcn = user;
+	BlockTakeoverCtx *ctx = user;
+	RAnalFunction *our_fcn = ctx->fcn;
 	r_anal_block_ref (block);
 	while (!r_list_empty (block->fcns)) {
 		RAnalFunction *other_fcn = r_list_first (block->fcns);
 		if (other_fcn->addr == block->addr) {
 			return false;
 		}
+		// Steal vars from this block
+		size_t i;
+		for (i = 0; i < block->ninstr; i++) {
+			const ut64 addr = r_anal_bb_opaddr_i (block, i);
+			RPVector *vars_used = r_anal_function_get_vars_used_at (other_fcn, addr);
+			if (!vars_used) {
+				continue;
+			}
+			// vars_used will get modified if r_anal_var_remove_access_at gets called
+			RPVector *cloned_vars_used = (RPVector *)r_vector_clone ((RVector *)vars_used);
+			void **it;
+			r_pvector_foreach (cloned_vars_used, it) {
+				RAnalVar *other_var = *it;
+				const int actual_delta = other_var->kind == R_ANAL_VAR_KIND_SPV
+					? other_var->delta + ctx->stack_diff
+					: other_var->delta + (other_fcn->bp_off - our_fcn->bp_off);
+				RAnalVar *our_var = r_anal_function_get_var (our_fcn, other_var->kind, actual_delta);
+				if (!our_var) {
+					our_var = r_anal_function_set_var (our_fcn, actual_delta, other_var->kind, other_var->type, 0, other_var->isarg, other_var->name);
+				}
+				if (our_var) {
+					RAnalVarAccess *acc = r_anal_var_get_access_at (other_var, addr);
+					r_anal_var_set_access (our_var, acc->reg, addr, acc->type, acc->stackptr);
+				}
+				r_anal_var_remove_access_at (other_var, addr);
+				if (r_vector_empty (&other_var->accesses)) {
+					r_anal_function_delete_var (other_fcn, other_var);
+				}
+			}
+			r_pvector_free (cloned_vars_used);
+		}
+
+		// TODO: remove block->ninstr from other_fcn considering delay slots
 		r_anal_function_remove_block (other_fcn, block);
 	}
+	block->stackptr -= ctx->stack_diff;
+	block->parent_stackptr -= ctx->stack_diff;
 	r_anal_function_add_block (our_fcn, block);
+	// TODO: add block->ninstr from our_fcn considering delay slots
 	r_anal_block_unref (block);
 	return true;
 }
 
 // Remove block and all of its recursive successors from all its functions and add them only to fcn
 static void fcn_takeover_block_recursive(RAnalFunction *fcn, RAnalBlock *start_block) {
-	r_anal_block_recurse_followthrough (start_block, fcn_takeover_block_recursive_followthrough_cb, fcn);
+	BlockTakeoverCtx ctx = { fcn, start_block->parent_stackptr - fcn->stack};
+	r_anal_block_recurse_followthrough (start_block, fcn_takeover_block_recursive_followthrough_cb, &ctx);
 }
 
 static const char *retpoline_reg(RAnal *anal, ut64 addr) {
@@ -469,15 +525,23 @@ static inline bool does_arch_destroys_dst(const char *arch) {
 }
 
 static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int depth) {
-	const int continue_after_jump = anal->opt.afterjmp;
+	if (depth < 1) {
+		if (anal->verbose) {
+			eprintf ("Too deep fcn_recurse at 0x%"PFMT64x "\n", addr);
+		}
+		return R_ANAL_RET_ERROR; // MUST BE TOO DEEP
+	}
+	// TODO Store all this stuff in the heap so we save memory in the stack
+	RAnalOp *op = NULL;
+	char *movbasereg = NULL;
 	const int addrbytes = anal->iob.io ? anal->iob.io->addrbytes : 1;
 	char *last_reg_mov_lea_name = NULL;
 	RAnalBlock *bb = NULL;
 	RAnalBlock *bbg = NULL;
 	int ret = R_ANAL_RET_END, skip_ret = 0;
 	bool overlapped = false;
-	RAnalOp op = {0};
 	int oplen, idx = 0;
+	size_t lea_cnt = 0;
 	static ut64 cmpval = UT64_MAX; // inherited across functions, otherwise it breaks :?
 	bool varset = false;
 	struct {
@@ -491,32 +555,22 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 		0
 	};
 	bool arch_destroys_dst = does_arch_destroys_dst (anal->cur->arch);
-	bool is_arm = anal->cur->arch && !strncmp (anal->cur->arch, "arm", 3);
-	char tmp_buf[MAX_FLG_NAME_SIZE + 5] = "skip";
-	bool is_x86 = is_arm ? false: anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
-	bool is_amd64 = is_x86 ? fcn->cc && !strcmp (fcn->cc, "amd64") : false;
-	bool is_dalvik = is_x86? false: anal->cur->arch && !strncmp (anal->cur->arch, "dalvik", 6);
+	const bool is_arm = anal->cur->arch && !strncmp (anal->cur->arch, "arm", 3);
+	const bool is_v850 = is_arm ? false: (anal->cur->arch && (!strncmp (anal->cur->arch, "v850", 4) || !strncmp (anal->coreb.cfgGet (anal->coreb.core, "asm.cpu"), "v850", 4)));
+	const bool is_x86 = is_arm ? false: anal->cur->arch && !strncmp (anal->cur->arch, "x86", 3);
+	const bool is_amd64 = is_x86 ? fcn->cc && !strcmp (fcn->cc, "amd64") : false;
+	const bool is_dalvik = is_x86? false: anal->cur->arch && !strncmp (anal->cur->arch, "dalvik", 6);
 	RRegItem *variadic_reg = NULL;
 	if (is_amd64) {
 		variadic_reg = r_reg_get (anal->reg, "rax", R_REG_TYPE_GPR);
 	}
 	bool has_variadic_reg = !!variadic_reg;
-	const char *bp_reg = anal->reg->name[R_REG_NAME_BP];
-	const char *sp_reg = anal->reg->name[R_REG_NAME_SP];
-	bool has_stack_regs = bp_reg && sp_reg;
 
 	if (r_cons_is_breaked ()) {
 		return R_ANAL_RET_END;
 	}
 	if (anal->sleep) {
 		r_sys_usleep (anal->sleep);
-	}
-
-	if (depth < 1) {
-		if (anal->verbose) {
-			eprintf ("Anal went too deep at address 0x%"PFMT64x ".\n", addr);
-		}
-		return R_ANAL_RET_ERROR; // MUST BE TOO DEEP
 	}
 
 	// check if address is readable //:
@@ -551,7 +605,7 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 			return R_ANAL_RET_END;
 		}
 		if (anal->verbose) {
-			eprintf ("r_anal_fcn_bb() fails at 0x%"PFMT64x ".\n", addr);
+			eprintf ("r_anal_fcn_bb() fails at 0x%"PFMT64x "\n", addr);
 		}
 		return R_ANAL_RET_ERROR; // MUST BE NOT DUP
 	}
@@ -561,7 +615,7 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 	r_return_val_if_fail (bb, R_ANAL_RET_ERROR);
 
 	if (!anal->leaddrs) {
-		anal->leaddrs = r_list_newf (free);
+		anal->leaddrs = r_list_newf (free_leaddr_pair);
 		if (!anal->leaddrs) {
 			eprintf ("Cannot create leaddr list\n");
 			gotoBeach (R_ANAL_RET_ERROR);
@@ -585,8 +639,8 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 		}
 		r_list_free (list);
 	}
-	ut64 movdisp = UT64_MAX; // used by jmptbl when coded as "mov reg,[R*4+B]"
-	ut8 buf[32]; // 32 bytes is enough to hold any instruction.
+	ut64 movdisp = UT64_MAX; // used by jmptbl when coded as "mov Reg,[Reg*Scale+Disp]"
+	ut64 movscale = 0;
 	int maxlen = len * addrbytes;
 	if (is_dalvik) {
 		bool skipAnalysis = false;
@@ -598,7 +652,6 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 			}
 		}
 		if (skipAnalysis) {
-			ret = 0;
 			gotoBeach (R_ANAL_RET_END);
 		}
 	}
@@ -609,6 +662,7 @@ static int fcn_recurse(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int
 		maxlen = 0;
 	}
 
+	op = r_anal_op_new ();
 	while (addrbytes * idx < maxlen) {
 		if (!last_is_reg_mov_lea) {
 			free (last_reg_mov_lea_name);
@@ -621,6 +675,7 @@ repeat:
 		if (r_cons_is_breaked ()) {
 			break;
 		}
+		ut8 buf[32]; // 32 bytes is enough to hold any instruction.
 		ut32 at_delta = addrbytes * idx;
 		ut64 at = addr + at_delta;
 		ut64 bytes_read = R_MIN (len - at_delta, sizeof (buf));
@@ -630,14 +685,14 @@ repeat:
 			eprintf ("Failed to read\n");
 			break;
 		}
-		if (isInvalidMemory (anal, buf, bytes_read)) {
+		if (is_invalid_memory (anal, buf, bytes_read)) {
 			if (anal->verbose) {
 				eprintf ("Warning: FFFF opcode at 0x%08"PFMT64x "\n", at);
 			}
 			gotoBeach (R_ANAL_RET_ERROR)
 		}
-		r_anal_op_fini (&op);
-		if ((oplen = r_anal_op (anal, &op, at, buf, bytes_read, R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_VAL | R_ANAL_OP_MASK_HINT)) < 1) {
+		r_anal_op_fini (op);
+		if ((oplen = r_anal_op (anal, op, at, buf, bytes_read, R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_VAL | R_ANAL_OP_MASK_HINT)) < 1) {
 			if (anal->verbose) {
 				eprintf ("Invalid instruction at 0x%"PFMT64x" with %d bits\n", at, anal->bits);
 			}
@@ -645,6 +700,10 @@ repeat:
 			// RET_END causes infinite loops somehow
 			gotoBeach (R_ANAL_RET_END);
 		}
+		const char *bp_reg = anal->reg->name[R_REG_NAME_BP];
+		const char *sp_reg = anal->reg->name[R_REG_NAME_SP];
+		const bool has_stack_regs = bp_reg && sp_reg;
+
 		if (anal->opt.nopskip && fcn->addr == at) {
 			RFlagItem *fi = anal->flb.get_at (anal->flb.f, addr, false);
 			if (!fi || strncmp (fi->name, "sym.", 4)) {
@@ -656,19 +715,19 @@ repeat:
 					}
 				}
 			}
-			switch (op.type & R_ANAL_OP_TYPE_MASK) {
+			switch (op->type & R_ANAL_OP_TYPE_MASK) {
 			case R_ANAL_OP_TYPE_TRAP:
 			case R_ANAL_OP_TYPE_ILL:
 			case R_ANAL_OP_TYPE_NOP:
-				if (r_anal_block_relocate (bb, at + op.size, bb->size)) {
-					addr = at + op.size;
+				if (r_anal_block_relocate (bb, at + op->size, bb->size)) {
+					addr = at + op->size;
 					fcn->addr = addr;
 					goto repeat;
 				}
 			}
 		}
-		if (op.hint.new_bits) {
-			r_anal_hint_set_bits (anal, op.jump, op.hint.new_bits);
+		if (op->hint.new_bits) {
+			r_anal_hint_set_bits (anal, op->jump, op->hint.new_bits);
 		}
 		if (idx > 0 && !overlapped) {
 			bbg = bbget (anal, at, anal->opt.jmpmid && is_x86);
@@ -688,7 +747,7 @@ repeat:
 			}
 		}
 		if (!overlapped) {
-			ut64 newbbsize = bb->size + oplen;
+			const ut64 newbbsize = bb->size + oplen;
 			if (newbbsize > MAX_FCN_SIZE) {
 				gotoBeach (R_ANAL_RET_ERROR);
 			}
@@ -708,7 +767,7 @@ repeat:
 					bb->jump = at + oplen;
 					if (from_addr != bb->addr) {
 						bb->fail = handle_addr;
-						ret = r_anal_fcn_bb (anal, fcn, handle_addr, depth);
+						ret = r_anal_fcn_bb (anal, fcn, handle_addr, depth - 1);
 						eprintf ("(%s) 0x%08"PFMT64x"\n", handle, handle_addr);
 						if (bb->size == 0) {
 							r_anal_function_remove_block (fcn, bb);
@@ -724,7 +783,7 @@ repeat:
 		}
 		idx += oplen;
 		delay.un_idx = idx;
-		if (anal->opt.delay && op.delay > 0 && !delay.pending) {
+		if (anal->opt.delay && op->delay > 0 && !delay.pending) {
 			// Handle first pass through a branch delay jump:
 			// Come back and handle the current instruction later.
 			// Save the location of it in `delay.idx`
@@ -734,7 +793,7 @@ repeat:
 				eprintf("Enter branch delay at 0x%08"PFMT64x ". bb->sz=%"PFMT64u"\n", at - oplen, bb->size);
 			}
 			delay.idx = idx - oplen;
-			delay.cnt = op.delay;
+			delay.cnt = op->delay;
 			delay.pending = 1; // we need this in case the actual idx is zero...
 			delay.adjust = !overlapped; // adjustment is required later to avoid double count
 			continue;
@@ -756,7 +815,7 @@ repeat:
 				// at the original instruction that entered
 				// the branch delay.
 			}
-		} else if (op.delay > 0 && delay.pending) {
+		} else if (op->delay > 0 && delay.pending) {
 			if (anal->verbose) {
 				eprintf ("Revisit branch delay jump at 0x%08"PFMT64x ". bb->sz=%"PFMT64u"\n", addr + idx - oplen, bb->size);
 			}
@@ -778,15 +837,15 @@ repeat:
 		}
 		// Note: if we got two branch delay instructions in a row due to an
 		// compiler bug or junk or something it wont get treated as a delay
-		switch (op.stackop) {
+		switch (op->stackop) {
 		case R_ANAL_STACK_INC:
-			if (R_ABS (op.stackptr) < 8096) {
-				fcn->stack += op.stackptr;
+			if (R_ABS (op->stackptr) < R_ANAL_MAX_INCSTACK) {
+				fcn->stack += op->stackptr;
 				if (fcn->stack > fcn->maxstack) {
 					fcn->maxstack = fcn->stack;
 				}
 			}
-			bb->stackptr += op.stackptr;
+			bb->stackptr += op->stackptr;
 			break;
 		case R_ANAL_STACK_RESET:
 			bb->stackptr = 0;
@@ -794,41 +853,45 @@ repeat:
 		default:
 			break;
 		}
-		if (op.ptr && op.ptr != UT64_MAX && op.ptr != UT32_MAX) {
+		if (op->ptr && op->ptr != UT64_MAX && op->ptr != UT32_MAX) {
 			// swapped parameters wtf
-			r_anal_xrefs_set (anal, op.addr, op.ptr, R_ANAL_REF_TYPE_DATA);
+			r_anal_xrefs_set (anal, op->addr, op->ptr, R_ANAL_REF_TYPE_DATA);
 		}
-		analyze_retpoline (anal, &op);
-		switch (op.type & R_ANAL_OP_TYPE_MASK) {
+		analyze_retpoline (anal, op);
+		switch (op->type & R_ANAL_OP_TYPE_MASK) {
 		case R_ANAL_OP_TYPE_CMOV:
 		case R_ANAL_OP_TYPE_MOV:
 			last_is_reg_mov_lea = false;
 			if (is_arm) { // mov lr, pc
-				const char *esil = r_strbuf_get (&op.esil);
+				const char *esil = r_strbuf_get (&op->esil);
 				if (!r_str_cmp (esil, "pc,lr,=", -1)) {
 					last_is_mov_lr_pc = true;
 				}
 			}
-			if (has_stack_regs && op_is_set_bp (&op, bp_reg, sp_reg)) {
+			if (has_stack_regs && op_is_set_bp (op, bp_reg, sp_reg)) {
 				fcn->bp_off = fcn->stack;
 			}
 			// Is this a mov of immediate value into a register?
-			if (op.dst && op.dst->reg && op.dst->reg->name && op.val > 0 && op.val != UT64_MAX) {
+			if (op->dst && op->dst->reg && op->dst->reg->name && op->val > 0 && op->val != UT64_MAX) {
 				free (last_reg_mov_lea_name);
-				if ((last_reg_mov_lea_name = strdup (op.dst->reg->name))) {
-					last_reg_mov_lea_val = op.val;
+				if ((last_reg_mov_lea_name = strdup (op->dst->reg->name))) {
+					last_reg_mov_lea_val = op->val;
 					last_is_reg_mov_lea = true;
 				}
 			}
 			// skip mov reg, reg
-			if (anal->opt.jmptbl) {
-				if (op.scale && op.ireg) {
-					movdisp = op.disp;
+			if (anal->opt.jmptbl && op->scale && op->ireg) {
+				movdisp = op->disp;
+				movscale = op->scale;
+				if (op->src[0] && op->src[0]->reg) {
+					free (movbasereg);
+					movbasereg = strdup (op->src[0]->reg->name);
+				} else {
+					R_FREE (movbasereg);
 				}
 			}
-			if (anal->opt.hpskip && regs_exist (op.src[0], op.dst)
-			&& !strcmp (op.src[0]->reg->name, op.dst->reg->name)) {
-				skip_ret = skip_hp (anal, fcn, &op, bb, addr, tmp_buf, oplen, delay.un_idx, &idx);
+			if (anal->opt.hpskip && regs_exist (op->src[0], op->dst) && !strcmp (op->src[0]->reg->name, op->dst->reg->name)) {
+				skip_ret = skip_hp (anal, fcn, op, bb, addr, oplen, delay.un_idx, &idx);
 				if (skip_ret == 1) {
 					goto repeat;
 				}
@@ -839,35 +902,63 @@ repeat:
 			break;
 		case R_ANAL_OP_TYPE_LEA:
 			last_is_reg_mov_lea = false;
-			// if first byte in op.ptr is 0xff, then set leaddr assuming its a jumptable
+			// if first byte in op->ptr is 0xff, then set leaddr assuming its a jumptable
+#if 0
 			{
 				ut8 buf[4];
-				anal->iob.read_at (anal->iob.io, op.ptr, buf, sizeof (buf));
+				anal->iob.read_at (anal->iob.io, op->ptr, buf, sizeof (buf));
 				if ((buf[2] == 0xff || buf[2] == 0xfe) && buf[3] == 0xff) {
 					leaddr_pair *pair = R_NEW (leaddr_pair);
 					if (!pair) {
 						eprintf ("Cannot create leaddr_pair\n");
 						gotoBeach (R_ANAL_RET_ERROR);
 					}
-					pair->op_addr = op.addr;
-					pair->leaddr = op.ptr; // XXX movdisp is dupped but seems to be trashed sometimes(?), better track leaddr separately
+					pair->op_addr = op->addr;
+					pair->leaddr = op->ptr; // XXX movdisp is dupped but seems to be trashed sometimes(?), better track leaddr separately
 					r_list_append (anal->leaddrs, pair);
 				}
-				if (has_stack_regs && op_is_set_bp (&op, bp_reg, sp_reg)) {
-					fcn->bp_off = fcn->stack - op.src[0]->delta;
+				if (has_stack_regs && op_is_set_bp (op, bp_reg, sp_reg)) {
+					fcn->bp_off = fcn->stack - op->src[0]->delta;
 				}
-				if (op.dst && op.dst->reg && op.dst->reg->name && op.ptr > 0 && op.ptr != UT64_MAX) {
+				if (op->dst && op->dst->reg && op->dst->reg->name && op->ptr > 0 && op->ptr != UT64_MAX) {
 					free (last_reg_mov_lea_name);
-					if ((last_reg_mov_lea_name = strdup (op.dst->reg->name))) {
-						last_reg_mov_lea_val = op.ptr;
+					if ((last_reg_mov_lea_name = strdup (op->dst->reg->name))) {
+						last_reg_mov_lea_val = op->ptr;
 						last_is_reg_mov_lea = true;
 					}
 				}
+#else
+			if (op->ptr != UT64_MAX) {
+				leaddr_pair *pair = R_NEW (leaddr_pair);
+				if (!pair) {
+					eprintf ("Cannot create leaddr_pair\n");
+					gotoBeach (R_ANAL_RET_ERROR);
+				}
+				pair->op_addr = op->addr;
+				pair->leaddr = op->ptr; // XXX movdisp is dupped but seems to be trashed sometimes(?), better track leaddr separately
+				pair->reg = op->reg
+					? strdup (op->reg)
+					: op->dst && op->dst->reg
+					? strdup (op->dst->reg->name)
+					: NULL;
+				lea_cnt++;
+				r_list_append (anal->leaddrs, pair);
 			}
+			if (has_stack_regs && op_is_set_bp (op, bp_reg, sp_reg)     ) {
+				fcn->bp_off = fcn->stack - op->src[0]->delta;
+			}
+			if (op->dst && op->dst->reg && op->dst->reg->name && op->ptr > 0 && op->ptr != UT64_MAX) {
+				free(last_reg_mov_lea_name);
+				if ((last_reg_mov_lea_name = strdup(op->dst->reg->name))) {
+					last_reg_mov_lea_val = op->ptr;
+					last_is_reg_mov_lea = true;
+				}
+			}
+#endif
 			// skip lea reg,[reg]
-			if (anal->opt.hpskip && regs_exist (op.src[0], op.dst)
-			&& !strcmp (op.src[0]->reg->name, op.dst->reg->name)) {
-				skip_ret = skip_hp (anal, fcn, &op, bb, at, tmp_buf, oplen, delay.un_idx, &idx);
+			if (anal->opt.hpskip && regs_exist (op->src[0], op->dst)
+			&& !strcmp (op->src[0]->reg->name, op->dst->reg->name)) {
+				skip_ret = skip_hp (anal, fcn, op, bb, at, oplen, delay.un_idx, &idx);
 				if (skip_ret == 1) {
 					goto repeat;
 				}
@@ -876,43 +967,51 @@ repeat:
 				}
 			}
 			if (anal->opt.jmptbl) {
-				RAnalOp jmp_aop = {0};
-				ut64 jmptbl_addr = op.ptr;
-				ut64 casetbl_addr = op.ptr;
-				if (is_delta_pointer_table (anal, fcn, op.addr, op.ptr, &jmptbl_addr, &casetbl_addr, &jmp_aop)) {
+				RAnalOp *jmp_aop = r_anal_op_new ();
+				ut64 jmptbl_addr = op->ptr;
+				ut64 casetbl_addr = op->ptr;
+				if (is_delta_pointer_table (anal, fcn, op->addr, op->ptr, &jmptbl_addr, &casetbl_addr, jmp_aop)) {
 					ut64 table_size, default_case = 0;
+					st64 case_shift;
 					// we require both checks here since try_get_jmptbl_info uses
 					// BB info of the final jmptbl jump, which is no present with
 					// is_delta_pointer_table just scanning ahead
 					// try_get_delta_jmptbl_info doesn't work at times where the
 					// lea comes after the cmp/default case cjmp, which can be
 					// handled with try_get_jmptbl_info
-					if (try_get_jmptbl_info (anal, fcn, jmp_aop.addr, bb, &table_size, &default_case)
-						|| try_get_delta_jmptbl_info (anal, fcn, jmp_aop.addr, op.addr, &table_size, &default_case)) {
-						ret = casetbl_addr == op.ptr
-							? try_walkthrough_jmptbl (anal, fcn, bb, depth, jmp_aop.addr, jmptbl_addr, op.ptr, 4, table_size, default_case, 4)
-							: try_walkthrough_casetbl (anal, fcn, bb, depth, jmp_aop.addr, jmptbl_addr, casetbl_addr, op.ptr, 4, table_size, default_case, 4);
+					ut64 addr = jmp_aop->addr;
+					bool ready = false;
+					if (try_get_jmptbl_info (anal, fcn, addr, bb, &table_size, &default_case, &case_shift)) {
+						ready = true;
+					} else if (try_get_delta_jmptbl_info (anal, fcn, addr, op->addr, &table_size, &default_case, &case_shift)) {
+						ready = true;
+					}
+// TODO: -1-
+					if (ready) {
+						ret = casetbl_addr == op->ptr
+							? try_walkthrough_jmptbl (anal, fcn, bb, depth, addr, case_shift, jmptbl_addr, op->ptr, 4, table_size, default_case, 4)
+							: try_walkthrough_casetbl (anal, fcn, bb, depth, addr, case_shift, jmptbl_addr, casetbl_addr, op->ptr, 4, table_size, default_case, 4);
 						if (ret) {
-							lea_jmptbl_ip = jmp_aop.addr;
+							lea_jmptbl_ip = addr;
 						}
 					}
 				}
-				r_anal_op_fini (&jmp_aop);
+				r_anal_op_free (jmp_aop);
 			}
 			break;
 		case R_ANAL_OP_TYPE_LOAD:
 			if (anal->opt.loads) {
-				if (anal->iob.is_valid_offset (anal->iob.io, op.ptr, 0)) {
-					r_meta_set (anal, R_META_TYPE_DATA, op.ptr, 4, "");
+				if (anal->iob.is_valid_offset (anal->iob.io, op->ptr, 0)) {
+					r_meta_set (anal, R_META_TYPE_DATA, op->ptr, 4, "");
 				}
 			}
 			break;
 			// Case of valid but unused "add [rax], al"
 		case R_ANAL_OP_TYPE_ADD:
 			if (anal->opt.ijmp) {
-				if ((op.size + 4 <= bytes_read) && !memcmp (buf + op.size, "\x00\x00\x00\x00", 4)) {
+				if ((op->size + 4 <= bytes_read) && !memcmp (buf + op->size, "\x00\x00\x00\x00", 4)) {
 					r_anal_block_set_size (bb, bb->size - oplen);
-					op.type = R_ANAL_OP_TYPE_RET;
+					op->type = R_ANAL_OP_TYPE_RET;
 					gotoBeach (R_ANAL_RET_END);
 				}
 			}
@@ -925,11 +1024,11 @@ repeat:
 			// do nothing, because the nopskip goes before this switch
 			break;
 		case R_ANAL_OP_TYPE_JMP:
-			if (op.jump == UT64_MAX) {
+			if (op->jump == UT64_MAX) {
 				gotoBeach (R_ANAL_RET_END);
 			}
 			{
-				RFlagItem *fi = anal->flb.get_at (anal->flb.f, op.jump, false);
+				RFlagItem *fi = anal->flb.get_at (anal->flb.f, op->jump, false);
 				if (fi && strstr (fi->name, "imp.")) {
 					gotoBeach (R_ANAL_RET_END);
 				}
@@ -938,49 +1037,50 @@ repeat:
 				gotoBeach (R_ANAL_RET_END);
 			}
 			if (anal->opt.jmpref) {
-				(void) r_anal_xrefs_set (anal, op.addr, op.jump, R_ANAL_REF_TYPE_CODE);
+				(void) r_anal_xrefs_set (anal, op->addr, op->jump, R_ANAL_REF_TYPE_CODE);
 			}
-			if (!anal->opt.jmpabove && (op.jump < fcn->addr)) {
+			if (!anal->opt.jmpabove && (op->jump < fcn->addr)) {
 				gotoBeach (R_ANAL_RET_END);
 			}
-			if (r_anal_noreturn_at (anal, op.jump)) {
+			if (r_anal_noreturn_at (anal, op->jump)) {
 				gotoBeach (R_ANAL_RET_END);
 			}
 			{
 				bool must_eob = true;
-				RIOMap *map = anal->iob.map_get (anal->iob.io, addr);
+				RIOMap *map = anal->iob.map_get_at (anal->iob.io, addr);
 				if (map) {
-					must_eob = (op.jump < map->itv.addr || op.jump >= map->itv.addr + map->itv.size);
+					must_eob = ( ! r_io_map_contain (map, op->jump) );
 				}
 				if (must_eob) {
-					op.jump = UT64_MAX;
+					op->jump = UT64_MAX;
 					gotoBeach (R_ANAL_RET_END);
 				}
 			}
 #if FIX_JMP_FWD
-			bb->jump = op.jump;
+			bb->jump = op->jump;
 			bb->fail = UT64_MAX;
 			FITFCNSZ ();
 			gotoBeach (R_ANAL_RET_END);
 #else
 			if (!overlapped) {
-				bb->jump = op.jump;
+				bb->jump = op->jump;
 				bb->fail = UT64_MAX;
 			}
-			ret = r_anal_fcn_bb (anal, fcn, op.jump, depth);
+			// -1
+			ret = r_anal_fcn_bb (anal, fcn, op->jump, depth);
 			int tc = anal->opt.tailcall;
 			if (tc) {
-				// eprintf ("TAIL CALL AT 0x%llx\n", op.addr);
-				int diff = op.jump - op.addr;
+				// eprintf ("TAIL CALL AT 0x%llx\n", op->addr);
+				int diff = op->jump - op->addr;
 				if (tc < 0) {
 					ut8 buf[32];
-					(void)anal->iob.read_at (anal->iob.io, op.jump, (ut8 *) buf, sizeof (buf));
+					(void)anal->iob.read_at (anal->iob.io, op->jump, (ut8 *) buf, sizeof (buf));
 					if (r_anal_is_prelude (anal, buf, sizeof (buf))) {
-						fcn_recurse (anal, fcn, op.jump, anal->opt.bb_max_size, depth - 1);
+						fcn_recurse (anal, fcn, op->jump, anal->opt.bb_max_size, depth - 1);
 					}
 				} else if (R_ABS (diff) > tc) {
-					(void) r_anal_xrefs_set (anal, op.addr, op.jump, R_ANAL_REF_TYPE_CALL);
-					fcn_recurse (anal, fcn, op.jump, anal->opt.bb_max_size, depth - 1);
+					(void) r_anal_xrefs_set (anal, op->addr, op->jump, R_ANAL_REF_TYPE_CALL);
+					fcn_recurse (anal, fcn, op->jump, anal->opt.bb_max_size, depth - 1);
 					gotoBeach (R_ANAL_RET_END);
 				}
 			}
@@ -988,18 +1088,19 @@ repeat:
 #endif
 			break;
 		case R_ANAL_OP_TYPE_SUB:
-			if (op.val != UT64_MAX && op.val > 0) {
+			if (op->val != UT64_MAX && op->val > 0) {
 				// if register is not stack
-				cmpval = op.val;
+				cmpval = op->val;
 			}
 			break;
 		case R_ANAL_OP_TYPE_CMP: {
-			ut64 val = is_x86 ? op.val : op.ptr;
+			ut64 val = (is_x86 || is_v850)? op->val : op->ptr;
 			if (val) {
 				cmpval = val;
 				bb->cmpval = cmpval;
-				bb->cmpreg = op.reg;
-				bb->cond = r_anal_cond_new_from_op (&op);
+				bb->cmpreg = op->reg;
+				r_anal_cond_free (bb->cond);
+				bb->cond = r_anal_cond_new_from_op (op);
 			}
 		}
 			break;
@@ -1008,58 +1109,46 @@ repeat:
 		case R_ANAL_OP_TYPE_RCJMP:
 		case R_ANAL_OP_TYPE_UCJMP:
 			if (anal->opt.cjmpref) {
-				(void) r_anal_xrefs_set (anal, op.addr, op.jump, R_ANAL_REF_TYPE_CODE);
+				(void) r_anal_xrefs_set (anal, op->addr, op->jump, R_ANAL_REF_TYPE_CODE);
 			}
 			if (!overlapped) {
-				bb->jump = op.jump;
-				bb->fail = op.fail;
+				bb->jump = op->jump;
+				bb->fail = op->fail;
 			}
 			if (bb->cond) {
-				bb->cond->type = op.cond;
+				bb->cond->type = op->cond;
 			}
 			if (anal->opt.jmptbl) {
-				if (op.ptr != UT64_MAX) {
+				if (op->ptr != UT64_MAX) {
 					ut64 table_size, default_case;
 					table_size = cmpval + 1;
-					default_case = op.fail; // is this really default case?
-					if (cmpval != UT64_MAX && default_case != UT64_MAX && (op.reg || op.ireg)) {
-						if (op.ireg) {
-							ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.ptr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
-						} else { // op.reg
-							ret = walkthrough_arm_jmptbl_style (anal, fcn, bb, depth, op.addr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
+					default_case = op->fail; // is this really default case?
+					if (cmpval != UT64_MAX && default_case != UT64_MAX && (op->reg || op->ireg)) {
+						// TODO -1
+						if (op->ireg) {
+							ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op->addr, 0, op->ptr, op->ptr, anal->bits >> 3, table_size, default_case, ret);
+						} else { // op->reg
+							ret = walkthrough_arm_jmptbl_style (anal, fcn, bb, depth, op->addr, op->ptr, anal->bits >> 3, table_size, default_case, ret);
 						}
-						// check if op.jump and op.fail contain jump table location
+						// check if op->jump and op->fail contain jump table location
 						// clear jump address, because it's jump table location
-						if (op.jump == op.ptr) {
-							op.jump = UT64_MAX;
-						} else if (op.fail == op.ptr) {
-							op.fail = UT64_MAX;
+						if (op->jump == op->ptr) {
+							op->jump = UT64_MAX;
+						} else if (op->fail == op->ptr) {
+							op->fail = UT64_MAX;
 						}
 						cmpval = UT64_MAX;
 					}
 				}
 			}
 			int saved_stack = fcn->stack;
-			if (continue_after_jump) {
-				r_anal_fcn_bb (anal, fcn, op.jump, depth);
-				fcn->stack = saved_stack;
-				ret = r_anal_fcn_bb (anal, fcn, op.fail, depth);
-				fcn->stack = saved_stack;
-			} else {
-				ret = r_anal_fcn_bb (anal, fcn, op.jump, depth);
-				fcn->stack = saved_stack;
-				ret = r_anal_fcn_bb (anal, fcn, op.fail, depth);
-				fcn->stack = saved_stack;
-				if (op.jump < fcn->addr) {
-					if (!overlapped) {
-						bb->jump = op.jump;
-						bb->fail = UT64_MAX;
-					}
-					gotoBeach (R_ANAL_RET_END);
-				}
-			}
+			// TODO: depth -1 in here
+			r_anal_fcn_bb (anal, fcn, op->jump, depth);
+			fcn->stack = saved_stack;
+			ret = r_anal_fcn_bb (anal, fcn, op->fail, depth);
+			fcn->stack = saved_stack;
 
-			// XXX breaks mips analysis too !op.delay
+			// XXX breaks mips analysis too !op->delay
 			// this will be all x86, arm (at least)
 			// without which the analysis is really slow,
 			// presumably because each opcode would get revisited
@@ -1073,10 +1162,10 @@ repeat:
 		case R_ANAL_OP_TYPE_IRCALL:
 			/* call [dst] */
 			// XXX: this is TYPE_MCALL or indirect-call
-			(void) r_anal_xrefs_set (anal, op.addr, op.ptr, R_ANAL_REF_TYPE_CALL);
+			(void) r_anal_xrefs_set (anal, op->addr, op->ptr, R_ANAL_REF_TYPE_CALL);
 
-			if (r_anal_noreturn_at (anal, op.ptr)) {
-				RAnalFunction *f = r_anal_get_function_at (anal, op.ptr);
+			if (r_anal_noreturn_at (anal, op->ptr)) {
+				RAnalFunction *f = r_anal_get_function_at (anal, op->ptr);
 				if (f) {
 					f->is_noreturn = true;
 				}
@@ -1086,10 +1175,10 @@ repeat:
 		case R_ANAL_OP_TYPE_CCALL:
 		case R_ANAL_OP_TYPE_CALL:
 			/* call dst */
-			(void) r_anal_xrefs_set (anal, op.addr, op.jump, R_ANAL_REF_TYPE_CALL);
+			(void) r_anal_xrefs_set (anal, op->addr, op->jump, R_ANAL_REF_TYPE_CALL);
 
-			if (r_anal_noreturn_at (anal, op.jump)) {
-				RAnalFunction *f = r_anal_get_function_at (anal, op.jump);
+			if (r_anal_noreturn_at (anal, op->jump)) {
+				RAnalFunction *f = r_anal_get_function_at (anal, op->jump);
 				if (f) {
 					f->is_noreturn = true;
 				}
@@ -1100,125 +1189,136 @@ repeat:
 		case R_ANAL_OP_TYPE_RJMP:
 			if (is_arm && last_is_mov_lr_pc) {
 				break;
+			} else if (is_v850 && anal->opt.jmptbl) {
+				int ptsz = cmpval? cmpval + 1: 4;
+				if ((int)cmpval > 0) {
+					ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op->addr,
+						0, op->addr + 2, op->addr + 2, 2, ptsz, 0, ret);
+				}
+				gotoBeach (R_ANAL_RET_END);
+				break;
 			}
 			/* fall through */
 		case R_ANAL_OP_TYPE_MJMP:
 		case R_ANAL_OP_TYPE_IJMP:
 		case R_ANAL_OP_TYPE_IRJMP:
 			// if the next instruction is a symbol
-			if (anal->opt.ijmp && isSymbolNextInstruction (anal, &op)) {
+			if (anal->opt.ijmp && next_instruction_is_symbol (anal, op)) {
 				gotoBeach (R_ANAL_RET_END);
 			}
 			// switch statement
-			if (anal->opt.jmptbl && lea_jmptbl_ip != op.addr) {
-				// op.ireg since rip relative addressing produces way too many false positives otherwise
-				// op.ireg is 0 for rip relative, "rax", etc otherwise
-				if (op.ptr != UT64_MAX && op.ireg) { // direct jump
+			if (anal->opt.jmptbl && lea_jmptbl_ip != op->addr) {
+				ut8 buf[32]; // 32 bytes is enough to hold any instruction.
+				// op->ireg since rip relative addressing produces way too many false positives otherwise
+				// op->ireg is 0 for rip relative, "rax", etc otherwise
+				if (op->ptr != UT64_MAX && op->ireg) { // direct jump
 					ut64 table_size, default_case;
-					if (try_get_jmptbl_info (anal, fcn, op.addr, bb, &table_size, &default_case)) {
+					st64 case_shift;
+					if (try_get_jmptbl_info (anal, fcn, op->addr, bb, &table_size, &default_case, &case_shift)) {
 						bool case_table = false;
-						RAnalOp prev_op;
-						anal->iob.read_at (anal->iob.io, op.addr - op.size, buf, sizeof (buf));
-						if (r_anal_op (anal, &prev_op, op.addr - op.size, buf, sizeof (buf), R_ANAL_OP_MASK_VAL) > 0) {
-							bool prev_op_has_dst_name = prev_op.dst && prev_op.dst->reg && prev_op.dst->reg->name;
-							bool op_has_src_name = op.src[0] && op.src[0]->reg && op.src[0]->reg->name;
-							bool same_reg = (op.ireg && prev_op_has_dst_name && !strcmp (op.ireg, prev_op.dst->reg->name))
-								|| (op_has_src_name && prev_op_has_dst_name && !strcmp (op.src[0]->reg->name, prev_op.dst->reg->name));
-							if (prev_op.type == R_ANAL_OP_TYPE_MOV && prev_op.disp && prev_op.disp != UT64_MAX && same_reg) {
+						RAnalOp *prev_op = r_anal_op_new ();
+						anal->iob.read_at (anal->iob.io, op->addr - op->size, buf, sizeof (buf));
+						if (r_anal_op (anal, prev_op, op->addr - op->size, buf, sizeof (buf), R_ANAL_OP_MASK_VAL) > 0) {
+							bool prev_op_has_dst_name = prev_op->dst && prev_op->dst->reg && prev_op->dst->reg->name;
+							bool op_has_src_name = op->src[0] && op->src[0]->reg && op->src[0]->reg->name;
+							bool same_reg = (op->ireg && prev_op_has_dst_name && !strcmp (op->ireg, prev_op->dst->reg->name))
+								|| (op_has_src_name && prev_op_has_dst_name && !strcmp (op->src[0]->reg->name, prev_op->dst->reg->name));
+							if (prev_op->type == R_ANAL_OP_TYPE_MOV && prev_op->disp && prev_op->disp != UT64_MAX && same_reg) {
 								//	movzx reg, byte [reg + case_table]
 								//	jmp dword [reg*4 + jump_table]
-								if (try_walkthrough_casetbl (anal, fcn, bb, depth, op.addr, op.ptr, prev_op.disp, op.ptr, anal->bits >> 3, table_size, default_case, ret)) {
+								if (try_walkthrough_casetbl (anal, fcn, bb, depth - 1, op->addr, case_shift, op->ptr, prev_op->disp, op->ptr, anal->bits >> 3, table_size, default_case, ret)) {
 									ret = case_table = true;
 								}
 							}
 						}
-						r_anal_op_fini (&prev_op);
+						r_anal_op_free (prev_op);
 						if (!case_table) {
-							ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.ptr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
+							ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op->addr, case_shift, op->ptr, op->ptr, anal->bits >> 3, table_size, default_case, ret);
 						}
 					}
-				} else if (op.ptr != UT64_MAX && op.reg) { // direct jump
+				} else if (op->ptr != UT64_MAX && op->reg) { // direct jump
 					ut64 table_size, default_case;
-					if (try_get_jmptbl_info (anal, fcn, op.addr, bb, &table_size, &default_case)) {
-						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.ptr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
+					st64 case_shift;
+					if (try_get_jmptbl_info (anal, fcn, op->addr, bb, &table_size, &default_case, &case_shift)) {
+						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth - 1, op->addr, case_shift, op->ptr, op->ptr, anal->bits >> 3, table_size, default_case, ret);
 					}
-				} else if (movdisp == 0) {
-					ut64 jmptbl_base = UT64_MAX;
+				} else if (movdisp != UT64_MAX) {
+					st64 case_shift;
+					ut64 table_size, default_case;
+					ut64 jmptbl_base = 0; //UT64_MAX;
 					ut64 lea_op_off = UT64_MAX;
-					RListIter *lea_op_iter = NULL;
 					RListIter *iter;
 					leaddr_pair *pair;
-					// find nearest candidate leaddr before op.addr
-					r_list_foreach (anal->leaddrs, iter, pair) {
-						if (pair->op_addr >= op.addr) {
-							continue;
-						}
-						if (lea_op_off == UT64_MAX || lea_op_off > op.addr - pair->op_addr) {
-							lea_op_off = op.addr - pair->op_addr;
-							jmptbl_base = pair->leaddr;
-							lea_op_iter = iter;
+					if (movbasereg) {
+						// find nearest candidate leaddr before op.addr
+						r_list_foreach_prev (anal->leaddrs, iter, pair) {
+							if (pair->op_addr >= op->addr) {
+								continue;
+							}
+							if ((lea_op_off == UT64_MAX || lea_op_off > op->addr - pair->op_addr) && pair->reg && !strcmp (movbasereg, pair->reg)) {
+								lea_op_off = op->addr - pair->op_addr;
+								jmptbl_base = pair->leaddr;
+							}
 						}
 					}
-					if (lea_op_iter) {
-						r_list_delete (anal->leaddrs, lea_op_iter);
+					if (!try_get_jmptbl_info (anal, fcn, op->addr, bb, &table_size, &default_case, &case_shift)) {
+						table_size = cmpval + 1;
+						default_case = -1;
 					}
-					ut64 table_size = cmpval + 1;
-					ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, jmptbl_base, jmptbl_base, 4, table_size, -1, ret);
+					ret = try_walkthrough_jmptbl (anal, fcn, bb, depth - 1, op->addr, case_shift, jmptbl_base + movdisp, jmptbl_base, movscale, table_size, default_case, ret);
 					cmpval = UT64_MAX;
 				} else if (movdisp != UT64_MAX) {
 					ut64 table_size, default_case;
-
-					if (try_get_jmptbl_info (anal, fcn, op.addr, bb, &table_size, &default_case)) {
-						op.ptr = movdisp;
-						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.ptr, op.ptr, anal->bits >> 3, table_size, default_case, ret);
+					st64 case_shift;
+					if (try_get_jmptbl_info (anal, fcn, op->addr, bb, &table_size, &default_case, &case_shift)) {
+						op->ptr = movdisp;
+						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth - 1, op->addr, case_shift, op->ptr, op->ptr, anal->bits >> 3, table_size, default_case, ret);
 					}
 					movdisp = UT64_MAX;
 				} else if (is_arm) {
-					if (op.ptrsize == 1) { // TBB
-						ut64 pred_cmpval = try_get_cmpval_from_parents(anal, fcn, bb, op.ireg);
+					if (op->ptrsize == 1) { // TBB
+						ut64 pred_cmpval = try_get_cmpval_from_parents(anal, fcn, bb, op->ireg);
 						ut64 table_size = 0;
 						if (pred_cmpval != UT64_MAX) {
 							table_size += pred_cmpval;
 						} else {
 							table_size += cmpval;
 						}
-						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.addr + op.size,
-							op.addr + 4, 1, table_size, UT64_MAX, ret);
+						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth - 1, op->addr, 0, op->addr + op->size,
+							op->addr + 4, 1, table_size, UT64_MAX, ret);
 						// skip inlined jumptable
 						idx += table_size;
 					}
-					if (op.ptrsize == 2) { // LDRH on thumb/arm
-						ut64 pred_cmpval = try_get_cmpval_from_parents(anal, fcn, bb, op.ireg);
+					if (op->ptrsize == 2) { // LDRH on thumb/arm
+						ut64 pred_cmpval = try_get_cmpval_from_parents(anal, fcn, bb, op->ireg);
 						int tablesize = 1;
 						if (pred_cmpval != UT64_MAX) {
 							tablesize += pred_cmpval;
 						} else {
 							tablesize += cmpval;
 						}
-						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth, op.addr, op.addr + op.size,
-							op.addr + 4, 2, tablesize, UT64_MAX, ret);
+						ret = try_walkthrough_jmptbl (anal, fcn, bb, depth - 1, op->addr, 0, op->addr + op->size,
+							op->addr + 4, 2, tablesize, UT64_MAX, ret);
 						// skip inlined jumptable
 						idx += (tablesize * 2);
 					}
 				}
 			}
-			if (lea_jmptbl_ip == op.addr) {
+			if (lea_jmptbl_ip == op->addr) {
 				lea_jmptbl_ip = UT64_MAX;
 			}
 			if (anal->opt.ijmp) {
-				if (continue_after_jump) {
-					r_anal_fcn_bb (anal, fcn, op.jump, depth);
-					ret = r_anal_fcn_bb (anal, fcn, op.fail, depth);
-					if (overlapped) {
-						goto analopfinish;
-					}
+				r_anal_fcn_bb (anal, fcn, op->jump, depth - 1);
+				ret = r_anal_fcn_bb (anal, fcn, op->fail, depth - 1);
+				if (overlapped) {
+					goto analopfinish;
 				}
-				if (r_anal_noreturn_at (anal, op.jump) || op.eob) {
+				if (r_anal_noreturn_at (anal, op->jump) || op->eob) {
 					goto analopfinish;
 				}
 			} else {
 analopfinish:
-				if (op.type == R_ANAL_OP_TYPE_RJMP) {
+				if (op->type == R_ANAL_OP_TYPE_RJMP) {
 					gotoBeach (R_ANAL_RET_NOP);
 				} else {
 					gotoBeach (R_ANAL_RET_END);
@@ -1228,33 +1328,33 @@ analopfinish:
 		/* fallthru */
 		case R_ANAL_OP_TYPE_PUSH:
 			last_is_push = true;
-			last_push_addr = op.val;
+			last_push_addr = op->val;
 			if (anal->iob.is_valid_offset (anal->iob.io, last_push_addr, 1)) {
-				(void) r_anal_xrefs_set (anal, op.addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
+				(void) r_anal_xrefs_set (anal, op->addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
 			}
 			break;
 		case R_ANAL_OP_TYPE_UPUSH:
-			if ((op.type & R_ANAL_OP_TYPE_REG) && last_is_reg_mov_lea && op.src[0] && op.src[0]->reg
-				&& op.src[0]->reg->name && !strcmp (op.src[0]->reg->name, last_reg_mov_lea_name)) {
+			if ((op->type & R_ANAL_OP_TYPE_REG) && last_is_reg_mov_lea && op->src[0] && op->src[0]->reg
+				&& op->src[0]->reg->name && !strcmp (op->src[0]->reg->name, last_reg_mov_lea_name)) {
 				last_is_push = true;
 				last_push_addr = last_reg_mov_lea_val;
 				if (anal->iob.is_valid_offset (anal->iob.io, last_push_addr, 1)) {
-					(void) r_anal_xrefs_set (anal, op.addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
+					(void) r_anal_xrefs_set (anal, op->addr, last_push_addr, R_ANAL_REF_TYPE_DATA);
 				}
 			}
 			break;
 		case R_ANAL_OP_TYPE_RET:
-			if (op.family == R_ANAL_OP_FAMILY_PRIV) {
+			if (op->family == R_ANAL_OP_FAMILY_PRIV) {
 				fcn->type = R_ANAL_FCN_TYPE_INT;
 			}
 			if (last_is_push && anal->opt.pushret) {
-				op.type = R_ANAL_OP_TYPE_JMP;
-				op.jump = last_push_addr;
-				bb->jump = op.jump;
-				ret = r_anal_fcn_bb (anal, fcn, op.jump, depth);
+				op->type = R_ANAL_OP_TYPE_JMP;
+				op->jump = last_push_addr;
+				bb->jump = op->jump;
+				ret = r_anal_fcn_bb (anal, fcn, op->jump, depth - 1);
 				goto beach;
 			}
-			if (!op.cond) {
+			if (!op->cond) {
 				if (anal->verbose) {
 					eprintf ("RET 0x%08"PFMT64x ". overlap=%s %"PFMT64u" %"PFMT64u"\n",
 						addr + delay.un_idx - oplen, r_str_bool (overlapped),
@@ -1265,48 +1365,56 @@ analopfinish:
 			break;
 		}
 		if (has_stack_regs && arch_destroys_dst) {
-			if (op_is_set_bp (&op, bp_reg, sp_reg) && op.src[1]) {
-				switch (op.type & R_ANAL_OP_TYPE_MASK) {
+			if (op_is_set_bp (op, bp_reg, sp_reg) && op->src[1]) {
+				switch (op->type & R_ANAL_OP_TYPE_MASK) {
 				case R_ANAL_OP_TYPE_ADD:
-					fcn->bp_off = fcn->stack - op.src[1]->imm;
+					fcn->bp_off = fcn->stack - op->src[1]->imm;
 					break;
 				case R_ANAL_OP_TYPE_SUB:
-					fcn->bp_off = fcn->stack + op.src[1]->imm;
+					fcn->bp_off = fcn->stack + op->src[1]->imm;
 					break;
 				}
 			}
 		}
 		if (anal->opt.vars && !varset) {
-			r_anal_extract_vars (anal, fcn, &op);
+			r_anal_extract_vars (anal, fcn, op);
 		}
-		if (op.type != R_ANAL_OP_TYPE_MOV && op.type != R_ANAL_OP_TYPE_CMOV && op.type != R_ANAL_OP_TYPE_LEA) {
+		if (op->type != R_ANAL_OP_TYPE_MOV && op->type != R_ANAL_OP_TYPE_CMOV && op->type != R_ANAL_OP_TYPE_LEA) {
 			last_is_reg_mov_lea = false;
 		}
-		if (op.type != R_ANAL_OP_TYPE_PUSH && op.type != R_ANAL_OP_TYPE_RPUSH) {
+		if (op->type != R_ANAL_OP_TYPE_PUSH && op->type != R_ANAL_OP_TYPE_RPUSH) {
 			last_is_push = false;
 		}
-		if (is_arm && op.type != R_ANAL_OP_TYPE_MOV) {
+		if (is_arm && op->type != R_ANAL_OP_TYPE_MOV) {
 			last_is_mov_lr_pc = false;
 		}
 		if (has_variadic_reg && !fcn->is_variadic) {
-			bool dst_is_variadic = op.dst && op.dst->reg && op.dst->reg->offset == variadic_reg->offset;
-			bool op_is_cmp = (op.type == R_ANAL_OP_TYPE_CMP) || op.type == R_ANAL_OP_TYPE_ACMP;
+			variadic_reg = r_reg_get (anal->reg, "rax", R_REG_TYPE_GPR);
+			bool dst_is_variadic = op->dst && op->dst->reg
+					&& variadic_reg && op->dst->reg->offset == variadic_reg->offset;
+			bool op_is_cmp = (op->type == R_ANAL_OP_TYPE_CMP) || op->type == R_ANAL_OP_TYPE_ACMP;
 			if (dst_is_variadic && !op_is_cmp) {
 				has_variadic_reg = false;
 			} else if (op_is_cmp) {
-				if (op.src[0] && op.src[0]->reg && (op.dst->reg == op.src[0]->reg) && dst_is_variadic) {
+				if (op->src[0] && op->src[0]->reg && (op->dst->reg == op->src[0]->reg) && dst_is_variadic) {
 					fcn->is_variadic = true;
 				}
 			}
 		}
 	}
 beach:
-	r_anal_op_fini (&op);
+	while (lea_cnt > 0) {
+		r_list_delete (anal->leaddrs, r_list_tail (anal->leaddrs));
+		lea_cnt--;
+	}
+	r_anal_op_free (op);
 	R_FREE (last_reg_mov_lea_name);
 	if (bb && bb->size == 0) {
 		r_anal_function_remove_block (fcn, bb);
 	}
+	r_anal_block_update_hash (bb);
 	r_anal_block_unref (bb);
+	free (movbasereg);
 	return ret;
 }
 
@@ -1425,6 +1533,7 @@ R_API int r_anal_fcn(RAnal *anal, RAnalFunction *fcn, ut64 addr, ut64 len, int r
 		const int shadow_store = 0x28; // First 4 args + retaddr
 		fcn->stack = fcn->maxstack = fcn->reg_save_area = shadow_store;
 	}
+	// XXX -1 here results in lots of errors
 	int ret = r_anal_fcn_bb (anal, fcn, addr, anal->opt.depth);
 	if (ret < 0) {
 		if (anal->verbose) {
@@ -1655,8 +1764,9 @@ R_API int r_anal_function_complexity(RAnalFunction *fcn) {
 
 // tfj and afsj call this function
 R_API char *r_anal_function_get_json(RAnalFunction *function) {
-	PJ *pj = pj_new ();
 	RAnal *a = function->anal;
+	PJ *pj = a->coreb.pjWithEncoding (a->coreb.core);
+	
 	char *args = strdup ("");
 	char *sdb_ret = r_str_newf ("func.%s.ret", function->name);
 	char *sdb_args = r_str_newf ("func.%s.args", function->name);
@@ -1671,7 +1781,7 @@ R_API char *r_anal_function_get_json(RAnalFunction *function) {
 	pj_ks (pj, "name", function->name);
 	const bool no_return = r_anal_noreturn_at_addr (a, function->addr);
 	pj_kb (pj, "noreturn", no_return);
-	pj_ks (pj, "ret", ret_type?ret_type: "void");
+	pj_ks (pj, "ret", r_str_get_fail (ret_type, "void"));
 	if (function->cc) {
 		pj_ks (pj, "cc", function->cc);
 	}
@@ -1753,7 +1863,7 @@ R_API char *r_anal_function_get_signature(RAnalFunction *function) {
 		free (arg_i);
 		free (sdb_arg_i);
 	}
-	ret = r_str_newf ("%s %s (%s);", ret_type? ret_type: "void", realname, args);
+	ret = r_str_newf ("%s %s (%s);", r_str_get_fail (ret_type, "void"), realname, args);
 
 	free (sdb_args);
 	free (sdb_ret);
@@ -1926,9 +2036,10 @@ static bool can_affect_bp(RAnal *anal, RAnalOp* op) {
 static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 	RListIter *iter;
 	RAnalBlock *bb;
-	char str_to_find[40] = "\"type\":\"reg\",\"value\":\"";
 	char *pos;
-	strncat (str_to_find, anal->reg->name[R_REG_NAME_BP], 39);
+	char str_to_find[40];
+	snprintf (str_to_find, sizeof (str_to_find),
+		"\"type\":\"reg\",\"value\":\"%s", anal->reg->name[R_REG_NAME_BP]);
 	if (!fcn) {
 		return;
 	}
@@ -1953,6 +2064,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				&& strcmp (op.src[0]->reg->name, anal->reg->name[R_REG_NAME_SP])) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
 				}
 				break;
@@ -1974,6 +2086,7 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				if (pos && pos - op.opex.ptr < 60) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
 				}
 				break;
@@ -1981,8 +2094,9 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 				if (op.opex.ptr && strstr (op.opex.ptr, str_to_find)) {
 					fcn->bp_frame = false;
 					r_anal_op_fini (&op);
+					free (buf);
 					return;
-    			}
+				}
 				break;
 			case R_ANAL_OP_TYPE_POP:
 				break;
@@ -2000,4 +2114,213 @@ static void __anal_fcn_check_bp_use(RAnal *anal, RAnalFunction *fcn) {
 R_API void r_anal_function_check_bp_use(RAnalFunction *fcn) {
 	r_return_if_fail (fcn);
 	__anal_fcn_check_bp_use (fcn->anal, fcn);
+}
+
+typedef struct {
+	RAnalFunction *fcn;
+	HtUP *visited;
+} BlockRecurseCtx;
+
+static bool mark_as_visited(RAnalBlock *bb, void *user) {
+	BlockRecurseCtx *ctx = user;
+	ht_up_insert (ctx->visited, bb->addr, NULL);
+	return true;
+}
+
+static bool analize_addr_cb(ut64 addr, void *user) {
+	BlockRecurseCtx *ctx = user;
+	RAnal *anal = ctx->fcn->anal;
+	RAnalBlock *existing_bb = r_anal_get_block_at (anal, addr);
+	if (!existing_bb || !r_list_contains (ctx->fcn->bbs, existing_bb)) {
+		int old_len = r_list_length (ctx->fcn->bbs);
+		r_anal_fcn_bb (ctx->fcn->anal, ctx->fcn, addr, anal->opt.depth);
+		if (old_len != r_list_length (ctx->fcn->bbs)) {
+			r_anal_block_recurse (r_anal_get_block_at (anal, addr), mark_as_visited, user);
+		}
+	}
+	ht_up_insert (ctx->visited, addr, NULL);
+	return true;
+}
+
+static bool analize_descendents(RAnalBlock *bb, void *user) {
+	return r_anal_block_successor_addrs_foreach (bb, analize_addr_cb, user);
+}
+
+static void free_ht_up(HtUPKv *kv) {
+	ht_up_free ((HtUP *)kv->value);
+}
+
+static void update_var_analysis(RAnalFunction *fcn, int align, ut64 from, ut64 to) {
+	RAnal *anal = fcn->anal;
+	ut64 cur_addr;
+	int opsz;
+	from = align ? from - (from % align) : from;
+	to = align ? R_ROUND (to, align) : to;
+	if (UT64_SUB_OVFCHK (to, from)) {
+		return;
+	}
+	ut64 len = to - from;
+	ut8 *buf = malloc (len);
+	if (!buf) {
+		return;
+	}
+	if (anal->iob.read_at (anal->iob.io, from, buf, len) < len) {
+		return;
+	}
+	for (cur_addr = from; cur_addr < to; cur_addr += opsz, len -= opsz) {
+		RAnalOp op;
+		int ret = r_anal_op (anal->coreb.core, &op, cur_addr, buf, len, R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_VAL);
+		if (ret < 1 || op.size < 1) {
+			r_anal_op_fini (&op);
+			break;
+		}
+		opsz = op.size;
+		r_anal_extract_vars (anal, fcn, &op);
+		r_anal_op_fini (&op);
+	}
+	free (buf);
+}
+
+// Clear function variable acesses inside in a block
+static void clear_bb_vars(RAnalFunction *fcn, RAnalBlock *bb, ut64 from, ut64 to) {
+	int i;
+	if (r_pvector_empty (&fcn->vars)) {
+		return;
+	}
+	for (i = 0; i < bb->ninstr; i++) {
+		const ut64 addr = r_anal_bb_opaddr_i (bb, i);
+		if (addr < from) {
+			continue;
+		}
+		if (addr >= to || addr == UT64_MAX) {
+			break;
+		}
+		RPVector *vars = r_anal_function_get_vars_used_at (fcn, addr);
+		if (vars) {
+			RPVector *vars_clone = (RPVector *)r_vector_clone ((RVector *)vars);
+			void **v;
+			r_pvector_foreach (vars_clone, v) {
+				r_anal_var_remove_access_at ((RAnalVar *)*v, addr);
+			}
+			r_pvector_clear (vars_clone);
+		}
+	}
+}
+
+static void update_analysis(RAnal *anal, RList *fcns, HtUP *reachable) {
+	RListIter *it, *it2, *tmp;
+	RAnalFunction *fcn;
+	bool old_jmpmid = anal->opt.jmpmid;
+	anal->opt.jmpmid = true;
+	r_anal_fcn_invalidate_read_ahead_cache ();
+	r_list_foreach (fcns, it, fcn) {
+		// Recurse through blocks of function, mark reachable,
+		// analyze edges that don't have a block
+		RAnalBlock *bb = r_anal_get_block_at (anal, fcn->addr);
+		if (!bb) {
+			r_anal_fcn_bb (anal, fcn, fcn->addr, anal->opt.depth);
+			bb = r_anal_get_block_at (anal, fcn->addr);
+			if (!bb) {
+				continue;
+			}
+		}
+		HtUP *ht = ht_up_new0 ();
+		ht_up_insert (ht, bb->addr, NULL);
+		BlockRecurseCtx ctx = { fcn, ht };
+		r_anal_block_recurse (bb, analize_descendents, &ctx);
+
+		// Remove non-reachable blocks
+		r_list_foreach_safe (fcn->bbs, it2, tmp, bb) {
+			if (ht_up_find_kv (ht, bb->addr, NULL)) {
+				continue;
+			}
+			HtUP *o_visited = ht_up_find (reachable, fcn->addr, NULL);
+			if (!ht_up_find_kv (o_visited, bb->addr, NULL)) {
+				// Avoid removing blocks that were already not reachable
+				continue;
+			}
+			fcn->ninstr -= bb->ninstr;
+			r_anal_function_remove_block (fcn, bb);
+		}
+		
+		RList *bbs = r_list_clone (fcn->bbs);
+		r_anal_block_automerge (bbs);
+		r_anal_function_delete_unused_vars (fcn);
+		r_list_free (bbs);
+	}
+	anal->opt.jmpmid = old_jmpmid;
+}
+
+static void calc_reachable_and_remove_block(RList *fcns, RAnalFunction *fcn, RAnalBlock *bb, HtUP *reachable) {
+	clear_bb_vars (fcn, bb, bb->addr, bb->addr + bb->size);
+	if (!r_list_contains (fcns, fcn)) {
+		r_list_append (fcns, fcn);
+		
+		// Calculate reachable blocks from the start of function
+		HtUP *ht = ht_up_new0 ();
+		BlockRecurseCtx ctx = { fcn, ht };
+		r_anal_block_recurse (r_anal_get_block_at (fcn->anal, fcn->addr), mark_as_visited, &ctx);
+		ht_up_insert (reachable, fcn->addr, ht);
+	}
+	fcn->ninstr -= bb->ninstr;
+	r_anal_function_remove_block (fcn, bb);
+}
+
+R_API void r_anal_update_analysis_range(RAnal *anal, ut64 addr, int size) {
+	r_return_if_fail (anal);
+	RListIter *it, *it2, *tmp;
+	RAnalBlock *bb;
+	RAnalFunction *fcn;
+	RList *blocks = r_anal_get_blocks_intersect (anal, addr, size);
+	if (r_list_empty (blocks)) {
+		r_list_free (blocks);
+		return;
+	}
+	RList *fcns = r_list_new ();
+	HtUP *reachable = ht_up_new (NULL, free_ht_up, NULL);
+	const int align = r_anal_archinfo (anal, R_ANAL_ARCHINFO_ALIGN);
+	const ut64 end_write = addr + size;
+	
+	r_list_foreach (blocks, it, bb) {
+		if (!r_anal_block_was_modified (bb)) {
+			continue;
+		}
+		r_list_foreach_safe (bb->fcns, it2, tmp, fcn) {			
+			if (align > 1) {
+				if ((end_write < r_anal_bb_opaddr_i (bb, bb->ninstr - 1))
+					&& (!bb->switch_op || end_write < bb->switch_op->addr)) {
+					// Special case when instructions are aligned and we don't
+					// need to worry about a write messing with the jump instructions
+					clear_bb_vars (fcn, bb, addr > bb->addr ? addr : bb->addr, end_write);
+					update_var_analysis (fcn, align, addr > bb->addr ? addr : bb->addr, end_write);
+					r_anal_function_delete_unused_vars (fcn);
+					continue;
+				}
+			}
+			calc_reachable_and_remove_block (fcns, fcn, bb, reachable);
+		}
+	}
+	r_list_free (blocks); // This will call r_anal_block_unref to actually remove blocks from RAnal
+	update_analysis (anal, fcns, reachable);
+	ht_up_free (reachable);
+	r_list_free (fcns);
+}
+
+R_API void r_anal_function_update_analysis(RAnalFunction *fcn) {
+	r_return_if_fail (fcn);
+	RListIter *it, *it2, *tmp, *tmp2;
+	RAnalBlock *bb;
+	RAnalFunction *f;
+	RList *fcns = r_list_new ();
+	HtUP *reachable = ht_up_new (NULL, free_ht_up, NULL);
+	r_list_foreach_safe (fcn->bbs, it, tmp, bb) {
+		if (r_anal_block_was_modified (bb)) {
+			r_list_foreach_safe (bb->fcns, it2, tmp2, f) {
+				calc_reachable_and_remove_block (fcns, f, bb, reachable);
+			}
+		}
+	}
+	update_analysis (fcn->anal, fcns, reachable);
+	ht_up_free (reachable);
+	r_list_free (fcns);
 }

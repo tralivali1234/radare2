@@ -17,8 +17,8 @@ static int replace (int argc, char *argv[], char *newstr) {
 	int i, j, k, d;
 	char ch;
 	struct {
-		char *op;
-		char *str;
+		const char *op;
+		const char *str;
 		int args[MAXPSEUDOOPS];  // XXX can't use flex arrays, all unused will be 0
 	} ops[] = {
 		{ "adc",  "# += #", {1, 2}},
@@ -344,7 +344,7 @@ static inline void mk_reg_str(const char *regname, int delta, bool sign, bool at
 	r_strbuf_free (sb);
 }
 
-static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
+static bool subvar(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
 	RList *bpargs, *spargs;
 	RAnal *anal = p->analb.anal;
 	RListIter *bpargiter, *spiter;
@@ -550,7 +550,7 @@ RParsePlugin r_parse_plugin_x86_pseudo = {
 	.name = "x86.pseudo",
 	.desc = "X86 pseudo syntax",
 	.parse = &parse,
-	.varsub = &varsub,
+	.subvar = &subvar,
 };
 
 #ifndef R2_PLUGIN_INCORE

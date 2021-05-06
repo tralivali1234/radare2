@@ -6,6 +6,7 @@ r_hash_sources = [
   'fletcher.c',
   'hamdist.c',
   'hash.c',
+  'ssdeep.c',
   'luhn.c',
   'state.c'
 ]
@@ -30,6 +31,7 @@ r_hash = library('r_hash', r_hash_sources,
   dependencies: dependencies,
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

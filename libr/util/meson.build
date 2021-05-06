@@ -1,8 +1,10 @@
+subdir('d')
 
 r_util_sources = [
   'ascii_table.c',
   'assert.c',
   'alloc.c',
+  'charset.c',
   'donut.c',
   'table.c',
   'getopt.c',
@@ -22,9 +24,10 @@ r_util_sources = [
   'file.c',
   'flist.c',
   'graph.c',
+  'graph_drawable.c',
   'hex.c',
   'idpool.c',
-  'json.c',
+  'json_parser.c',
   'json_indent.c',
   'lib.c',
   'list.c',
@@ -41,6 +44,7 @@ r_util_sources = [
   'queue.c',
   'asn1.c',
   'astr.c',
+  'axml.c',
   'pkcs7.c',
   'x509.c',
   'utype.c',
@@ -75,13 +79,13 @@ r_util_sources = [
   'utf16.c',
   'utf32.c',
   'vector.c',
-  'w32-sys.c',
+  'skyline.c',
+  'sys_w32.c',
   'zip.c',
   'protobuf.c',
   'regex/regcomp.c',
   'regex/regexec.c',
-  'regex/regerror.c',
-  'annotated_code.c'
+  'regex/regerror.c'
 ]
 
 r_util_deps = [ldl, mth, spp_dep, pth, utl, sdb_dep, zlib_dep, platform_deps]
@@ -103,6 +107,7 @@ r_util = library('r_util', r_util_sources,
   dependencies: r_util_deps,
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

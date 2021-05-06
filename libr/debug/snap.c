@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2020 - pancake, rkx1209 */
+/* radare - LGPL - Copyright 2015-2021 - pancake, rkx1209 */
 
 #include <r_debug.h>
 #include <r_hash.h>
@@ -15,6 +15,14 @@ R_API RDebugSnap *r_debug_snap_map(RDebug *dbg, RDebugMap *map) {
 	r_return_val_if_fail (dbg && map, NULL);
 	if (map->size < 1) {
 		eprintf ("Invalid map size\n");
+		return NULL;
+	}
+	// TODO: Support streaming memory snapshots to avoid big allocations
+	if (map->size > dbg->maxsnapsize) {
+		char *us = r_num_units (NULL, 0, map->size);
+		const char *name = r_str_get (map->name);
+		eprintf ("Not snapping map %s (%s > dbg.maxsnapsize)\n", name, us);
+		free (us);
 		return NULL;
 	}
 

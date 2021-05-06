@@ -110,8 +110,6 @@ R_API int r_io_plugin_list_json(RIO *io) {
 	
 	char str[4];
 	int n = 0;
-	pj_o (pj);
-	pj_k (pj, "io_plugins");
 	pj_a (pj);
 	ls_foreach (io->plugins, iter, plugin) {
 		str[0] = 'r';
@@ -149,8 +147,7 @@ R_API int r_io_plugin_list_json(RIO *io) {
 		n++;
 	}
 	pj_end (pj);
-	pj_end (pj);
-	io->cb_printf (pj_string (pj));
+	io->cb_printf ("%s", pj_string (pj));
 	pj_free (pj);
 	return n;
 }
@@ -172,7 +169,11 @@ R_API int r_io_plugin_write(RIODesc *desc, const ut8 *buf, int len) {
 	if (!desc->plugin->write) {
 		return -1;
 	}
-	return desc->plugin->write (desc->io, desc, buf, len);
+	const ut64 cur_addr = r_io_desc_seek (desc, 0LL, R_IO_SEEK_CUR);
+	int ret = desc->plugin->write (desc->io, desc, buf, len);
+	REventIOWrite iow = { cur_addr, buf, len };
+	r_event_send (desc->io->event, R_EVENT_IO_WRITE, &iow);
+	return ret;
 }
 
 R_API int r_io_plugin_read_at(RIODesc *desc, ut64 addr, ut8 *buf, int len) {
