@@ -401,7 +401,6 @@ R_API char *r_buf_get_string(RBuffer *b, ut64 addr) {
 	while (r > 0) {
 		const ut8 *needle = r_mem_mem (res + sz, r, (ut8 *)"\x00", 1);
 		if (needle) {
-			sz += (needle - (res + sz));
 			null_found = true;
 			break;
 		}
@@ -519,9 +518,7 @@ static st64 buf_format(RBuffer *dst, RBuffer *src, const char *fmt, int n) {
 				}
 				res += r;
 			}
-
 			m = 1;
-			bigendian = true;
 		}
 	}
 	return res;
@@ -648,7 +645,7 @@ R_API st64 r_buf_uleb128(RBuffer *b, ut64 *v) {
 	do {
 		ut8 data;
 		st64 r = r_buf_read (b, &data, sizeof (data));
-		if (r <= 0) {
+		if (r < 1) {
 			return -1;
 		}
 		c = data & 0xff;

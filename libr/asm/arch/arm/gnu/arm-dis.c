@@ -5101,7 +5101,7 @@ print_insn_arm (bfd_vma pc, struct disassemble_info *info, long given)
 							  }
 							  U_reg = value;
 						  }
-						  func (stream, "%s", arm_regnames[value]);
+						  func (stream, "%s", value < 16? arm_regnames[value]: "?");
 						  break;
 					  case 'd':
 						  func (stream, "%ld", value);
@@ -6448,7 +6448,7 @@ select_arm_features (unsigned long mach,
 		     arm_feature_set * features)
 {
 #undef ARM_SET_FEATURES2
- //ARM_FEATURE (0, 0, FPU_ARCH_VFP_V4D16) ;	
+ //ARM_FEATURE (0, 0, FPU_ARCH_VFP_V4D16) ;
 #define ARM_SET_FEATURES2(FSET) \
   {							\
     const arm_feature_set fset = FSET;			\

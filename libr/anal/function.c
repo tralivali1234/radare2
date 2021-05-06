@@ -58,6 +58,15 @@ static void inst_vars_kv_free(HtUPKv *kv) {
 	r_pvector_free (kv->value);
 }
 
+static void labels_kv_free(HtUPKv *kv) {
+	free (kv->value);
+}
+
+static void label_addrs_kv_free(HtPPKv *kv) {
+	free (kv->key);
+	free (kv->value);
+}
+
 R_API RAnalFunction *r_anal_function_new(RAnal *anal) {
 	RAnalFunction *fcn = R_NEW0 (RAnalFunction);
 	if (!fcn) {
@@ -75,12 +84,13 @@ R_API RAnalFunction *r_anal_function_new(RAnal *anal) {
 	fcn->meta._min = UT64_MAX;
 	r_pvector_init (&fcn->vars, NULL);
 	fcn->inst_vars = ht_up_new (NULL, inst_vars_kv_free, NULL);
+	fcn->labels = ht_up_new (NULL, labels_kv_free, NULL);
+	fcn->label_addrs = ht_pp_new (NULL, label_addrs_kv_free, NULL);
 	return fcn;
 }
 
-R_API void r_anal_function_free(void *_fcn) {
-	RAnalFunction *fcn = _fcn;
-	if (!_fcn) {
+R_API void r_anal_function_free(RAnalFunction *fcn) {
+	if (!fcn) {
 		return;
 	}
 
@@ -93,10 +103,10 @@ R_API void r_anal_function_free(void *_fcn) {
 	r_list_free (fcn->bbs);
 
 	RAnal *anal = fcn->anal;
-	if (ht_up_find (anal->ht_addr_fun, fcn->addr, NULL) == _fcn) {
+	if (ht_up_find (anal->ht_addr_fun, fcn->addr, NULL) == fcn) {
 		ht_up_delete (anal->ht_addr_fun, fcn->addr);
 	}
-	if (ht_pp_find (anal->ht_name_fun, fcn->name, NULL) == _fcn) {
+	if (ht_pp_find (anal->ht_name_fun, fcn->name, NULL) == fcn) {
 		ht_pp_delete (anal->ht_name_fun, fcn->name);
 	}
 
@@ -104,10 +114,14 @@ R_API void r_anal_function_free(void *_fcn) {
 	fcn->inst_vars = NULL;
 	r_anal_function_delete_all_vars (fcn);
 
+	ht_up_free (fcn->labels);
+	ht_pp_free (fcn->label_addrs);
+
 	free (fcn->name);
 	fcn->bbs = NULL;
 	free (fcn->fingerprint);
 	r_anal_diff_free (fcn->diff);
+	r_list_free (fcn->imports);
 	free (fcn);
 }
 
@@ -196,13 +210,13 @@ R_API bool r_anal_function_relocate(RAnalFunction *fcn, ut64 addr) {
 	ht_up_delete (fcn->anal->ht_addr_fun, fcn->addr);
 
 	// relocate the var accesses (their addrs are relative to the function addr)
-	st64 delta = (st64)addr - (st64)fcn->addr;
+	st64 delta = addr - fcn->addr;
 	void **it;
 	r_pvector_foreach (&fcn->vars, it) {
 		RAnalVar *var = *it;
 		RAnalVarAccess *acc;
 		r_vector_foreach (&var->accesses, acc) {
-			acc->offset -= delta;
+			acc->offset -= (ut64)delta;
 		}
 	}
 	InstVarsRelocateCtx ctx = {
@@ -347,4 +361,16 @@ static bool fcn_in_cb(RAnalBlock *block, void *user) {
 R_API bool r_anal_function_contains(RAnalFunction *fcn, ut64 addr) {
 	// fcn_in_cb breaks with false if it finds the fcn
 	return !r_anal_blocks_foreach_in (fcn->anal, addr, fcn_in_cb, fcn);
+}
+
+R_API bool r_anal_function_was_modified(RAnalFunction *fcn) {
+	r_return_val_if_fail (fcn, false);
+	RListIter *it;
+	RAnalBlock *bb;
+	r_list_foreach (fcn->bbs, it, bb) {
+		if (r_anal_block_was_modified (bb)) {
+			return true;
+		}
+	}
+	return false;
 }

@@ -76,6 +76,12 @@ static inline bool r_vector_empty(const RVector *vec) {
 
 R_API void r_vector_clear(RVector *vec);
 
+// returns the length of the vector
+static inline size_t r_vector_len(const RVector *vec) {
+	r_return_val_if_fail (vec, 0);
+	return vec->len;
+}
+
 // returns a pointer to the offset inside the array where the element of the index lies.
 static inline void *r_vector_index_ptr(RVector *vec, size_t index) {
 	r_return_val_if_fail (vec && index < vec->capacity, NULL);
@@ -118,6 +124,8 @@ R_API void *r_vector_reserve(RVector *vec, size_t capacity);
 
 // shrink capacity to len.
 R_API void *r_vector_shrink(RVector *vec);
+
+R_API void *r_vector_flush(RVector *vec);
 
 /*
  * example:
@@ -190,6 +198,7 @@ R_API void r_pvector_clear(RPVector *vec);
 // free the vector and call vec->v.free on every element.
 R_API void r_pvector_free(RPVector *vec);
 
+// TODO: rename to r_pvector_length () for consistency
 static inline size_t r_pvector_len(const RPVector *vec) {
 	r_return_val_if_fail (vec, 0);
 	return vec->v.len;
@@ -265,6 +274,10 @@ static inline void **r_pvector_reserve(RPVector *vec, size_t capacity) {
 
 static inline void **r_pvector_shrink(RPVector *vec) {
 	return (void **)r_vector_shrink (&vec->v);
+}
+
+static inline void **r_pvector_flush(RPVector *vec) {
+	return (void **)r_vector_flush (&vec->v);
 }
 
 /*

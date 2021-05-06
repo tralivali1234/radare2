@@ -120,6 +120,7 @@ static version_opcode version_op[] = {
 	{ "v3.9.0a1", opcode_39 },
 	{ "v3.9.0a2", opcode_39 },
 	{ "v3.9.0a3", opcode_39 },
+	{ "v3.9.0", opcode_39 },
 	{ NULL, NULL },
 };
 
@@ -164,7 +165,7 @@ pyc_opcodes *new_pyc_opcodes() {
 		return NULL;
 	}
 	for (i = 0; i < 256; i++) {
-		ret->opcodes[i].op_name = r_str_newf ("<%lu>", i);
+		ret->opcodes[i].op_name = r_str_newf ("<%zu>", i);
 		if (!ret->opcodes[i].op_name) {
 			for (j = 0; j < i; j++) {
 				free (ret->opcodes[j].op_name);

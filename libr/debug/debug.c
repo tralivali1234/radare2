@@ -264,7 +264,7 @@ static int r_debug_recoil(RDebug *dbg, RDebugRecoilMode rc_mode) {
 R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch, int rw, char *module, st64 m_delta) {
 	int bpsz = r_bp_size(dbg->bp);
 	RBreakpointItem *bpi;
-	const char *module_name = module;
+	char *module_name = module? strdup (module): NULL;
 	RListIter *iter;
 	RDebugMap *map;
 	if (!addr && module) {
@@ -275,9 +275,10 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 			detect_module = false;
 			RList *list = r_debug_modules_list (dbg);
 			r_list_foreach (list, iter, map) {
-				if (strstr (map->file, module)) {
+				if (map->file && strstr (map->file, module)) {
 					addr = map->addr + m_delta;
-					module_name = map->file;
+					free (module_name);
+					module_name = strdup (map->file);
 					break;
 				}
 			}
@@ -294,19 +295,21 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		r_list_foreach (dbg->maps, iter, map) {
 			if (addr >= map->addr && addr < map->addr_end) {
 				valid = true;
-				if (detect_module) {
-					module_name = map->file;
+				if (detect_module && map->file) {
+					free (module_name);
+					module_name = strdup (map->file);
 					m_delta = addr - map->addr;
 				}
 				perm = ((map->perm & 1) << 2) | (map->perm & 2) | ((map->perm & 4) >> 2);
 				if (!(perm & R_BP_PROT_EXEC)) {
-					eprintf ("WARNING: setting bp within mapped memory without exec perm\n");
+					eprintf ("Warning: setting bp within mapped memory without exec perm\n");
 				}
 				break;
 			}
 		}
 		if (!valid) {
-			eprintf ("WARNING: module's base addr + delta is not a valid address\n");
+			eprintf ("Warning: module's base addr + delta is not a valid address\n");
+			free (module_name);
 			return NULL;
 		}
 	}
@@ -314,8 +317,9 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		//express db breakpoints as dbm due to ASLR when saving into project
 		r_debug_map_sync (dbg);
 		r_list_foreach (dbg->maps, iter, map) {
-			if (addr >= map->addr && addr < map->addr_end) {
-				module_name = map->file;
+			if (map->file && addr >= map->addr && addr < map->addr_end) {
+				free (module_name);
+				module_name = strdup (map->file);
 				m_delta = addr - map->addr;
 				break;
 			}
@@ -333,9 +337,11 @@ R_API RBreakpointItem *r_debug_bp_add(RDebug *dbg, ut64 addr, int hw, bool watch
 		if (module_name) {
 			bpi->module_name = strdup (module_name);
 			bpi->name = r_str_newf ("%s+0x%" PFMT64x, module_name, m_delta);
+			R_FREE (module_name);
 		}
 		bpi->module_delta = m_delta;
 	}
+	free (module_name);
 	return bpi;
 }
 
@@ -458,38 +464,35 @@ R_API int r_debug_stop(RDebug *dbg) {
 
 R_API bool r_debug_set_arch(RDebug *dbg, const char *arch, int bits) {
 	if (arch && dbg && dbg->h) {
-		bool rc = r_sys_arch_match (dbg->h->arch, arch);
-		if (rc) {
-			switch (bits) {
-			case 27:
-				if (dbg->h->bits == 27) {
-					dbg->bits = 27;
-				}
-				break;
-			case 32:
-				if (dbg->h->bits & R_SYS_BITS_32) {
-					dbg->bits = R_SYS_BITS_32;
-				}
-				break;
-			case 64:
-				dbg->bits = R_SYS_BITS_64;
-				break;
+		switch (bits) {
+		case 27:
+			if (dbg->h->bits == 27) {
+				dbg->bits = 27;
 			}
-			if (!dbg->h->bits) {
-				dbg->bits = dbg->h->bits;
-			} else if (!(dbg->h->bits & dbg->bits)) {
-				dbg->bits = dbg->h->bits & R_SYS_BITS_64;
-				if (!dbg->bits) {
-					dbg->bits = dbg->h->bits & R_SYS_BITS_32;
-				}
-				if (!dbg->bits) {
-					dbg->bits = R_SYS_BITS_32;
-				}
+			break;
+		case 32:
+			if (dbg->h->bits & R_SYS_BITS_32) {
+				dbg->bits = R_SYS_BITS_32;
 			}
-			free (dbg->arch);
-			dbg->arch = strdup (arch);
-			return true;
+			break;
+		case 64:
+			dbg->bits = R_SYS_BITS_64;
+			break;
 		}
+		if (!dbg->h->bits) {
+			dbg->bits = dbg->h->bits;
+		} else if (!(dbg->h->bits & dbg->bits)) {
+			dbg->bits = dbg->h->bits & R_SYS_BITS_64;
+			if (!dbg->bits) {
+				dbg->bits = dbg->h->bits & R_SYS_BITS_32;
+			}
+			if (!dbg->bits) {
+				dbg->bits = R_SYS_BITS_32;
+			}
+		}
+		free (dbg->arch);
+		dbg->arch = strdup (arch);
+		return true;
 	}
 	return false;
 }
@@ -512,7 +515,7 @@ R_API ut64 r_debug_execute(RDebug *dbg, const ut8 *buf, int len, int restore) {
 	risp = r_reg_get (dbg->reg, dbg->reg->name[R_REG_NAME_SP], R_REG_TYPE_GPR);
 	if (ripc) {
 		r_debug_reg_sync (dbg, R_REG_TYPE_GPR, false);
-		orig = r_reg_get_bytes (dbg->reg, -1, &orig_sz);
+		orig = r_reg_get_bytes (dbg->reg, R_REG_TYPE_ALL, &orig_sz);
 		if (!orig) {
 			eprintf ("Cannot get register arena bytes\n");
 			return 0LL;
@@ -620,7 +623,7 @@ R_API bool r_debug_select(RDebug *dbg, int pid, int tid) {
 		dbg->tid = tid;
 	}
 
-	r_io_system (dbg->iob.io, sdb_fmt ("pid %d", dbg->tid));
+	free (r_io_system (dbg->iob.io, sdb_fmt ("pid %d", dbg->tid)));
 
 	// Synchronize with the current thread's data
 	if (dbg->corebind.core) {
@@ -1470,7 +1473,7 @@ static int show_syscall(RDebug *dbg, const char *sysreg) {
 	reg = (int)r_debug_reg_get (dbg, sysreg);
 	si = r_syscall_get (dbg->anal->syscall, reg, -1);
 	if (si) {
-		sysname = si->name? si->name: "unknown";
+		sysname = r_str_get_fail (si->name, "unknown");
 		args = si->args;
 	} else {
 		sysname = "unknown";

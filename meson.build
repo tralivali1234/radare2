@@ -1,29 +1,19 @@
-project('radare2', 'c', license: 'LGPL3', meson_version: '>=0.50.1')
+project('radare2', 'c', license : 'LGPL3', meson_version : '>=0.50.1', version : '5.3.0')
 
 py3_exe = import('python').find_installation('python3')
 git_exe = find_program('git', required: false)
 pkgconfig_mod = import('pkgconfig')
 
 # Get r2 version
-r2_version = 'unknown-error'
-r2_version_major = 0
-r2_version_minor = 0
-r2_version_patch = 0
-r2_version_number = 0
-r = run_command(py3_exe, 'sys/version.py', '--full-version')
-if r.returncode() == 0
-  vers = r.stdout().strip().split('\n')
-  r2_version = vers[0]
-  r2_version_major = vers[1]
-  r2_version_minor = vers[2]
-  r2_version_patch = vers[3]
-  r2_version_number = vers[4]
-  if host_machine.system() == 'darwin'
-    r2_version = r2_version.split('-')[0]
-  endif
-else
-  message('Cannot find project version with sys/version.py')
-endif
+r2_version = meson.project_version()
+vers = r2_version.split('.')
+r2_version_major = vers[0].to_int()
+r2_version_minor = vers[1].to_int()
+r2_version_patch = vers[2].split('-')[0].to_int()
+r2_version_number \
+  = (r2_version_major * 10000) \
+  + (r2_version_minor * 100) \
+  + (r2_version_patch)
 
 repo = '.'
 if meson.is_subproject()
@@ -218,6 +208,7 @@ subdir('libr')
 
 conf_data = configuration_data()
 conf_data.set('plugins_core', '&r_core_plugin_' + ', &r_core_plugin_'.join(core_plugins) + ', 0')
+conf_data.set('plugins_esil', '&r_esil_plugin_' + ', &r_esil_plugin_'.join(esil_plugins) + ', 0')
 conf_data.set('plugins_anal', '&r_anal_plugin_' + ', &r_anal_plugin_'.join(anal_plugins) + ', 0')
 conf_data.set('plugins_asm', '&r_asm_plugin_' + ', &r_asm_plugin_'.join(asm_plugins) + ', 0')
 conf_data.set('plugins_bp', '&r_bp_plugin_' + ', &r_bp_plugin_'.join(bp_plugins) + ', 0')
@@ -260,14 +251,23 @@ else
 endif
 
 # handle openssl library
-sys_openssl = dependency('openssl', required: false)
-use_sys_openssl = false
-if sys_openssl.found() and get_option('use_sys_openssl')
-  message('Using system openssl library')
-  use_sys_openssl = true
+if get_option('use_ssl')
+  static_sys_openssl = get_option('static_sys_openssl')
+  sys_openssl = dependency('openssl', required: false, static: static_sys_openssl)
+  use_sys_openssl = false
+  if sys_openssl.found() and get_option('use_sys_openssl')
+    message('Using system openssl library')
+    use_sys_openssl = true
+  else
+    message('Using bundled openssl code')
+  endif
 else
-  message('Using bundled openssl code')
+  sys_openssl = false
+  use_sys_openssl = false
 endif
+
+use_fork = get_option('use_fork')
+use_dylink = get_option('use_dylink')
 
 # handle libuv library
 if get_option('use_libuv')
@@ -288,10 +288,10 @@ endif
 
 has_debugger = get_option('debugger')
 have_ptrace = not ['windows', 'cygwin', 'sunos'].contains(host_machine.system())
-use_ptrace_wrap = ['linux'].contains(host_machine.system())
+can_ptrace_wrap = ['linux'].contains(host_machine.system())
 
 have_ptrace = have_ptrace and has_debugger
-use_ptrace_wrap = use_ptrace_wrap and has_debugger
+use_ptrace_wrap = can_ptrace_wrap and has_debugger
 
 message('HAVE_PTRACE: @0@'.format(have_ptrace))
 message('USE_PTRACE_WRAP: @0@'.format(use_ptrace_wrap))
@@ -314,6 +314,7 @@ userconf.set10('USE_LIB_MAGIC', use_syslib_magic)
 userconf.set10('HAVE_LIB_XXHASH', sys_xxhash.found())
 userconf.set10('USE_LIB_XXHASH', use_sys_xxhash)
 userconf.set10('DEBUGGER', has_debugger)
+userconf.set('ETCDIR', join_paths(r2_prefix, 'etc'))
 userconf.set('PREFIX', r2_prefix)
 if host_machine.system() == 'windows'
   userconf.set('LIBDIR', r2_libdir)
@@ -339,11 +340,11 @@ userconf.set('EXTRAS', r2_extras)
 userconf.set('BINDINGS', r2_bindings)
 userconf.set10('HAVE_OPENSSL', use_sys_openssl)
 userconf.set10('HAVE_LIBUV', use_libuv)
-userconf.set10('HAVE_FORK', true)
-userconf.set10('WANT_DYLINK', true)
+userconf.set10('HAVE_FORK', use_fork)
+userconf.set10('WANT_DYLINK', use_dylink)
 userconf.set10('HAVE_PTRACE', have_ptrace)
 userconf.set10('USE_PTRACE_WRAP', use_ptrace_wrap)
-userconf.set10('WITH_GPL', true)
+userconf.set10('WITH_GPL', not get_option('nogpl'))
 ok = cc.has_header_symbol('sys/personality.h', 'ADDR_NO_RANDOMIZE')
 userconf.set10('HAVE_DECL_ADDR_NO_RANDOMIZE', ok)
 
@@ -460,6 +461,7 @@ sdb_files = [
   'shlr/sdb/src/ht_uu.c',
   'shlr/sdb/src/ht_up.c',
   'shlr/sdb/src/ht_pp.c',
+  'shlr/sdb/src/ht_pu.c',
   'shlr/sdb/src/journal.c',
   'shlr/sdb/src/json.c',
   'shlr/sdb/src/lock.c',
@@ -470,7 +472,8 @@ sdb_files = [
   'shlr/sdb/src/query.c',
   'shlr/sdb/src/sdb.c',
   'shlr/sdb/src/sdbht.c',
-  'shlr/sdb/src/util.c'
+  'shlr/sdb/src/util.c',
+  'shlr/sdb/src/text.c'
 ]
 
 sdb_inc = [platform_inc, include_directories('shlr/sdb/src')]
@@ -495,6 +498,7 @@ sdb_inc_files = [
   'shlr/sdb/src/ht_pp.h',
   'shlr/sdb/src/ht_up.h',
   'shlr/sdb/src/ht_uu.h',
+  'shlr/sdb/src/ht_pu.h',
   'shlr/sdb/src/ls.h',
   'shlr/sdb/src/sdb.h',
   'shlr/sdb/src/sdbht.h',
@@ -506,7 +510,7 @@ install_headers(sdb_inc_files, install_dir: join_paths(r2_incdir, 'sdb'))
 libr2sdb = static_library('r2sdb', sdb_files,
   include_directories: sdb_inc,
   implicit_include_directories: false,
-  c_args: host_machine.system() == 'windows' ? '-DSDB_API=__declspec(dllexport)' : [],
+  c_args: host_machine.system() == 'windows' ? '-DSDB_IPI= -DSDB_API=__declspec(dllexport)' : [],
 )
 
 sdb_dep = declare_dependency(
@@ -522,26 +526,10 @@ sdb_exe = executable('sdb', ['shlr/sdb/src/main.c'] + sdb_files,
   native: true,
 )
 
-sdb_gen_cmd_script = '''#script
-import os
-import sys
-sdb_exe = r'@0@'
-outfile = sys.argv[1]
-infiles = sys.argv[2:]
-if os.name == 'nt':
-    # DO NOT replace chr(92) below with a backslash
-    infiles, sdb_exe, outfile = map(lambda x: x.replace('/', chr(92)), [' '.join(infiles), sdb_exe, outfile])
-    os.system('type {} | {} {} ='.format(infiles, sdb_exe, outfile))
-else:
-    infiles = ' '.join(infiles)
-    os.system('cat {} | {} {} ='.format(infiles, sdb_exe, outfile))
-'''.format(sdb_exe.full_path())
-
 sdb_gen_cmd = [
-  py3_exe,
-  '-c',
-  sdb_gen_cmd_script,
+  sdb_exe,
   '@OUTPUT@',
+  '==',
   '@INPUT@'
 ]
 
@@ -572,12 +560,19 @@ if get_option('b_sanitize').contains('undefined')
   pkgcfg_sanitize_libs += ' -lubsan'
 endif
 
+rpath_exe = ''
+rpath_lib = ''
+if get_option('local') and get_option('default_library') == 'shared'
+  rpath_exe = '$ORIGIN/../' + get_option('libdir')
+  rpath_lib = '$ORIGIN'
+endif
+
 subdir('libr/util')
 subdir('libr/socket')
-subdir('shlr')
-
 subdir('libr/hash')
 subdir('libr/crypto')
+subdir('shlr')
+
 subdir('libr/cons')
 subdir('shlr/gdb')
 subdir('libr/io')
@@ -607,8 +602,13 @@ subdir('libr/magic/d')
 subdir('libr/flag/d')
 subdir('libr/main')
 
-if not meson.is_subproject()
-  rpath = get_option('local') and get_option('default_library') == 'shared' ? '$ORIGIN/../' + get_option('libdir') : ''
+cli_option = get_option('cli')
+if cli_option.auto()
+  cli_enabled = not meson.is_subproject()
+else
+  cli_enabled = cli_option.enabled()
+endif
+if cli_enabled
   if get_option('blob')
     subdir('binr/blob')
   else
@@ -626,7 +626,9 @@ if not meson.is_subproject()
   endif
   subdir('binr/r2pm')
   subdir('binr/r2r')
-else
+endif
+
+if meson.is_subproject()
   libr2_dep = declare_dependency(
     dependencies: [
       r_anal_dep,
@@ -668,44 +670,44 @@ endif
 subdir('test/unit')
 
 install_data(
-  'doc/fortunes.creepy',
   'doc/fortunes.fun',
-  'doc/fortunes.nsfw',
   'doc/fortunes.tips',
   install_dir: r2_fortunes
 )
 
-install_man(
-  'man/r2agent.1',
-  'man/r2-docker.1',
-  'man/r2pm.1',
-  'man/rabin2.1',
-  'man/radare2.1',
-  'man/radiff2.1',
-  'man/rafind2.1',
-  'man/ragg2.1',
-  'man/rahash2.1',
-  'man/rarun2.1',
-  'man/rasm2.1',
-  'man/rax2.1',
-  'man/esil.7'
-)
+if cli_enabled
+  install_man(
+    'man/r2agent.1',
+    'man/r2-docker.1',
+    'man/r2pm.1',
+    'man/rabin2.1',
+    'man/radare2.1',
+    'man/radiff2.1',
+    'man/rafind2.1',
+    'man/ragg2.1',
+    'man/rahash2.1',
+    'man/rarun2.1',
+    'man/rasm2.1',
+    'man/rax2.1',
+    'man/esil.7'
+  )
 
-install_data('doc/hud',
-  install_dir: r2_hud,
-  rename: 'main'
-)
+  install_data('doc/hud',
+    install_dir: r2_hud,
+    rename: 'main'
+  )
 
-install_data(
-  'doc/zsh/_r2',
-  'doc/zsh/_rabin2',
-  'doc/zsh/_radiff2',
-  'doc/zsh/_rafind2',
-  'doc/zsh/_ragg2',
-  'doc/zsh/_rahash2',
-  'doc/zsh/_rasm2',
-  'doc/zsh/_rax2',
-  install_dir: r2_zsh_compdir
-)
+  install_data(
+    'doc/zsh/_r2',
+    'doc/zsh/_rabin2',
+    'doc/zsh/_radiff2',
+    'doc/zsh/_rafind2',
+    'doc/zsh/_ragg2',
+    'doc/zsh/_rahash2',
+    'doc/zsh/_rasm2',
+    'doc/zsh/_rax2',
+    install_dir: r2_zsh_compdir
+  )
 
-meson.add_install_script(host_machine.system() == 'windows' ? 'sys/create_r2.bat' : 'sys/create_r2.sh')
+  meson.add_install_script(host_machine.system() == 'windows' ? 'sys/create_r2.bat' : 'sys/create_r2.sh')
+endif

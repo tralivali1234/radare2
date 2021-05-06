@@ -145,16 +145,13 @@ static void print_format_values(RCore *core, const char *fmt, bool onstack, ut64
 /* This function display list of arg with some colors */
 
 R_API void r_core_print_func_args(RCore *core) {
-	RListIter *iter;
+	r_return_if_fail (core && core->anal && core->anal->reg);
+
+
 	bool color = r_config_get_i (core->config, "scr.color");
-	if (!core->anal) {
-		return;
-	}
-	if (!core->anal->reg) {
-		return;
-	}
 	const char *pc = r_reg_get_name (core->anal->reg, R_REG_NAME_PC);
 	ut64 cur_addr = r_reg_getv (core->anal->reg, pc);
+	RListIter *iter;
 	RAnalOp *op = r_core_anal_op (core, cur_addr, R_ANAL_OP_MASK_BASIC);
 	if (!op) {
 		return;
@@ -194,8 +191,9 @@ R_API void r_core_print_func_args(RCore *core) {
 			int nargs = 4; // TODO: use a correct value here when available
 			//if (nargs > 0) {
 				int i;
+				const char *cc = r_anal_cc_default (core->anal); // or use "reg" ?
 				for (i = 0; i < nargs; i++) {
-					ut64 v = r_debug_arg_get (core->dbg, R_ANAL_CC_TYPE_STDCALL, i);
+					ut64 v = r_debug_arg_get (core->dbg, cc, i);
 					print_arg_str (i, "", color);
 					r_cons_printf ("0x%08" PFMT64x, v);
 					r_cons_newline ();
@@ -222,7 +220,6 @@ R_API RList *r_core_get_func_args(RCore *core, const char *fcn_name) {
 		return NULL;
 	}
 	Sdb *TDB = core->anal->sdb_types;
-	RList *list = r_list_newf ((RListFree)r_anal_fcn_arg_free);
 	char *key = resolve_fcn_name (core->anal, fcn_name);
 	if (!key) {
 		return NULL;
@@ -239,6 +236,7 @@ R_API RList *r_core_get_func_args(RCore *core, const char *fcn_name) {
 		free (key);
 		return NULL;
 	}
+	RList *list = r_list_newf ((RListFree)r_anal_fcn_arg_free);
 	int i;
 	ut64 spv = r_reg_getv (core->anal->reg, sp);
 	ut64 s_width = (core->anal->bits == 64)? 8: 4;
@@ -254,6 +252,7 @@ R_API RList *r_core_get_func_args(RCore *core, const char *fcn_name) {
 		for (i = 0; i < nargs; i++) {
 			RAnalFuncArg *arg = R_NEW0 (RAnalFuncArg);
 			if (!arg) {
+				r_list_free (list);
 				return NULL;
 			}
 			set_fcn_args_info (arg, core->anal, key, cc, i);

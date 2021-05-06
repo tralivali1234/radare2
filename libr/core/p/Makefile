@@ -18,7 +18,7 @@ LDFLAGS+=$(STOP)/sdb/src/libsdb.a
 
 include $(STOP)/java/deps.mk
 include $(STOP)/gdb/deps.mk
-include $(STOP)/windbg/deps.mk
+include $(STOP)/winkd/deps.mk
 
 LDFLAGS+=${LINK}
 
@@ -26,7 +26,7 @@ ifeq ($(WITHPIC),1)
 all: ${ALL_TARGETS}
 
 ALL_TARGETS=
-PLUGS=java.mk a2f.mk
+PLUGS=java.mk a2f.mk sixref.mk
 include $(PLUGS)
 
 clean:

@@ -109,17 +109,23 @@ FILE=bins/elf/libverifyPass.so
 CMDS=<<EOF
 e anal.vars.stackname=true
 e asm.lines.bb = false
+e asm.lines.jmp = false
+e io.cache=false
+e io.cache.read=false
+wc-*
 aa
 s sym.Java_com_app_ndh_NDHActivity_print
 to bins/headers/jni.h
+td struct NULL { }
 tl JNINativeInterface = 0x464c457f
+tl NULL = 0
 pdf~JNINativeInterface
 pdr~JNI?
 EOF
 EXPECT=<<EOF
 | ; var struct JNINativeInterface @ sp+0x12c
 | 0x00000f74      4b93           str r3, [JNINativeInterface]
-| 0x00000f76      039b           ldr r3, [var_134h]                    ; JNINativeInterface.reserved0
+| 0x00000f76      039b           ldr r3, [NULL]                        ; JNINativeInterface.reserved0
 | 0x00000f7e      d358           ldr r3, [r2, r3]                      ; JNINativeInterface.GetStringUTFChars
 | 0x00000f82      019a           ldr r2, [var_13ch]                    ; JNINativeInterface.reserved0
 | 0x0000100e      d358           ldr r3, [r2, r3]                      ; JNINativeInterface.GetStringLength
@@ -139,6 +145,7 @@ CMDS=t~char,double,float,int,long,short,size,uid,void # basic universal types
 EXPECT=<<EOF
 char
 char *
+char **
 double
 float
 int
@@ -181,9 +188,12 @@ NAME=t-enum
 FILE=-
 CMDS=<<EOF
 td enum pe_machine { IMAGE_FILE_MACHINE_IA64=0x200, IMAGE_FILE_MACHINE_I386=0x14c };
+te~?pe_machine
 t-pe_machine
-t~?pe_machine'
+te~?pe_machine
+EOF
 EXPECT=<<EOF
+1
 0
 EOF
 RUN
@@ -210,7 +220,6 @@ t-xoo
 EOF
 EXPECT=<<EOF
 union.xoo=x,y,z
-union.xoo.!size=32
 union.xoo.x=int32_t,0,0
 union.xoo.x.meta=0
 union.xoo.y=int32_t,0,0
@@ -339,6 +348,7 @@ EOF
 EXPECT=<<EOF
 char
 char *
+char **
 double
 float
 int
@@ -382,6 +392,7 @@ EOF
 EXPECT=<<EOF
 char
 char *
+char **
 double
 float
 int
@@ -456,14 +467,14 @@ RUN
 NAME=Types not reloaded when arch is the same
 FILE=-
 CMDS=<<EOF
-e asm.archx86
+e asm.arch=x86
 e anal.arch=x86
-e anal.bits=32
+e asm.bits=32
 t-*
 tk a=b
 e asm.arch=x68
+e asm.bits=32
 e anal.arch=x86
-e anal.bits=32
 tk a
 EOF
 EXPECT=<<EOF
@@ -803,6 +814,7 @@ RUN
 NAME=ts function pointer test
 FILE=-
 CMDS=<<EOF
+e asm.bits=64
 ws hello @ 0xc
 "td struct foo {int x; int (*fp)(int a , int b ); char *b;};"
 ts foo
@@ -838,6 +850,21 @@ EXPECT=<<EOF
 struct three_elements {
 	int32_t x;
 	char y;
+	float z;
+};
+EOF
+RUN
+
+NAME=tsc with array
+FILE=-
+CMDS=<<EOF
+"td struct with_array{int x; char y[50]; float z;}"
+tsc with_array
+EOF
+EXPECT=<<EOF
+struct with_array {
+	int32_t x;
+	char y[50];
 	float z;
 };
 EOF
@@ -1047,10 +1074,10 @@ s sym.funcarg
 afvr
 EOF
 EXPECT=<<EOF
-arg int64_t arg1 @ rdi
-arg int64_t arg2 @ rsi
-arg int64_t arg3 @ rdx
 arg int64_t arg4 @ rcx
+arg int64_t arg3 @ rdx
+arg int64_t arg2 @ rsi
+arg int64_t arg1 @ rdi
 EOF
 RUN
 
@@ -1063,10 +1090,10 @@ s sym.funcarg
 afvr
 EOF
 EXPECT=<<EOF
-arg char * arg1 @ rdi
-arg char * arg2 @ rsi
-arg int64_t arg3 @ rdx
 arg size_t arg4 @ rcx
+arg int64_t arg3 @ rdx
+arg char * arg2 @ rsi
+arg char * arg1 @ rdi
 EOF
 RUN
 
@@ -1227,9 +1254,9 @@ var char * dest @ rbp-0x1470
 var void * var_1420h @ rbp-0x1420
 var char * s1 @ rbp-0x1020
 var int64_t var_18h @ rbp-0x18
-arg int argc @ rdi
 arg char ** argv @ rsi
-var char ** str @ rbp-0xb0
+arg int argc @ rdi
+var char * str @ rbp-0xb0
 var signed int var_a4h @ rbp-0xa4
 var signed int64_t var_a0h @ rbp-0xa0
 var uint32_t var_9ch @ rbp-0x9c
@@ -1258,8 +1285,8 @@ var char * var_28h @ rbp-0x28
 var char * var_20h @ rbp-0x20
 var int64_t var_18h @ rbp-0x18
 var int64_t var_8h @ rbp-0x8
+arg char * arg2 @ rsi
 arg signed int arg1 @ rdi
-arg char ** arg2 @ rsi
 EOF
 RUN
 
@@ -1331,9 +1358,9 @@ var char ** var_20h @ rbp-0x20
 var int64_t var_14h @ rbp-0x14
 var void * var_10h @ rbp-0x10
 var int64_t var_4h @ rbp-0x4
-arg int argc @ rdi
-arg char ** argv @ rsi
 arg char ** envp @ rdx
+arg char ** argv @ rsi
+arg int argc @ rdi
 EOF
 RUN
 
@@ -1391,7 +1418,6 @@ tk~struct.s1
 EOF
 EXPECT=<<EOF
 struct.s1=a,size,b
-struct.s1.!size=96
 struct.s1.a=int32_t,0,0
 struct.s1.a.meta=0
 struct.s1.b=int32_t,8,0
@@ -1535,7 +1561,6 @@ EXPECT=<<EOF
 pf.foo dc a b
 tk foo=union
 tk union.foo=a,b
-tk union.foo.!size=32
 tk union.foo.a=int32_t,0,0
 tk union.foo.a.meta=0
 tk union.foo.b=char,0,0
@@ -1586,6 +1611,8 @@ txf main
 ?e =
 txf fcn.00011b90
 ?e =
+txt size_t
+?e =
 txt size_t *
 EOF
 EXPECT=<<EOF
@@ -1604,5 +1631,63 @@ wint_t
 =
 fcn.0000f770
 fcn.00011b90
+fcn.00010010
+fcn.0000e780
+fcn.0000c0f0
+=
+fcn.00011b90
+fcn.00014d50
+EOF
+RUN
+
+NAME=aht aligned
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+"td struct foo {char gap;int bar __attribute__((__aligned__(4)));};"
+"td struct foo2 {char gap[1];int bar __attribute__((__aligned__(4)));};"
+"td struct foo3 {char gap[3];int bar __attribute__((__aligned__(4)));};"
+"td struct foo4 {char gap[4];int bar;};"
+"td struct foo5 {int gap;int bar;};"
+ahts 4 ~foo
+?e =
+wx c7400400000000
+aht foo.bar
+pd 1
+EOF
+EXPECT=<<EOF
+foo.bar
+foo2.bar
+foo3.bar
+foo4.bar
+foo5.bar
+=
+            0x00000000      c74004000000.  mov dword [rax + foo.bar], 0
+EOF
+RUN
+
+NAME=ahts nested
+FILE=-
+CMDS=<<EOF
+"td struct foo {int bar;int cow;};"
+"td struct spam {int ham;struct foo _foo;int eggs;};"
+ahts 8 ~spam
+EOF
+EXPECT=<<EOF
+spam._foo.cow
+EOF
+RUN
+
+NAME=aaft io.va side effect
+FILE=-
+ARGS=-eio.va=0 -a x86 -b 64
+CMDS=<<EOF
+af
+aaft
+e io.va
+EOF
+EXPECT=<<EOF
+false
 EOF
 RUN

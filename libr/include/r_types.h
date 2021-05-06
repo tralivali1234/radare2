@@ -8,6 +8,7 @@
 #include "r_util/r_str_util.h"
 #include <r_userconf.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <assert.h>
 
 // TODO: fix this to make it crosscompile-friendly: R_SYS_OSTYPE ?
@@ -71,6 +72,7 @@
 #define R_PERM_ACCESS	32
 #define R_PERM_CREAT	64
 
+
 // HACK to fix capstone-android-mips build
 #undef mips
 #define mips mips
@@ -78,6 +80,12 @@
 #if defined(__powerpc) || defined(__powerpc__)
 #undef __POWERPC__
 #define __POWERPC__ 1
+#endif
+
+#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
+#define TARGET_OS_IPHONE 1
+#else
+#define TARGET_OS_IPHONE 0
 #endif
 
 #if __IPHONE_8_0 && TARGET_OS_IPHONE
@@ -174,12 +182,6 @@
   #include <windows.h>
 #endif
 
-#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
-#define TARGET_OS_IPHONE 1
-#else
-#define TARGET_OS_IPHONE 0
-#endif
-
 #ifdef __GNUC__
   #define FUNC_ATTR_MALLOC __attribute__((malloc))
   #define FUNC_ATTR_ALLOC_SIZE(x) __attribute__((alloc_size(x)))
@@ -208,6 +210,13 @@
   #define FUNC_ATTR_USED
   #define FUNC_ATTR_WARN_UNUSED_RESULT
   #define FUNC_ATTR_ALWAYS_INLINE
+#endif
+
+/* printf format check attributes */
+#if defined(__clang__) || defined(__GNUC__)
+#define R_PRINTF_CHECK(fmt, dots) __attribute__ ((format (printf, fmt, dots)))
+#else
+#define R_PRINTF_CHECK(fmt, dots)
 #endif
 
 #include <r_types_base.h>
@@ -255,7 +264,7 @@ extern "C" {
 #define __packed __attribute__((__packed__))
 #endif
 
-typedef int (*PrintfCallback)(const char *str, ...);
+typedef int (*PrintfCallback)(const char *str, ...) R_PRINTF_CHECK(1, 2);
 
 /* compile-time introspection helpers */
 #define CTO(y,z) ((size_t) &((y*)0)->z)
@@ -419,6 +428,8 @@ static inline void *r_new_copy(int size, void *data) {
 #define HHXFMT  "hhx"
 #endif
 
+#define PFMTDPTR "td"
+
 #define PFMT32x "x"
 #define PFMT32d "d"
 #define PFMT32u "u"
@@ -532,41 +543,42 @@ static inline void *r_new_copy(int size, void *data) {
 #define R_SYS_ENDIAN_BIG 2
 #define R_SYS_ENDIAN_BI 3
 
-enum {
+typedef enum {
 	R_SYS_ARCH_NONE = 0,
-	R_SYS_ARCH_X86 = 0x1,
-	R_SYS_ARCH_ARM = 0x2,
-	R_SYS_ARCH_PPC = 0x4,
-	R_SYS_ARCH_M68K = 0x8,
-	R_SYS_ARCH_JAVA = 0x10,
-	R_SYS_ARCH_MIPS = 0x20,
-	R_SYS_ARCH_SPARC = 0x40,
-	R_SYS_ARCH_XAP = 0x80,
-	R_SYS_ARCH_MSIL = 0x100,
-	R_SYS_ARCH_OBJD = 0x200,
-	R_SYS_ARCH_BF = 0x400,
-	R_SYS_ARCH_SH = 0x800,
-	R_SYS_ARCH_AVR = 0x1000,
-	R_SYS_ARCH_DALVIK = 0x2000,
-	R_SYS_ARCH_Z80 = 0x4000,
-	R_SYS_ARCH_ARC = 0x8000,
-	R_SYS_ARCH_I8080 = 0x10000,
-	R_SYS_ARCH_RAR = 0x20000,
-	R_SYS_ARCH_8051 = 0x40000,
-	R_SYS_ARCH_TMS320 = 0x80000,
-	R_SYS_ARCH_EBC = 0x100000,
-	R_SYS_ARCH_H8300 = 0x200000,
-	R_SYS_ARCH_CR16 = 0x400000,
-	R_SYS_ARCH_V850 = 0x800000,
-	R_SYS_ARCH_SYSZ = 0x1000000,
-	R_SYS_ARCH_XCORE = 0x2000000,
-	R_SYS_ARCH_PROPELLER = 0x4000000,
-	R_SYS_ARCH_MSP430 = 0x8000000LL, // 1<<27
-	R_SYS_ARCH_CRIS =  0x10000000LL, // 1<<28
-	R_SYS_ARCH_HPPA =  0x20000000LL, // 1<<29
-	R_SYS_ARCH_V810 =  0x40000000LL, // 1<<30
-	R_SYS_ARCH_LM32 =  0x80000000LL, // 1<<31
-};
+	R_SYS_ARCH_X86,
+	R_SYS_ARCH_ARM,
+	R_SYS_ARCH_PPC,
+	R_SYS_ARCH_M68K,
+	R_SYS_ARCH_JAVA,
+	R_SYS_ARCH_MIPS,
+	R_SYS_ARCH_SPARC,
+	R_SYS_ARCH_XAP,
+	R_SYS_ARCH_MSIL,
+	R_SYS_ARCH_OBJD,
+	R_SYS_ARCH_BF,
+	R_SYS_ARCH_SH,
+	R_SYS_ARCH_AVR,
+	R_SYS_ARCH_DALVIK,
+	R_SYS_ARCH_Z80,
+	R_SYS_ARCH_ARC,
+	R_SYS_ARCH_I8080,
+	R_SYS_ARCH_RAR,
+	R_SYS_ARCH_8051,
+	R_SYS_ARCH_TMS320,
+	R_SYS_ARCH_EBC,
+	R_SYS_ARCH_H8300,
+	R_SYS_ARCH_CR16,
+	R_SYS_ARCH_V850,
+	R_SYS_ARCH_S390,
+	R_SYS_ARCH_XCORE,
+	R_SYS_ARCH_PROPELLER,
+	R_SYS_ARCH_MSP430,
+	R_SYS_ARCH_CRIS,
+	R_SYS_ARCH_HPPA,
+	R_SYS_ARCH_V810,
+	R_SYS_ARCH_LM32,
+	R_SYS_ARCH_RISCV
+} RSysArch;
 
 #if HAVE_CLOCK_NANOSLEEP && CLOCK_MONOTONIC && (__linux__ || (__FreeBSD__ && __FreeBSD_version >= 1101000) || (__NetBSD__ && __NetBSD_Version__ >= 700000000))
 #define HAS_CLOCK_NANOSLEEP 1

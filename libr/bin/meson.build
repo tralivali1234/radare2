@@ -56,7 +56,6 @@ r_bin_sources = [
   'p/bin_sfc.c',
   'p/bin_smd.c',
   'p/bin_sms.c',
-  'p/bin_spc700.c',
   'p/bin_symbols.c',
   'p/bin_te.c',
   'p/bin_vsf.c',
@@ -143,6 +142,7 @@ r_bin = library('r_bin', r_bin_sources,
   c_args: ['-DR_API_BIN_ONLY=1'] + library_cflags,
   dependencies: [
     r_util_dep,
+    r_cons_dep,
     r_io_dep,
     r_hash_dep,
     r_magic_dep,
@@ -154,6 +154,7 @@ r_bin = library('r_bin', r_bin_sources,
   ],
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

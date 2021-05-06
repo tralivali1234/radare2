@@ -24,7 +24,7 @@ e asm.var=false
 pdb
 EOF
 EXPECT=<<EOF
-/ 337: entry0 (int32_t arg_24h, int32_t arg_40h, int32_t arg_44h);
+/ 337: entry0 (int32_t arg_40h, int32_t arg_44h);
 |           0x006453a1      e8d8170000     call fcn.00646b7e
 |           0x006453a6      8d642444       lea esp, [arg_44h]
 |       ,=< 0x006453aa      0f85a6300000   jne 0x648456
@@ -168,7 +168,7 @@ FILE=bins/pe/flare_notepad.ex
 CMDS=<<EOF
 e anal.bb.maxsize = 2048
 aaa
-pdf~ret?
+pdf~?ret
 EOF
 EXPECT=<<EOF
 1
@@ -289,7 +289,7 @@ CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=32
 e asm.os=linux
-e asm.lines.bb=false
+e asm.lines.jmp=false
 e asm.lines.out=false
 e asm.bytes=false
 e asm.indentspace=0
@@ -299,13 +299,12 @@ e asm.functions=false
 e asm.fcncalls=false
 e asm.lines.fcn=false
 e scr.utf8=false
-e anal.jmp.after=false
 e anal.calls=false
 e anal.jmp.cref=false
 e anal.jmp.above=true
 e anal.jmp.ref=true
 e anal.split=true
-# HACK to avoid ASAN taking too long on travis.. this is broken anyway
+# HACK to avoid ASAN taking too long on the CI.. this is broken anyway
 e anal.bb.maxsize=1K
 adf @ sym.testObf27.exe_VirtMe
 .adf @ sym.testObf27.exe_VirtMe
@@ -456,7 +455,7 @@ e asm.os=linux
 e asm.emu=true
 e asm.bytes=0
 e asm.cmt.col=20
-e asm.lines.bb=false
+e asm.lines.jmp=false
 pd 20~write,exit
 EOF
 EXPECT=<<EOF
@@ -475,7 +474,7 @@ e asm.emu=true
 e emu.write=true
 e asm.bytes=0
 e asm.cmt.col=20
-e asm.lines.bb=false
+e asm.lines.jmp=false
 aeim
 s 0x00402ade
 pd 4~printf
@@ -637,7 +636,7 @@ s 0xf34
 afb.
 EOF
 EXPECT=<<EOF
-0x00000f34 0x00000f4b 01:0159 23 j 0x00001144
+0x00000f34 0x00000f4b 00:0000 23 j 0x00001144
 EOF
 RUN
 
@@ -705,7 +704,7 @@ aaa
 f~?case
 EOF
 EXPECT=<<EOF
-90
+91
 EOF
 RUN
 
@@ -1031,20 +1030,20 @@ f~case.
 EOF
 EXPECT=<<EOF
 0x080483fd 1 switch.0x080483fd
-0x08048404 1 case.0x80483fd.1
 0x08048404 1 case.0x80483fd.2
 0x08048404 1 case.0x80483fd.3
-0x0804840d 1 case.0x80483fd.0
-0x08048416 1 case.0x80483fd.4
-0x0804841f 1 case.0x80483fd.5
-0x08048428 1 case.0x80483fd.6
-0x08048431 1 case.0x80483fd.7
-0x08048431 1 case.0x80483fd.9
+0x08048404 1 case.0x80483fd.4
+0x0804840d 1 case.0x80483fd.1
+0x08048416 1 case.0x80483fd.5
+0x0804841f 1 case.0x80483fd.6
+0x08048428 1 case.0x80483fd.7
+0x08048431 1 case.0x80483fd.8
+0x08048431 1 case.0x80483fd.10
 0x08048431 1 case.default.0x80483fd
-0x0804843a 1 case.0x80483fd.8
-0x08048443 1 case.0x80483fd.10
-0x0804844c 1 case.0x80483fd.11
-0x08048455 1 case.0x80483fd.12
+0x0804843a 1 case.0x80483fd.9
+0x08048443 1 case.0x80483fd.11
+0x0804844c 1 case.0x80483fd.12
+0x08048455 1 case.0x80483fd.13
 EOF
 RUN
 
@@ -1058,20 +1057,20 @@ f~case.
 EOF
 EXPECT=<<EOF
 0x080483fd 1 switch.0x080483fd
-0x08048404 1 case.0x80483fd.1
 0x08048404 1 case.0x80483fd.2
 0x08048404 1 case.0x80483fd.3
-0x0804840d 1 case.0x80483fd.0
-0x08048416 1 case.0x80483fd.4
-0x0804841f 1 case.0x80483fd.5
-0x08048428 1 case.0x80483fd.6
-0x08048431 1 case.0x80483fd.7
-0x08048431 1 case.0x80483fd.9
+0x08048404 1 case.0x80483fd.4
+0x0804840d 1 case.0x80483fd.1
+0x08048416 1 case.0x80483fd.5
+0x0804841f 1 case.0x80483fd.6
+0x08048428 1 case.0x80483fd.7
+0x08048431 1 case.0x80483fd.8
+0x08048431 1 case.0x80483fd.10
 0x08048431 1 case.default.0x80483fd
-0x0804843a 1 case.0x80483fd.8
-0x08048443 1 case.0x80483fd.10
-0x0804844c 1 case.0x80483fd.11
-0x08048455 1 case.0x80483fd.12
+0x0804843a 1 case.0x80483fd.9
+0x08048443 1 case.0x80483fd.11
+0x0804844c 1 case.0x80483fd.12
+0x08048455 1 case.0x80483fd.13
 EOF
 RUN
 
@@ -1088,19 +1087,19 @@ EXPECT=<<EOF
 0x0040be85 1 switch.0x0040be85
 0x0040beb5 1 switch.0x0040beb5
 0x0040bf68 1 switch.0x0040bf68
-0x00401015 1 case.0x40100e.0
-0x00401025 1 case.0x40100e.1
+0x00401015 1 case.0x40100e.1
 0x00401025 1 case.0x40100e.2
 0x00401025 1 case.0x40100e.3
-0x00401035 1 case.0x40100e.4
-0x00401045 1 case.0x40100e.5
-0x00401055 1 case.0x40100e.6
-0x00401065 1 case.0x40100e.8
-0x00401075 1 case.0x40100e.10
-0x00401085 1 case.0x40100e.11
-0x00401095 1 case.0x40100e.12
-0x004010a5 1 case.0x40100e.7
-0x004010a5 1 case.0x40100e.9
+0x00401025 1 case.0x40100e.4
+0x00401035 1 case.0x40100e.5
+0x00401045 1 case.0x40100e.6
+0x00401055 1 case.0x40100e.7
+0x00401065 1 case.0x40100e.9
+0x00401075 1 case.0x40100e.11
+0x00401085 1 case.0x40100e.12
+0x00401095 1 case.0x40100e.13
+0x004010a5 1 case.0x40100e.8
+0x004010a5 1 case.0x40100e.10
 0x004010a5 1 case.default.0x40100e
 0x0040be7e 1 case.default.0x40be85
 0x0040bed4 1 case.0x40beb5.0
@@ -1133,19 +1132,19 @@ EXPECT=<<EOF
 0x00402875 1 switch.0x00402875
 0x004028a5 1 switch.0x004028a5
 0x00402958 1 switch.0x00402958
-0x00401015 1 case.0x40100e.0
-0x00401026 1 case.0x40100e.1
+0x00401015 1 case.0x40100e.1
 0x00401026 1 case.0x40100e.2
 0x00401026 1 case.0x40100e.3
-0x00401037 1 case.0x40100e.4
-0x00401048 1 case.0x40100e.5
-0x00401059 1 case.0x40100e.6
-0x0040106a 1 case.0x40100e.8
-0x0040107b 1 case.0x40100e.10
-0x0040108c 1 case.0x40100e.11
-0x0040109d 1 case.0x40100e.12
-0x004010ae 1 case.0x40100e.7
-0x004010ae 1 case.0x40100e.9
+0x00401026 1 case.0x40100e.4
+0x00401037 1 case.0x40100e.5
+0x00401048 1 case.0x40100e.6
+0x00401059 1 case.0x40100e.7
+0x0040106a 1 case.0x40100e.9
+0x0040107b 1 case.0x40100e.11
+0x0040108c 1 case.0x40100e.12
+0x0040109d 1 case.0x40100e.13
+0x004010ae 1 case.0x40100e.8
+0x004010ae 1 case.0x40100e.10
 0x004010ae 1 case.default.0x40100e
 0x0040286e 1 case.default.0x402875
 0x004028c4 1 case.0x4028a5.0
@@ -1209,43 +1208,11 @@ afx
 EOF
 EXPECT=<<EOF
 d 0x00401006 -> 0x0040d004 mov eax, dword [0x40d004]
-s 0x00401010 -> 0x0040b9a0 0x6c6c6568  hell @str.hello 0
+s 0x00401010 -> 0x0040b9a0 0x6c6c6568  hell @ str.hello_n ascii ('h')
 C 0x00401015 -> 0x004010e4 call fcn.004010e4
 d 0x0040101e -> 0x0040b9a8 push 0x40b9a8
 C 0x00401023 -> 0x004010c7 call fcn.004010c7
 C 0x00401032 -> 0x0040103b call fcn.0040103b
-EOF
-RUN
-
-NAME=16bit segment bounds - capstone
-FILE=malloc://1024k
-CMDS=<<EOF
-e asm.arch=x86
-e anal.arch=x86
-e asm.bits=16
-e anal.hasnext=0
-wx e9c300 @ f000:ffaa
-s f000:ffaa
-pi 1
-EOF
-EXPECT=<<EOF
-jmp 0xf0070
-EOF
-RUN
-
-NAME=16bit segment bounds 2
-FILE=malloc://1024k
-CMDS=<<EOF
-e asm.arch=x86
-e asm.bits=16
-e io.va=1
-wx e97ae7 @ f000:1911
-s f000:1911
-ao 1~jump
-EOF
-EXPECT=<<EOF
-description: jump
-jump: 0x000f008e
 EOF
 RUN
 
@@ -2882,7 +2849,6 @@ NAME=af x86-32..
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
-e anal.eobjmp=false
 e asm.arch=x86
 e asm.bits=32
 wx 6a00 4889e5 c3
@@ -2894,12 +2860,11 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=af x86-32 ujmp eobjmp=true
+NAME=af x86-32 ujmp 
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
 e asm.arch=x86
-e anal.eobjmp=true
 e asm.bits=32
 wx 6a00 4889e5 ff25f8120000 ff25f8120000ffe0c3
 af
@@ -2910,28 +2875,12 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=af x86-32 ujmp eobjmp=false
-FILE=malloc://1024
-CMDS=<<EOF
-e anal.hasnext=0
-e asm.arch=x86
-e anal.eobjmp=false
-e asm.bits=32
-wx 6a00 4889e5 ff25f8120000 ff25f8120000ffe0c3
-af
-afl~[2]
-EOF
-EXPECT=<<EOF
-11
-EOF
-RUN
 
 NAME=af bug
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
 e asm.arch=x86
-e anal.eobjmp=false
 e asm.bits=32
 wx 6a004889e54883e4f0488b7d08488d751089fa83c201c1e2034801f24889d1eb044883c1084883390075f64883c108e8580f000089c7e81b390000c3554889e5
 s +0x40
@@ -2977,7 +2926,6 @@ NAME=disasm bug
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
-e anal.eobjmp=false
 e asm.arch=x86
 e asm.bits=32
 wx 6a004889e54883e4f0488b7d08488d751089fa83c201c1e2034801f24889d1eb044883c1084883390075f64883c108e8580f000089c7e81b390000c3554889e5
@@ -3024,7 +2972,6 @@ NAME=af afF
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
-e anal.eobjmp=false
 e asm.arch=x86
 e asm.bits=32
 wx 6a004889e5c3
@@ -3042,7 +2989,6 @@ NAME=af afF graph
 FILE=malloc://1024
 CMDS=<<EOF
 e anal.hasnext=0
-e anal.eobjmp=false
 e asm.arch=x86
 e asm.bits=32
 wx 6a004889e5c3
@@ -3130,7 +3076,7 @@ EXPECT=<<EOF
     "esil": "eax,eax,^=,$z,zf,:=,$p,pf,:=,31,$s,sf,:=,0,cf,:=,0,of,:=",
     "sign": false,
     "prefix": 0,
-    "id": 334,
+    "id": 1503,
     "opex": {
       "operands": [
         {
@@ -3152,6 +3098,7 @@ EXPECT=<<EOF
     "bytes": "31c0",
     "size": 2,
     "type": "xor",
+    "esilcost": 0,
     "scale": 0,
     "refptr": 0,
     "cycles": 1,
@@ -3184,7 +3131,7 @@ EXPECT=<<EOF
     "esil": "4,esp,-=,eflags,esp,=[4]",
     "sign": false,
     "prefix": 0,
-    "id": 591,
+    "id": 612,
     "opex": {
       "operands": [
         {
@@ -3199,6 +3146,7 @@ EXPECT=<<EOF
     "bytes": "669c",
     "size": 2,
     "type": "upush",
+    "esilcost": 12,
     "scale": 0,
     "refptr": 0,
     "cycles": 2,
@@ -3427,15 +3375,16 @@ ao 1
 p8 1
 EOF
 EXPECT=<<EOF
-16
+17
 address: 0x0
 opcode: nop
+esilcost: 0
 disasm: nop
 mnemonic: nop
 description: no operation
 mask: ff
 prefix: 0
-id: 494
+id: 510
 bytes: 90
 refptr: 0
 size: 1
@@ -3466,38 +3415,38 @@ CMDS=<<EOF
 o malloc://0x500 0x401000
 omf 1 rwx
 s 0x401000
+e asm.arch=x86
 e asm.bits=32
 wx 568b74240856ff15c02040004e83c40483fe270f87df0000000fb6863c114000ff24850c114000b8f820400050ff15b420400083c40433c05ec3b80021400050ff15b420400083c40433c05ec3b80821400050ff15b420400083c40433c05ec3b81021400050ff15b420400083c40433c05ec3b81821400050ff15b420400083c40433c05ec3b82021400050ff15b420400083c40433c05ec3b82821400050ff15b420400083c40433c05ec3b83021400050ff15b420400083c40433c05ec3b83821400050ff15b420400083c40433c05ec3b84021400050ff15b420400083c40433c05ec3b84821400050ff15b420400083c40433c05ec38b44240850ff15b420400083c40433c05ec36690271040003a1040004d104000e510400060104000731040008610400099104000d2104000bf104000ac104000f81040000001020b0b0b0b0b0b03020b040b05060b0b07080b0b0b0b0b0b0b0b0b090b0b0b0b0b0a0b0a0a0a
 af
 f~case
 EOF
 EXPECT=<<EOF
-0x00401027 1 case.0x401020.0
-0x0040103a 1 case.0x401020.1
-0x0040104d 1 case.0x401020.2
-0x0040104d 1 case.0x401020.10
-0x00401060 1 case.0x401020.12
-0x00401073 1 case.0x401020.14
-0x00401086 1 case.0x401020.15
-0x00401099 1 case.0x401020.18
-0x004010ac 1 case.0x401020.35
-0x004010ac 1 case.0x401020.37
+0x00401027 1 case.0x401020.1
+0x0040103a 1 case.0x401020.2
+0x0040104d 1 case.0x401020.3
+0x0040104d 1 case.0x401020.11
+0x00401060 1 case.0x401020.13
+0x00401073 1 case.0x401020.15
+0x00401086 1 case.0x401020.16
+0x00401099 1 case.0x401020.19
+0x004010ac 1 case.0x401020.36
 0x004010ac 1 case.0x401020.38
 0x004010ac 1 case.0x401020.39
-0x004010bf 1 case.0x401020.29
-0x004010d2 1 case.0x401020.19
-0x004010e5 1 case.0x401020.9
-0x004010f8 1 case.0x401020.3
+0x004010ac 1 case.0x401020.40
+0x004010bf 1 case.0x401020.30
+0x004010d2 1 case.0x401020.20
+0x004010e5 1 case.0x401020.10
 0x004010f8 1 case.0x401020.4
 0x004010f8 1 case.0x401020.5
 0x004010f8 1 case.0x401020.6
 0x004010f8 1 case.0x401020.7
 0x004010f8 1 case.0x401020.8
-0x004010f8 1 case.0x401020.11
-0x004010f8 1 case.0x401020.13
-0x004010f8 1 case.0x401020.16
+0x004010f8 1 case.0x401020.9
+0x004010f8 1 case.0x401020.12
+0x004010f8 1 case.0x401020.14
 0x004010f8 1 case.0x401020.17
-0x004010f8 1 case.0x401020.20
+0x004010f8 1 case.0x401020.18
 0x004010f8 1 case.0x401020.21
 0x004010f8 1 case.0x401020.22
 0x004010f8 1 case.0x401020.23
@@ -3506,12 +3455,138 @@ EXPECT=<<EOF
 0x004010f8 1 case.0x401020.26
 0x004010f8 1 case.0x401020.27
 0x004010f8 1 case.0x401020.28
-0x004010f8 1 case.0x401020.30
+0x004010f8 1 case.0x401020.29
 0x004010f8 1 case.0x401020.31
 0x004010f8 1 case.0x401020.32
 0x004010f8 1 case.0x401020.33
 0x004010f8 1 case.0x401020.34
-0x004010f8 1 case.0x401020.36
+0x004010f8 1 case.0x401020.35
+0x004010f8 1 case.0x401020.37
 0x004010f8 1 case.default.0x401020
+EOF
+RUN
+
+NAME=movd in SSE register
+FILE=malloc://512
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=32
+wx 660F6Ec0 # movd xmm0, eax
+aei
+aeim
+ar eax = 0xa0a1a2a3
+aes
+ar xmm0
+EOF
+EXPECT=<<EOF
+0x000000000000000000000000a0a1a2a3
+EOF
+RUN
+
+NAME=SSE bitwise instructions
+FILE=malloc://512
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=32
+wx 660fdffb660f73ff09660fefdf660f73fb02
+aei
+aeim
+ar xmm3l = 0xa5a6a7a8
+ar xmm3h = 0xa9aaabac
+ar xmm7l = 0x0f0e0d0c
+4aes
+ar xmm3
+EOF
+EXPECT=<<EOF
+0x00a009080bac00000000a5a6a7a80000
+EOF
+RUN
+
+NAME=tiny1 aaef
+FILE=bins/elf/analysis/tiny1
+ARGS=-N
+CMDS=<<EOF
+e asm.bytes=false
+e asm.comments=false
+aF
+aaef  # TODO Fix if aae here
+pdf
+# TODO eip flag?
+EOF
+EXPECT=<<EOF
+            ;-- eip:
+/ 7: entry0 ();
+|           0x08048054      mov bl, 0x2a
+|           0x08048056      xor eax, eax
+|           0x08048058      inc eax
+|           ;-- syscall.exit:
+\           0x08048059      int 0x80
+EOF
+RUN
+
+
+NAME=tiny1 aae
+FILE=bins/elf/analysis/tiny1
+CMDS=<<EOF
+e asm.bytes=false
+e asm.comments=false
+aF
+aae
+pdf
+EOF
+EXPECT=<<EOF
+/ 7: entry0 ();
+|           0x08048054      mov bl, 0x2a
+|           0x08048056      xor eax, eax
+|           0x08048058      inc eax
+|           ;-- syscall.exit:
+\           0x08048059      int 0x80
+EOF
+RUN
+
+NAME=tiny1 aae non-start-bb first
+FILE=bins/elf/analysis/tiny1
+CMDS=<<EOF
+e io.cache=true
+$orig_end=?e `omt va_end/cols~[0]:3`
+omr 1 `omt size/cols~[0]:3`+2
+s `$orig_end`
+wa jmp entry0
+aF
+aae
+agf
+?e
+afl
+EOF
+EXPECT=<<EOF
+[0x0804805b]>  # fcn.0804805b ();
+ ----.
+|    |
+|.-------------------------------------------.
+||  0x8048054                                |
+|| ; CODE XREF from fcn.0804805b @ 0x804805b |
+|| ;-- entry0:                               |
+|| ; '*'                                     |
+|| ; 42                                      |
+|| mov bl, 0x2a                              |
+|| xor eax, eax                              |
+|| inc eax                                   |
+|| ;-- syscall.close:                        |
+|| int 0x80                                  |
+|`-------------------------------------------'
+|    v
+|    |
+|    '----------.
+|               |
+|           .---------------------.
+|           |  0x804805b          |
+|           | 9: fcn.0804805b (); |
+|           | jmp entry0          |
+|           `---------------------'
+|               v
+|               |
+`---------------'
+
+0x0804805b    2 9            fcn.0804805b
 EOF
 RUN

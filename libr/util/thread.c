@@ -25,17 +25,11 @@ static void *_r_th_launcher(void *_th) {
 	int ret;
 	RThread *th = _th;
 	th->ready = true;
-#if __UNIX__
 	if (th->delay > 0) {
-		sleep (th->delay);
+		r_sys_sleep (th->delay);
 	} else if (th->delay < 0) {
 		r_th_lock_wait (th->lock);
 	}
-#else
-	if (th->delay < 0) {
-		r_th_lock_wait (th->lock);
-	}
-#endif
 	r_th_lock_enter (th->lock);
 	do {
 		r_th_lock_leave (th->lock);
@@ -132,6 +126,10 @@ R_API bool r_th_getname(RThread *th, char *name, size_t len) {
 
 R_API bool r_th_setaffinity(RThread *th, int cpuid) {
 #if __linux__
+#if defined(__GLIBC__) && defined (__GLIBC_MINOR__) && (__GLIBC__ <= 2) && (__GLIBC_MINOR__ <= 2)
+	// Old versions of GNU libc don't have this feature
+#pragma message("warning r_th_setaffinity not implemented")
+#else
 	cpu_set_t c;
 	CPU_ZERO(&c);
 	CPU_SET(cpuid, &c);
@@ -140,6 +138,7 @@ R_API bool r_th_setaffinity(RThread *th, int cpuid) {
 		eprintf ("Failed to set cpu affinity\n");
 		return false;
 	}
+#endif
 #elif __FreeBSD__ || __DragonFly__
 	cpuset_t c;
 	CPU_ZERO(&c);
@@ -256,9 +255,9 @@ R_API bool r_th_start(RThread *th, int enable) {
 
 R_API int r_th_wait(struct r_th_t *th) {
 	int ret = false;
-	void *thret;
 	if (th) {
 #if HAVE_PTHREAD
+		void *thret;
 		ret = pthread_join (th->tid, &thret);
 #elif __WINDOWS__
 		ret = WaitForSingleObject (th->tid, INFINITE);

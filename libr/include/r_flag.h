@@ -10,7 +10,6 @@
 extern "C" {
 #endif
 
-// TODO: rename to r_flag_XXX api
 R_LIB_VERSION_HEADER(r_flag);
 
 #define R_FLAG_NAME_SIZE 512
@@ -57,11 +56,8 @@ typedef struct r_flag_t {
 	RSkipList *by_off; /* flags sorted by offset, value=RFlagsAtOffset */
 	HtPP *ht_name; /* hashmap key=item name, value=RFlagItem * */
 	PrintfCallback cb_printf;
-#if R_FLAG_ZONE_USE_SDB
-	Sdb *zones;
-#else
 	RList *zones;
-#endif
+	ut64 mask;
 } RFlag;
 
 /* compile time dependency */
@@ -128,7 +124,6 @@ R_API int r_flag_unset_glob(RFlag *f, const char *name);
 R_API int r_flag_rename(RFlag *f, RFlagItem *item, const char *name);
 R_API int r_flag_relocate(RFlag *f, ut64 off, ut64 off_mask, ut64 to);
 R_API bool r_flag_move (RFlag *f, ut64 at, ut64 to);
-R_API const char *r_flag_color(RFlag *f, RFlagItem *it, const char *color);
 R_API int r_flag_count(RFlag *f, const char *glob);
 R_API void r_flag_foreach(RFlag *f, RFlagItemCb cb, void *user);
 R_API void r_flag_foreach_prefix(RFlag *f, const char *pfx, int pfx_len, RFlagItemCb cb, void *user);

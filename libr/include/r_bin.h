@@ -208,6 +208,8 @@ typedef struct r_bin_info_t {
 	char *arch;
 	char *cpu;
 	char *machine;
+	char *head_flag;
+	char *features;
 	char *os;
 	char *subsystem;
 	char *rpath;
@@ -265,7 +267,7 @@ typedef struct r_bin_object_t {
 	struct r_bin_plugin_t *plugin;
 	int lang;
 	Sdb *kv;
-	Sdb *addr2klassmethod;
+	HtUP *addr2klassmethod;
 	void *bin_obj; // internal pointer used by formats
 } RBinObject;
 
@@ -327,7 +329,6 @@ struct r_bin_t {
 	RIOBind iob;
 	RConsBind consb;
 	char *force;
-	int is_debugger;
 	bool want_dbginfo;
 	int filter; // symbol filtering
 	char strfilter; // string filtering
@@ -341,6 +342,7 @@ struct r_bin_t {
 	bool use_xtr; // use extract plugins when loading a file?
 	bool use_ldr; // use loader plugins when loading a file?
 	RStrConstPool constpool;
+	bool is_reloc_patched; // used to indicate whether relocations were patched or not
 };
 
 typedef struct r_bin_xtr_metadata_t {
@@ -454,7 +456,7 @@ typedef struct r_bin_plugin_t {
 	struct r_bin_dbginfo_t *dbginfo;
 	struct r_bin_write_t *write;
 	int (*get_offset)(RBinFile *bf, int type, int idx);
-	char* (*get_name)(RBinFile *bf, int type, int idx, bool simplified);
+	const char* (*get_name)(RBinFile *bf, int type, int idx, bool simplified);
 	ut64 (*get_vaddr)(RBinFile *bf, ut64 baddr, ut64 paddr, ut64 vaddr);
 	RBuffer* (*create)(RBin *bin, const ut8 *code, int codelen, const ut8 *data, int datalen, RBinArchOptions *opt);
 	char* (*demangle)(const char *str);
@@ -645,7 +647,7 @@ typedef struct r_bin_bind_t {
 R_IPI RBinSection *r_bin_section_new(const char *name);
 R_IPI void r_bin_section_free(RBinSection *bs);
 R_API void r_bin_info_free(RBinInfo *rb);
-R_API void r_bin_import_free(void *_imp);
+R_API void r_bin_import_free(RBinImport *imp);
 R_API void r_bin_symbol_free(void *_sym);
 R_API RBinSymbol *r_bin_symbol_new(const char *name, ut64 paddr, ut64 vaddr);
 R_API void r_bin_string_free(void *_str);
@@ -684,8 +686,8 @@ R_API void r_bin_bind(RBin *b, RBinBind *bnd);
 R_API bool r_bin_add(RBin *bin, RBinPlugin *foo);
 R_API bool r_bin_xtr_add(RBin *bin, RBinXtrPlugin *foo);
 R_API bool r_bin_ldr_add(RBin *bin, RBinLdrPlugin *foo);
-R_API void r_bin_list(RBin *bin, int format);
-R_API bool r_bin_list_plugin(RBin *bin, const char *name, int json);
+R_API void r_bin_list(RBin *bin, PJ *pj, int format);
+R_API bool r_bin_list_plugin(RBin *bin, const char *name, PJ *pj, int json);
 R_API RBinPlugin *r_bin_get_binplugin_by_bytes(RBin *bin, const ut8 *bytes, ut64 sz);
 R_API RBinPlugin *r_bin_get_binplugin_by_buffer(RBin *bin, RBuffer *buf);
 R_API void r_bin_force_plugin(RBin *bin, const char *pname);
@@ -732,7 +734,7 @@ R_API RBinObject *r_bin_cur_object(RBin *bin);
 R_API bool r_bin_select(RBin *bin, const char *arch, int bits, const char *name);
 R_API bool r_bin_select_bfid(RBin *bin, ut32 bf_id);
 R_API bool r_bin_use_arch(RBin *bin, const char *arch, int bits, const char *name);
-R_API void r_bin_list_archs(RBin *bin, int mode);
+R_API void r_bin_list_archs(RBin *bin, PJ *pj, int mode);
 R_API RBuffer *r_bin_create(RBin *bin, const char *plugin_name, const ut8 *code, int codelen, const ut8 *data, int datalen, RBinArchOptions *opt);
 R_API RBuffer *r_bin_package(RBin *bin, const char *type, const char *file, RList *files);
 
@@ -797,6 +799,7 @@ R_API RBinSection *r_bin_get_section_at(RBinObject *o, ut64 off, int va);
 
 /* dbginfo.c */
 R_API bool r_bin_addr2line(RBin *bin, ut64 addr, char *file, int len, int *line);
+R_API bool r_bin_addr2line2(RBin *bin, ut64 addr, char *file, int len, int *line);
 R_API char *r_bin_addr2text(RBin *bin, ut64 addr, int origin);
 R_API char *r_bin_addr2fileline(RBin *bin, ut64 addr);
 /* bin_write.c */
@@ -863,7 +866,6 @@ extern RBinPlugin r_bin_plugin_mbn;
 extern RBinPlugin r_bin_plugin_smd;
 extern RBinPlugin r_bin_plugin_sms;
 extern RBinPlugin r_bin_plugin_psxexe;
-extern RBinPlugin r_bin_plugin_spc700;
 extern RBinPlugin r_bin_plugin_vsf;
 extern RBinPlugin r_bin_plugin_dyldcache;
 extern RBinPlugin r_bin_plugin_xnu_kernelcache;

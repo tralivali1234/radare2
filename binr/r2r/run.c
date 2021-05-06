@@ -181,7 +181,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	}
 
 	PROCESS_INFORMATION proc_info = { 0 };
-	STARTUPINFO start_info = { 0 };
+	STARTUPINFOA start_info = { 0 };
 	start_info.cb = sizeof (start_info);
 	start_info.hStdError = stderr_write;
 	start_info.hStdOutput = stdout_write;
@@ -496,6 +496,7 @@ R_API R2RSubprocess *r2r_subprocess_start(
 		memcpy (argv + 1, args, sizeof (char *) * args_size);
 	}
 	// done by calloc: argv[args_size + 1] = NULL;
+	r_th_lock_enter (subprocs_mutex);
 	R2RSubprocess *proc = R_NEW0 (R2RSubprocess);
 	if (!proc) {
 		goto error;
@@ -543,7 +544,6 @@ R_API R2RSubprocess *r2r_subprocess_start(
 	}
 	proc->stderr_fd = stderr_pipe[0];
 
-	r_th_lock_enter (subprocs_mutex);
 	proc->pid = r_sys_fork ();
 	if (proc->pid == -1) {
 		// fail
@@ -611,6 +611,7 @@ error:
 	if (stdin_pipe[1] == -1) {
 		close (stdin_pipe[1]);
 	}
+	r_th_lock_leave (subprocs_mutex);
 	return NULL;
 }
 
@@ -761,13 +762,12 @@ R_API void r2r_process_output_free(R2RProcessOutput *out) {
 }
 
 static R2RProcessOutput *subprocess_runner(const char *file, const char *args[], size_t args_size,
-		const char *envvars[], const char *envvals[], size_t env_size, void *user) {
-	R2RRunConfig *config = user;
+	const char *envvars[], const char *envvals[], size_t env_size, ut64 timeout_ms, void *user) {
 	R2RSubprocess *proc = r2r_subprocess_start (file, args, args_size, envvars, envvals, env_size);
 	if (!proc) {
 		return NULL;
 	}
-	bool timeout = !r2r_subprocess_wait (proc, config->timeout_ms);
+	bool timeout = !r2r_subprocess_wait (proc, timeout_ms);
 	if (timeout) {
 		r2r_subprocess_kill (proc);
 	}
@@ -845,7 +845,7 @@ static char *convert_win_cmds(const char *cmds) {
 }
 #endif
 
-static R2RProcessOutput *run_r2_test(R2RRunConfig *config, const char *cmds, RList *files, RList *extra_args, bool load_plugins, R2RCmdRunner runner, void *user) {
+static R2RProcessOutput *run_r2_test(R2RRunConfig *config, ut64 timeout_ms, const char *cmds, RList *files, RList *extra_args, bool load_plugins, R2RCmdRunner runner, void *user) {
 	RPVector args;
 	r_pvector_init (&args, NULL);
 	r_pvector_push (&args, "-escr.utf8=0");
@@ -885,7 +885,7 @@ static R2RProcessOutput *run_r2_test(R2RRunConfig *config, const char *cmds, RLi
 #else
 	size_t env_size = load_plugins ? 0 : 1;
 #endif
-	R2RProcessOutput *out = runner (config->r2_cmd, args.v.a, r_pvector_len (&args), envvars, envvals, env_size, user);
+	R2RProcessOutput *out = runner (config->r2_cmd, args.v.a, r_pvector_len (&args), envvars, envvals, env_size, timeout_ms, user);
 	r_pvector_clear (&args);
 #if __WINDOWS__
 	free (wcmds);
@@ -917,7 +917,8 @@ R_API R2RProcessOutput *r2r_run_cmd_test(R2RRunConfig *config, R2RCmdTest *test,
 		}
 		r_list_push (files, "-");
 	}
-	R2RProcessOutput *out = run_r2_test (config, test->cmds.value, files, extra_args, test->load_plugins, runner, user);
+	ut64 timeout_ms = test->timeout.set? test->timeout.value * 1000: config->timeout_ms;
+	R2RProcessOutput *out = run_r2_test (config, timeout_ms, test->cmds.value, files, extra_args, test->load_plugins, runner, user);
 	r_list_free (extra_args);
 	r_list_free (files);
 	return out;
@@ -933,6 +934,14 @@ R_API bool r2r_check_cmd_test(R2RProcessOutput *out, R2RCmdTest *test) {
 	}
 	const char *expect_err = test->expect_err.value;
 	if (expect_err && strcmp (out->err, expect_err) != 0) {
+		return false;
+	}
+	const char *regexp_out = test->regexp_out.value;
+	if (regexp_out && !r_regex_match (regexp_out, "e", out->out)) {
+		return false;
+	}
+	const char *regexp_err = test->regexp_err.value;
+	if (regexp_err && !r_regex_match (regexp_err, "e", out->err)) {
 		return false;
 	}
 	return true;
@@ -966,7 +975,7 @@ R_API bool r2r_check_jq_available(void) {
 R_API R2RProcessOutput *r2r_run_json_test(R2RRunConfig *config, R2RJsonTest *test, R2RCmdRunner runner, void *user) {
 	RList *files = r_list_new ();
 	r_list_push (files, (void *)config->json_test_file);
-	R2RProcessOutput *ret = run_r2_test (config, test->cmd, files, NULL, test->load_plugins, runner, user);
+	R2RProcessOutput *ret = run_r2_test (config, config->timeout_ms, test->cmd, files, NULL, test->load_plugins, runner, user);
 	r_list_free (files);
 	return ret;
 }
@@ -1067,11 +1076,11 @@ rip:
 		if (proc->ret != 0) {
 			goto ship;
 		}
-		free (hex);
 		char *disasm = r_strbuf_drain_nofree (&proc->out);
 		r_str_trim (disasm);
 		out->disasm = disasm;
 ship:
+		free (hex);
 		r_pvector_pop (&args);
 		r_pvector_pop (&args);
 		r2r_subprocess_free (proc);
@@ -1116,9 +1125,15 @@ R_API void r2r_asm_test_output_free(R2RAsmTestOutput *out) {
 }
 
 R_API R2RProcessOutput *r2r_run_fuzz_test(R2RRunConfig *config, R2RFuzzTest *test, R2RCmdRunner runner, void *user) {
+	const char *cmd = "aaa";
 	RList *files = r_list_new ();
 	r_list_push (files, test->file);
-	R2RProcessOutput *ret = run_r2_test (config, "aaa", files, NULL, false, runner, user);
+#if ASAN
+	if (r_str_endswith (test->file, "/swift_read")) {
+		cmd = "?F";
+	}
+#endif
+	R2RProcessOutput *ret = run_r2_test (config, config->timeout_ms, cmd, files, NULL, false, runner, user);
 	r_list_free (files);
 	return ret;
 }
@@ -1135,9 +1150,9 @@ R_API char *r2r_test_name(R2RTest *test) {
 		}
 		return strdup ("<unnamed>");
 	case R2R_TEST_TYPE_ASM:
-		return r_str_newf ("<asm> %s", test->asm_test->disasm ? test->asm_test->disasm : "");
+		return r_str_newf ("<asm> %s", r_str_get (test->asm_test->disasm));
 	case R2R_TEST_TYPE_JSON:
-		return r_str_newf ("<json> %s", test->json_test->cmd ? test->json_test->cmd: "");
+		return r_str_newf ("<json> %s", r_str_get (test->json_test->cmd));
 	case R2R_TEST_TYPE_FUZZ:
 		return r_str_newf ("<fuzz> %s", test->fuzz_test->file);
 	}
@@ -1165,10 +1180,11 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 	}
 	ret->test = test;
 	bool success = false;
+	ut64 start_time = r_time_now_mono ();
 	switch (test->type) {
 	case R2R_TEST_TYPE_CMD: {
 		R2RCmdTest *cmd_test = test->cmd_test;
-		R2RProcessOutput *out = r2r_run_cmd_test (config, cmd_test, subprocess_runner, config);
+		R2RProcessOutput *out = r2r_run_cmd_test (config, cmd_test, subprocess_runner, NULL);
 		success = r2r_check_cmd_test (out, cmd_test);
 		ret->proc_out = out;
 		ret->timeout = out && out->timeout;
@@ -1186,7 +1202,7 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 	}
 	case R2R_TEST_TYPE_JSON: {
 		R2RJsonTest *json_test = test->json_test;
-		R2RProcessOutput *out = r2r_run_json_test (config, json_test, subprocess_runner, config);
+		R2RProcessOutput *out = r2r_run_json_test (config, json_test, subprocess_runner, NULL);
 		success = r2r_check_json_test (out, json_test);
 		ret->proc_out = out;
 		ret->timeout = out->timeout;
@@ -1195,14 +1211,28 @@ R_API R2RTestResultInfo *r2r_run_test(R2RRunConfig *config, R2RTest *test) {
 	}
 	case R2R_TEST_TYPE_FUZZ: {
 		R2RFuzzTest *fuzz_test = test->fuzz_test;
-		R2RProcessOutput *out = r2r_run_fuzz_test (config, fuzz_test, subprocess_runner, config);
+		R2RProcessOutput *out = r2r_run_fuzz_test (config, fuzz_test, subprocess_runner, NULL);
 		success = r2r_check_fuzz_test (out);
 		ret->proc_out = out;
 		ret->timeout = out->timeout;
 		ret->run_failed = !out;
 	}
 	}
+	ret->time_elapsed = r_time_now_mono () - start_time;
 	bool broken = r2r_test_broken (test);
+#if ASAN
+# if !R2_ASSERT_STDOUT
+# error R2_ASSERT_STDOUT undefined or 0
+# endif
+	R2RProcessOutput *out = ret->proc_out;
+	if (!success && test->type == R2R_TEST_TYPE_CMD && strstr (test->path, "/dbg")
+	    && (!out->out ||
+	        (!strstr (out->out, "WARNING:") && !strstr (out->out, "ERROR:") && !strstr (out->out, "FATAL:")))
+	    && (!out->err ||
+	        (!strstr (out->err, "Sanitizer") && !strstr (out->err, "runtime error:")))) {
+		broken = true;
+	}
+#endif
 	if (!success) {
 		ret->result = broken ? R2R_TEST_RESULT_BROKEN : R2R_TEST_RESULT_FAILED;
 	} else {

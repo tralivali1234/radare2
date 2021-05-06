@@ -85,7 +85,6 @@ static const char *dwarf_tag_name_encodings[] = {
 	[DW_TAG_subprogram] = "DW_TAG_subprogram",
 	[DW_TAG_template_type_param] = "DW_TAG_template_type_param",
 	[DW_TAG_template_value_param] = "DW_TAG_template_value_param",
-	[DW_TAG_template_alias] = "DW_TAG_template_alias",
 	[DW_TAG_thrown_type] = "DW_TAG_thrown_type",
 	[DW_TAG_try_block] = "DW_TAG_try_block",
 	[DW_TAG_variant_part] = "DW_TAG_variant_part",
@@ -353,8 +352,8 @@ static int abbrev_cmp(const void *a, const void *b) {
 }
 
 static inline bool is_printable_attr(ut64 attr_code) {
-	return (attr_code >= DW_AT_sibling && attr_code <= DW_AT_loclists_base) || 
-			attr_code == DW_AT_MIPS_linkage_name || 
+	return (attr_code >= DW_AT_sibling && attr_code <= DW_AT_loclists_base) ||
+			attr_code == DW_AT_MIPS_linkage_name ||
 			(attr_code >= DW_AT_GNU_call_site_value && attr_code <= DW_AT_GNU_deleted) ||
 			(attr_code >= DW_AT_GNU_dwo_name && attr_code <= DW_AT_GNU_pubtypes);
 }
@@ -373,7 +372,7 @@ static inline bool is_printable_unit_type(ut64 unit_type) {
 
 /**
  * @brief Reads 64/32 bit unsigned based on format
- * 
+ *
  * @param is_64bit Format of the comp unit
  * @param buf Pointer to the buffer to read from, to update after read
  * @param buf_end To check the boundary /for READ macro/
@@ -401,8 +400,7 @@ static inline ut64 dwarf_read_address(size_t size, const ut8 **buf, const ut8 *b
 		default:
 		result = 0;
 		*buf += size;
-		eprintf ("Weird dwarf address size: %lu.", size);
-
+		eprintf ("Weird dwarf address size: %zu.", size);
 	}
 	return result;
 }
@@ -480,17 +478,17 @@ static const ut8 *parse_line_header_source(RBinFile *bf, const ut8 *buf, const u
 				buf = NULL;
 				goto beach;
 			}
-			buf = r_uleb128 (buf, buf_end - buf, &id_idx);
+			buf = r_uleb128 (buf, buf_end - buf, &id_idx, NULL);
 			if (buf >= buf_end) {
 				buf = NULL;
 				goto beach;
 			}
-			buf = r_uleb128 (buf, buf_end - buf, &mod_time);
+			buf = r_uleb128 (buf, buf_end - buf, &mod_time, NULL);
 			if (buf >= buf_end) {
 				buf = NULL;
 				goto beach;
 			}
-			buf = r_uleb128 (buf, buf_end - buf, &file_len);
+			buf = r_uleb128 (buf, buf_end - buf, &file_len, NULL);
 			if (buf >= buf_end) {
 				buf = NULL;
 				goto beach;
@@ -514,7 +512,7 @@ static const ut8 *parse_line_header_source(RBinFile *bf, const ut8 *buf, const u
 				}
 
 				if (hdr->file_names) {
-					hdr->file_names[count].name = r_str_newf("%s/%s", include_dir ? include_dir : "", filename);
+					hdr->file_names[count].name = r_str_newf("%s/%s", r_str_get (include_dir), filename);
 					hdr->file_names[count].id_idx = id_idx;
 					hdr->file_names[count].mod_time = mod_time;
 					hdr->file_names[count].file_len = file_len;
@@ -563,7 +561,7 @@ static const ut8 *parse_line_header_source_dwarf5(RBinFile *bf, const ut8 *buf, 
 // 	ut8 dir_entry_count = READ8 (buf);
 // 	// uleb128 pairs
 // 	ut8 dir_count = READ8 (buf);
-	
+
 // 	// dirs
 
 // 	ut8 file_entry_count = READ8 (buf);
@@ -580,7 +578,7 @@ static const ut8 *parse_line_header_source_dwarf5(RBinFile *bf, const ut8 *buf, 
 static const ut8 *parse_line_header (
 	RBinFile *bf, const ut8 *buf, const ut8 *buf_end,
 	RBinDwarfLineHeader *hdr, int mode, PrintfCallback print) {
-	
+
 	r_return_val_if_fail(hdr && bf && buf, NULL);
 
 	hdr->is_64bit = false;
@@ -642,7 +640,7 @@ static const ut8 *parse_line_header (
 			}
 			hdr->std_opcode_lengths[i] = READ (buf, ut8);
 			if (mode == R_MODE_PRINT) {
-				print ("  Opcode %d has %d arg\n", i, hdr->std_opcode_lengths[i]);
+				print ("  Opcode %zu has %d arg\n", i, hdr->std_opcode_lengths[i]);
 			}
 		}
 		if (mode == R_MODE_PRINT) {
@@ -779,17 +777,17 @@ static const ut8 *parse_ext_opcode(const RBin *bin, const ut8 *obuf,
 		ut64 dir_idx;
 		ut64 ignore;
 		if (buf + 1 < buf_end) {
-			buf = r_uleb128 (buf, buf_end - buf, &dir_idx);
+			buf = r_uleb128 (buf, buf_end - buf, &dir_idx, NULL);
 		}
 		if (buf + 1 < buf_end) {
-			buf = r_uleb128 (buf, buf_end - buf, &ignore);
+			buf = r_uleb128 (buf, buf_end - buf, &ignore, NULL);
 		}
 		if (buf + 1 < buf_end) {
-			buf = r_uleb128 (buf, buf_end - buf, &ignore);
+			buf = r_uleb128 (buf, buf_end - buf, &ignore, NULL);
 		}
 		break;
 	case DW_LNE_set_discriminator:
-		buf = r_uleb128 (buf, buf_end - buf, &addr);
+		buf = r_uleb128 (buf, buf_end - buf, &addr, NULL);
 		if (mode == R_MODE_PRINT) {
 			print ("set Discriminator to %"PFMT64d"\n", addr);
 		}
@@ -798,8 +796,8 @@ static const ut8 *parse_ext_opcode(const RBin *bin, const ut8 *obuf,
 	default:
 		if (mode == R_MODE_PRINT) {
 			print ("Unexpected ext opcode %d\n", opcode);
-			buf = NULL;
 		}
+		buf = NULL;
 		break;
 	}
 
@@ -887,7 +885,7 @@ static const ut8 *parse_std_opcode(
 		regs->basic_block = DWARF_FALSE;
 		break;
 	case DW_LNS_advance_pc:
-		buf = r_uleb128 (buf, buf_end - buf, &addr);
+		buf = r_uleb128 (buf, buf_end - buf, &addr, NULL);
 		regs->address += addr * hdr->min_inst_len;
 		if (mode == R_MODE_PRINT) {
 			print ("Advance PC by %"PFMT64d" to 0x%"PFMT64x"\n",
@@ -902,14 +900,14 @@ static const ut8 *parse_std_opcode(
 		}
 		break;
 	case DW_LNS_set_file:
-		buf = r_uleb128 (buf, buf_end - buf, &addr);
+		buf = r_uleb128 (buf, buf_end - buf, &addr, NULL);
 		if (mode == R_MODE_PRINT) {
 			print ("Set file to %"PFMT64d"\n", addr);
 		}
 		regs->file = addr;
 		break;
 	case DW_LNS_set_column:
-		buf = r_uleb128 (buf, buf_end - buf, &addr);
+		buf = r_uleb128 (buf, buf_end - buf, &addr, NULL);
 		if (mode == R_MODE_PRINT) {
 			print ("Set column to %"PFMT64d"\n", addr);
 		}
@@ -960,7 +958,7 @@ static const ut8 *parse_std_opcode(
 		}
 		break;
 	case DW_LNS_set_isa:
-		buf = r_uleb128 (buf, buf_end - buf, &addr);
+		buf = r_uleb128 (buf, buf_end - buf, &addr, NULL);
 		regs->isa = addr;
 		if (mode == R_MODE_PRINT) {
 			print ("set_isa\n");
@@ -1021,14 +1019,14 @@ static size_t parse_opcodes(const RBin *bin, const ut8 *obuf,
 	if (mode == R_MODE_PRINT) {
 		bin->cb_printf ("\n"); // formatting of the output
 	}
+	if (!buf) {
+		return 0;
+	}
 	return (size_t) (buf - obuf); // number of bytes we've moved by
 }
 
-static int parse_line_raw(const RBin *a, const ut8 *obuf,
-				       ut64 len, int mode) {
-
-	RBinFile *binfile = a ? a->cur : NULL;
-	r_return_val_if_fail(binfile && obuf, false);
+static bool parse_line_raw(const RBin *a, const ut8 *obuf, ut64 len, int mode) {
+	r_return_val_if_fail(a && obuf, false);
 	PrintfCallback print = a->cb_printf;
 
 	if (mode == R_MODE_PRINT) {
@@ -1091,6 +1089,9 @@ static int parse_line_raw(const RBin *a, const ut8 *obuf,
 		} while (bytes_read < buf_size && tmp_read != 0); // if nothing is read -> error, exit
 
 		line_header_fini (&hdr);
+		if (!tmp_read) {
+			return false;
+		}
 	}
 	return true;
 }
@@ -1099,11 +1100,11 @@ static int parse_line_raw(const RBin *a, const ut8 *obuf,
 	(x)=*(y*)buf; idx+=sizeof(y);buf+=sizeof(y)
 
 #define READ_BUF64(x) if (idx+sizeof(ut64)>=len) { return false;} \
-	(x)=r_read_ble64(buf, 0); idx+=sizeof(ut64);buf+=sizeof(ut64)
+	(x)=r_read_ble64(buf, big_end); idx+=sizeof(ut64);buf+=sizeof(ut64)
 #define READ_BUF32(x) if (idx+sizeof(ut32)>=len) { return false;} \
-	(x)=r_read_ble32(buf, 0); idx+=sizeof(ut32);buf+=sizeof(ut32)
+	(x)=r_read_ble32(buf, big_end); idx+=sizeof(ut32);buf+=sizeof(ut32)
 #define READ_BUF16(x) if (idx+sizeof(ut16)>=len) { return false;} \
-	(x)=r_read_ble16(buf, 0); idx+=sizeof(ut16);buf+=sizeof(ut16)
+	(x)=r_read_ble16(buf, big_end); idx+=sizeof(ut16);buf+=sizeof(ut16)
 
 static int parse_aranges_raw(const ut8 *obuf, int len, int mode, PrintfCallback print) {
 	ut32 length, offset;
@@ -1570,12 +1571,12 @@ static const ut8 *fill_block_data(const ut8 *buf, const ut8 *buf_end, RBinDwarfB
 /**
  * This function is quite incomplete and requires lot of work
  * With parsing various new FORM values
- * @brief Parses attribute value based on its definition 
+ * @brief Parses attribute value based on its definition
  *        and stores it into `value`
- * 
+ *
  * @param obuf
  * @param obuf_len Buffer max capacity
- * @param def Attribute definition 
+ * @param def Attribute definition
  * @param value Parsed value storage
  * @param hdr Current unit header
  * @param debug_str Ptr to string section start
@@ -1648,7 +1649,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 		break;
 	case DW_FORM_udata:
 		value->kind = DW_AT_KIND_CONSTANT;
-		buf = r_uleb128 (buf, buf_end - buf, &value->uconstant);
+		buf = r_uleb128 (buf, buf_end - buf, &value->uconstant, NULL);
 		break;
 	case DW_FORM_string:
 		value->kind = DW_AT_KIND_STRING;
@@ -1680,7 +1681,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 		break;
 	case DW_FORM_block: // variable length ULEB128
 		value->kind = DW_AT_KIND_BLOCK;
-		buf = r_uleb128 (buf, buf_end - buf, &value->block.length);
+		buf = r_uleb128 (buf, buf_end - buf, &value->block.length, NULL);
 		if (!buf || buf >= buf_end) {
 			return NULL;
 		}
@@ -1727,7 +1728,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 	case DW_FORM_ref_udata:
 		value->kind = DW_AT_KIND_REFERENCE;
 		// uleb128 is enough to fit into ut64?
-		buf = r_uleb128 (buf, buf_end - buf, &value->reference);
+		buf = r_uleb128 (buf, buf_end - buf, &value->reference, NULL);
 		value->reference += hdr->unit_offset;
 		break;
 	// offset in a section other than .debug_info or .debug_str
@@ -1737,7 +1738,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 		break;
 	case DW_FORM_exprloc:
 		value->kind = DW_AT_KIND_BLOCK;
-		buf = r_uleb128 (buf, buf_end - buf, &value->block.length);
+		buf = r_uleb128 (buf, buf_end - buf, &value->block.length, NULL);
 		if (!buf || buf >= buf_end) {
 			return NULL;
 		}
@@ -1784,11 +1785,11 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 		value->uconstant = def->special;
 		break;
 	/*  addrx* forms : The index is relative to the value of the
-		DW_AT_addr_base attribute of the associated compilation unit. 
+		DW_AT_addr_base attribute of the associated compilation unit.
 	    index into an array of addresses in the .debug_addr section.*/
 	case DW_FORM_addrx:
 		value->kind = DW_AT_KIND_ADDRESS;
-		buf = r_uleb128 (buf, buf_end - buf, &value->address);
+		buf = r_uleb128 (buf, buf_end - buf, &value->address, NULL);
 		break;
 	case DW_FORM_addrx1:
 		value->kind = DW_AT_KIND_ADDRESS;
@@ -1832,7 +1833,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 	 // An index into the .debug_rnglists
 	case DW_FORM_rnglistx:
 		value->kind = DW_AT_KIND_ADDRESS;
-		buf = r_uleb128 (buf, buf_end - buf, &value->address);
+		buf = r_uleb128 (buf, buf_end - buf, &value->address, NULL);
 		break;
 	default:
 		eprintf ("Unknown DW_FORM 0x%02" PFMT64x "\n", def->attr_form);
@@ -1844,7 +1845,7 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
 
 /**
  * @brief
- * 
+ *
  * @param buf Start of the DIE data
  * @param buf_end
  * @param abbrev Abbreviation of the DIE
@@ -1852,10 +1853,10 @@ static const ut8 *parse_attr_value(const ut8 *obuf, int obuf_len,
  * @param die DIE to store the parsed info into
  * @param debug_str Ptr to string section start
  * @param debug_str_len Length of the string section
- * @param sdb 
+ * @param sdb
  * @return const ut8* Updated buffer
  */
-static const ut8 *parse_die(const ut8 *buf, const ut8 *buf_end, RBinDwarfAbbrevDecl *abbrev, 
+static const ut8 *parse_die(const ut8 *buf, const ut8 *buf_end, RBinDwarfAbbrevDecl *abbrev,
 		RBinDwarfCompUnitHdr *hdr, RBinDwarfDie *die, const ut8 *debug_str, size_t debug_str_len, Sdb *sdb) {
 	size_t i;
 	for (i = 0; i < abbrev->count - 1; i++) {
@@ -1884,7 +1885,7 @@ static const ut8 *parse_die(const ut8 *buf, const ut8 *buf_end, RBinDwarfAbbrevD
 
 /**
  * @brief Reads throught comp_unit buffer and parses all its DIEntries
- * 
+ *
  * @param sdb
  * @param buf_start Start of the compilation unit data
  * @param unit Unit to store the newly parsed information
@@ -1892,7 +1893,7 @@ static const ut8 *parse_die(const ut8 *buf, const ut8 *buf_end, RBinDwarfAbbrevD
  * @param first_abbr_idx index for first abbrev of the current comp unit in abbrev array
  * @param debug_str Ptr to string section start
  * @param debug_str_len Length of the string section
- * 
+ *
  * @return const ut8* Update buffer
  */
 static const ut8 *parse_comp_unit(RBinDwarfDebugInfo *info, Sdb *sdb, const ut8 *buf_start,
@@ -1913,7 +1914,7 @@ static const ut8 *parse_comp_unit(RBinDwarfDebugInfo *info, Sdb *sdb, const ut8 
 
 		// DIE starts with ULEB128 with the abbreviation code
 		ut64 abbr_code;
-		buf = r_uleb128 (buf, buf_end - buf, &abbr_code);
+		buf = r_uleb128 (buf, buf_end - buf, &abbr_code, NULL);
 
 		if (abbr_code > abbrevs->count || !buf) { // something invalid
 			return NULL;
@@ -1953,7 +1954,7 @@ static const ut8 *parse_comp_unit(RBinDwarfDebugInfo *info, Sdb *sdb, const ut8 
 
 /**
  * @brief Reads all information about compilation unit header
- * 
+ *
  * @param buf Start of the buffer
  * @param buf_end Upper bound of the buffer
  * @param unit Unit to read information into
@@ -2007,14 +2008,14 @@ static int expand_info(RBinDwarfDebugInfo *info) {
 
 /**
  * @brief Parses whole .debug_info section
- * 
+ *
  * @param sdb Sdb to store line related information into
  * @param da Parsed Abbreviations
  * @param obuf .debug_info section buffer start
  * @param len length of the section buffer
  * @param debug_str start of the .debug_str section
  * @param debug_str_len length of the debug_str section
- * @param mode 
+ * @param mode
  * @return R_API* parse_info_raw Parsed information
  */
 static RBinDwarfDebugInfo *parse_info_raw(Sdb *sdb, RBinDwarfDebugAbbrev *da,
@@ -2060,12 +2061,12 @@ static RBinDwarfDebugInfo *parse_info_raw(Sdb *sdb, RBinDwarfDebugAbbrev *da,
 		}
 
 		if (da->decls->count >= da->capacity) {
-			eprintf ("WARNING: malformed dwarf have not enough buckets for decls.\n");
+			eprintf ("Warning: malformed dwarf have not enough buckets for decls.\n");
 		}
 		r_warn_if_fail (da->count <= da->capacity);
 
 		// find abbrev start for current comp unit
-		// we could also do naive, ((char *)da->decls) + abbrev_offset, 
+		// we could also do naive, ((char *)da->decls) + abbrev_offset,
 		// but this is more bulletproof to invalid DWARF
 		RBinDwarfAbbrevDecl key = { .offset = unit->hdr.abbrev_offset };
 		RBinDwarfAbbrevDecl *abbrev_start = bsearch (&key, da->decls, da->count, sizeof (key), abbrev_cmp);
@@ -2108,7 +2109,7 @@ static RBinDwarfDebugAbbrev *parse_abbrev_raw(const ut8 *obuf, size_t len) {
 
 	while (buf && buf+1 < buf_end) {
 		offset = buf - obuf;
-		buf = r_uleb128 (buf, (size_t)(buf_end-buf), &tmp);
+		buf = r_uleb128 (buf, (size_t)(buf_end-buf), &tmp, NULL);
 		if (!buf || !tmp || buf >= buf_end) {
 			continue;
 		}
@@ -2119,9 +2120,9 @@ static RBinDwarfDebugAbbrev *parse_abbrev_raw(const ut8 *obuf, size_t len) {
 		init_abbrev_decl (tmpdecl);
 
 		tmpdecl->code = tmp;
-		buf = r_uleb128 (buf, (size_t)(buf_end-buf), &tmp);
+		buf = r_uleb128 (buf, (size_t)(buf_end-buf), &tmp, NULL);
 		tmpdecl->tag = tmp;
- 
+
 		tmpdecl->offset = offset;
 		if (buf >= buf_end) {
 			break;
@@ -2132,11 +2133,11 @@ static RBinDwarfDebugAbbrev *parse_abbrev_raw(const ut8 *obuf, size_t len) {
 			if (tmpdecl->count == tmpdecl->capacity) {
 				expand_abbrev_decl (tmpdecl);
 			}
-			buf = r_uleb128 (buf, (size_t)(buf_end - buf), &attr_code);
+			buf = r_uleb128 (buf, (size_t)(buf_end - buf), &attr_code, NULL);
 			if (buf >= buf_end) {
 				break;
 			}
-			buf = r_uleb128 (buf, (size_t)(buf_end - buf), &attr_form);
+			buf = r_uleb128 (buf, (size_t)(buf_end - buf), &attr_form, NULL);
 			// http://www.dwarfstd.org/doc/DWARF5.pdf#page=225
 			if (attr_form == DW_FORM_implicit_const) {
 				buf = r_leb128 (buf, (size_t)(buf_end - buf), &special);
@@ -2185,7 +2186,7 @@ static ut8 *get_section_bytes(RBin *bin, const char *sect_name, size_t *len) {
 
 /**
  * @brief Parses .debug_info section
- * 
+ *
  * @param da Parsed abbreviations
  * @param bin
  * @param mode R_MODE_PRINT to print
@@ -2299,6 +2300,8 @@ R_API RList *r_bin_dwarf_parse_line(RBin *bin, int mode) {
 			free (buf);
 			return NULL;
 		}
+		/* set the endianity global [HOTFIX] */
+		big_end = r_bin_is_big_endian (bin);
 		// Actually parse the section
 		parse_line_raw (bin, buf, len, mode);
 		// k bin/cur/addrinfo/*
@@ -2353,6 +2356,8 @@ R_API RList *r_bin_dwarf_parse_aranges(RBin *bin, int mode) {
 			free (buf);
 			return NULL;
 		}
+		/* set the endianity global [HOTFIX] */
+		big_end = r_bin_is_big_endian (bin);
 		parse_aranges_raw (buf, len, mode, bin->cb_printf);
 
 		free (buf);
@@ -2370,7 +2375,7 @@ R_API RBinDwarfDebugAbbrev *r_bin_dwarf_parse_abbrev(RBin *bin, int mode) {
 
 	if (mode == R_MODE_PRINT && abbrevs) {
 		print_abbrev_section (abbrevs, bin->cb_printf);
-	} 
+	}
 	free (buf);
 	return abbrevs;
 }
@@ -2406,6 +2411,18 @@ static inline RBinDwarfLocRange *create_loc_range(ut64 start, ut64 end, RBinDwar
 	return range;
 }
 
+static void free_loc_table_list(RBinDwarfLocList *loc_list) {
+	RListIter *iter;
+	RBinDwarfLocRange *range;
+	r_list_foreach (loc_list->list, iter, range) {
+		free (range->expression->data);
+		free (range->expression);
+		free (range);
+	}
+	r_list_free (loc_list->list);
+	free (loc_list);
+}
+
 static HtUP *parse_loc_raw(HtUP/*<offset, List *<LocListEntry>*/ *loc_table, const ut8 *buf, size_t len, size_t addr_size) {
 	/* GNU has their own extensions GNU locviews that we can't parse */
 	const ut8 *const buf_start = buf;
@@ -2431,7 +2448,7 @@ static HtUP *parse_loc_raw(HtUP/*<offset, List *<LocListEntry>*/ *loc_table, con
 			address_base = 0;
 			continue;
 		} else if (start_addr == max_offset && end_addr != max_offset) {
-			/* base address, DWARF2 doesn't have this type of entry, these entries shouldn't 
+			/* base address, DWARF2 doesn't have this type of entry, these entries shouldn't
 			   be in the list, they are just informational entries for further parsing (address_base) */
 			address_base = end_addr;
 		} else { /* location list entry: */
@@ -2447,26 +2464,34 @@ static HtUP *parse_loc_raw(HtUP/*<offset, List *<LocListEntry>*/ *loc_table, con
 			range = NULL;
 		}
 	}
+	/* if for some reason end of list is missing, then loc_list would leak */
+	if (loc_list) {
+		free_loc_table_list (loc_list);
+	}
 	return loc_table;
 }
 
 /**
  * @brief Parses out the .debug_loc section into a table that maps each list as
  *        offset of a list -> LocationList
- * 
- * @param bin 
+ *
+ * @param bin
  * @param addr_size machine address size used in executable (necessary for parsing)
- * @return R_API* 
+ * @return R_API*
  */
 R_API HtUP/*<offset, RBinDwarfLocList*/ *r_bin_dwarf_parse_loc(RBin *bin, int addr_size) {
 	r_return_val_if_fail  (bin, NULL);
 	/* The standarparse_loc_raw_frame, not sure why is that */
 	size_t len = 0;
 	ut8 *buf = get_section_bytes (bin, "debug_loc", &len);
+	if (!buf) {
+		return NULL;
+	}
 	/* set the endianity global [HOTFIX] */
 	big_end = r_bin_is_big_endian (bin);
-	HtUP/*<offset, RBinDwarfLocList*/ *loc_table = ht_up_new0 ();
-	if (!loc_table || !buf) {
+	HtUP /*<offset, RBinDwarfLocList*/ *loc_table = ht_up_new0 ();
+	if (!loc_table) {
+		free (buf);
 		return NULL;
 	}
 	loc_table = parse_loc_raw (loc_table, buf, len, addr_size);
@@ -2499,7 +2524,7 @@ R_API void r_bin_dwarf_print_loc(HtUP /*<offset, RBinDwarfLocList*/ *loc_table, 
 	r_return_if_fail (loc_table && print);
 	print ("\nContents of the .debug_loc section:\n");
 	RList /*<RBinDwarfLocList *>*/ *sort_list = r_list_new ();
-	/* sort the table contents by offset and print sorted 
+	/* sort the table contents by offset and print sorted
 	   a bit ugly, but I wanted to decouple the parsing and printing */
 	ht_up_foreach (loc_table, sort_loclists, sort_list);
 	RListIter *i;
@@ -2521,18 +2546,10 @@ R_API void r_bin_dwarf_print_loc(HtUP /*<offset, RBinDwarfLocList*/ *loc_table, 
 	r_list_free (sort_list);
 }
 
-
 static void free_loc_table_entry(HtUPKv *kv) {
-	RBinDwarfLocList *loc_list = kv->value;
-	RListIter *iter;
-	RBinDwarfLocRange *range;
-	r_list_foreach (loc_list->list, iter, range) {
-		free (range->expression->data);
-		free (range->expression);
-		free (range);
+	if (kv) {
+		free_loc_table_list (kv->value);
 	}
-	r_list_free (loc_list->list);
-	free (loc_list);
 }
 
 R_API void r_bin_dwarf_free_loc(HtUP /*<offset, RBinDwarfLocList*>*/ *loc_table) {

@@ -19,6 +19,10 @@ R_API char *r_cons_hud_file(const char *f) {
 // Display a buffer in the hud (splitting it line-by-line and ignoring
 // the lines starting with # )
 R_API char *r_cons_hud_string(const char *s) {
+	if (!r_cons_is_interactive ()) {
+		eprintf ("Hud mode requires scr.interactive=true.\n");
+		return NULL;
+	}
 	char *os, *track, *ret, *o = strdup (s);
 	if (!o) {
 		return NULL;
@@ -250,7 +254,7 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 #endif
 		r_cons_visual_flush ();
 		(void) r_line_readline ();
-		strncpy (user_input, I(line)->buffer.data, HUD_BUF_SIZE); 				// to search
+		r_str_ncpy (user_input, I(line)->buffer.data, HUD_BUF_SIZE);
 
 		if (!hud->activate) {
 			hud->top_entry_n = 0;
@@ -284,7 +288,7 @@ R_API char *r_cons_hud_path(const char *path, int dir) {
 	RList *files;
 	if (path) {
 		path = r_str_trim_head_ro (path);
-		tmp = strdup (*path? path: "./");
+		tmp = strdup (*path ? path : "./");
 	} else {
 		tmp = strdup ("./");
 	}

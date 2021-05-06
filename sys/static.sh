@@ -5,8 +5,10 @@
 case "$(uname)" in
 Linux)
 	LDFLAGS="${LDFLAGS} -lpthread -ldl -lutil -lm"
-	CFLAGS="${CFLAGS} -flto"
-	LDFLAGS="${LDFLAGS} -flto"
+	if [ "$NOLTO" != 1 ]; then
+		CFLAGS="${CFLAGS} -flto"
+		LDFLAGS="${LDFLAGS} -flto"
+	fi
 	if [ -n "`gcc -v 2>&1 | grep gcc`" ]; then
 		export AR=gcc-ar
 	fi
@@ -44,8 +46,7 @@ if [ 1 = "${DOCFG}" ]; then
 		${MAKE} mrproper > /dev/null 2>&1
 	fi
 	export CFLAGS="${CFLAGS} -fPIC"
-	#cp -f plugins.static.cfg plugins.cfg
-	cp -f plugins.static.nogpl.cfg plugins.cfg
+	cp -f dist/plugins-cfg/plugins.static.nogpl.cfg plugins.cfg
 	./configure-plugins || exit 1
 	#./configure --prefix="$PREFIX" --without-gpl --with-libr --without-libuv --disable-loadlibs || exit 1
 	./configure --prefix="$PREFIX" --without-gpl --with-libr --without-libuv || exit 1
@@ -104,26 +105,27 @@ res=$?
 set +x
 if [ $res = 0 ]; then
 	echo SUCCESS
-	rm a.out
+	rm -f a.out
 else
 	echo FAILURE
 fi
 
 echo "[*] Static building with libr.a..."
-set -x
 ${CC} .test.c \
 	${CFLAGS} \
 	-I ${PWD}/r2-static/usr/include/libr \
 	-I ${PWD}/r2-static/usr/include/libr/sdb \
 	r2-static/usr/lib/libr.a ${LDFLAGS}
 res=$?
+du -hs r2-static/usr/bin/radare2
+du -hs a.out
 set +x
 if [ $res = 0 ]; then
 	echo SUCCESS
-	rm a.out
+	rm -f a.out
 else
 	echo FAILURE
 fi
 
-rm .test.c
+rm -f .test.c
 exit $res

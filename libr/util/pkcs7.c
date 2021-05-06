@@ -137,7 +137,7 @@ static void r_pkcs7_free_contentinfo(RPKCS7ContentInfo *ci) {
 }
 
 static bool r_pkcs7_parse_issuerandserialnumber(RPKCS7IssuerAndSerialNumber *iasu, RASN1Object *object) {
-	if (!iasu || !object || object->list.length != 2) {
+	if (!iasu || !object || object->list.length < 2) {
 		return false;
 	}
 	r_x509_parse_name (&iasu->issuer, object->list.objects[0]);
@@ -326,6 +326,7 @@ R_API RCMS *r_pkcs7_parse_cms(const ut8 *buffer, ut32 length) {
 		container->contentType = r_asn1_stringify_oid (object->list.objects[0]->sector, object->list.objects[0]->length);
 		if (!container->contentType) {
 			r_asn1_free_object (object);
+			free (container);
 			return NULL;
 		}
 	}

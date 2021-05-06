@@ -2,8 +2,8 @@ include ../config.mk
 
 CFLAGS+=-g
 OBJ=cdb.o buffer.o cdb_make.o ls.o sdbht.o ht_uu.o sdb.o num.o base64.o match.o
-OBJ+=json.o ns.o lock.o util.o disk.o query.o array.o fmt.o journal.o
-OBJ+=dict.o ht_pp.o ht_up.o set.o diff.o
+OBJ+=json.o ns.o lock.o util.o disk.o query.o array.o fmt.o journal.o text.o
+OBJ+=dict.o ht_pp.o ht_up.o ht_pu.o set.o diff.o
 SOBJ=$(subst .o,.o.o,${OBJ})
 WITHPIC?=1
 BIN=sdb${EXT_EXE}
@@ -44,7 +44,12 @@ endif
 	${AR} q libsdb.a ${OBJ}
 	${RANLIB} libsdb.a
 
+ifeq ($(CC),tcc)
+libsdb.${SOVER}:
+	@echo TCC doesnt support shared libs on macos
+else
 libsdb.${SOVER}: sdb_objs2
+endif
 ifneq ($(EXT_SO),${SOVER})
 	ln -fs libsdb.${SOVER} libsdb.${EXT_SO}
 endif

@@ -38,6 +38,133 @@ R_API int r_diff_set_delta(RDiff *d, int delta) {
 	return 1;
 }
 
+typedef struct levrow {
+	ut32 *changes;
+	ut32 start, end;
+} Levrow;
+
+static void lev_matrix_free(Levrow *matrix, ut32 len) {
+	size_t i;
+	for (i = 0; i < len; i++) {
+		free (matrix[i].changes);
+	}
+	free (matrix);
+}
+
+static inline void lev_row_adjust(Levrow *row, ut32 maxdst, ut32 rownum, ut32 buflen, ut32 delta) {
+	delta += rownum;
+	ut64 end = (ut64)delta + maxdst;
+	row->end = R_MIN (end, buflen);
+	row->start = delta <= maxdst? 0: delta - maxdst;
+}
+
+static inline Levrow *lev_row_init(Levrow *matrix, ut32 maxdst, ut32 rownum, ut32 buflen, ut32 delta) {
+	r_return_val_if_fail (matrix && !matrix[rownum].changes, false);
+	Levrow *row = matrix + rownum;
+	lev_row_adjust (row, maxdst, rownum, buflen, delta);
+	if ((row->changes = R_NEWS (ut32, row->end - row->start + 1)) == NULL) {
+		return NULL;
+	}
+	return row;
+}
+
+static inline ut32 lev_get_val(Levrow *row, ut32 i) {
+	if (i >= row->start && i <= row->end) {
+		return row->changes[i - row->start];
+	}
+	return UT32_MAX - 1; // -1 so a +1 with sub weight does not overflow
+}
+
+// obtains array of operations, in reverse order, to get from column to row of
+// matrix
+static st32 lev_parse_matrix(Levrow *matrix, ut32 len, bool invert, RLevOp **chgs) {
+	r_return_val_if_fail (len >= 2 && matrix && chgs && !*chgs, -1);
+	Levrow *row = matrix + len - 1;
+	Levrow *prev_row = row - 1;
+	RLevOp a = LEVADD;
+	RLevOp d = LEVDEL;
+	if (invert) {
+		a = LEVDEL;
+		d = LEVADD;
+	}
+
+	const size_t overflow = (size_t)-1 / (2 * sizeof (RLevOp));
+	int j = row->end;
+	size_t size = j;
+	RLevOp *changes = R_NEWS (RLevOp, size);
+	if (!changes) {
+		return -1;
+	}
+
+	size_t insert = 0;
+	while (row != matrix) { // matrix[0] is not processed
+		ut32 sub = lev_get_val (prev_row, j - 1);
+		ut32 del = lev_get_val (prev_row, j);
+		ut32 add = lev_get_val (row, j - 1);
+
+		if (insert >= size) {
+			if (size >= overflow) {
+				// overflow paranoia
+				free (changes);
+				return -1;
+			}
+			size *= 2;
+			RLevOp *tmp = realloc (changes, size * sizeof (RLevOp));
+			if (!tmp) {
+				free (changes);
+				return -1;
+			}
+			changes = tmp;
+		}
+
+		if (sub <= del && sub <= add) {
+			if (sub == lev_get_val (row, j)) {
+				changes[insert++] = LEVNOP;
+			} else {
+				changes[insert++] = LEVSUB;
+			}
+			j--;
+		} else if (del <= add && del <= sub) {
+			changes[insert++] = d;
+		} else {
+			changes[insert++] = a;
+			j--;
+			continue; // continue with same rows
+		}
+		free (row->changes);
+		row->changes = NULL;
+		row = prev_row--;
+	}
+	if (size - insert < j) {
+		if (size > overflow) {
+			// overly paranoid
+			free (changes);
+			return -1;
+		}
+		size += j - (size - insert);
+		RLevOp *tmp = realloc (changes, size * sizeof (RLevOp));
+		if (!tmp) {
+			free (changes);
+			return -1;
+		}
+		changes = tmp;
+	}
+	while (j > 0) {
+		changes[insert++] = a;
+		j--;
+	}
+
+	*chgs = changes;
+	return insert;
+}
+
+static inline void lev_fill_changes(RLevOp *chgs, RLevOp op, ut32 count) {
+	while (count > 0) {
+		count--;
+		chgs[count] = op;
+	}
+}
+
 typedef struct {
 	RDiff *d;
 	char *str;
@@ -51,7 +178,7 @@ R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *
 #else
 // XXX buffers_static doesnt constructs the correct string in this callback
 static int tostring(RDiff *d, void *user, RDiffOp *op) {
-	RDiffUser *u = (RDiffUser*)user;
+	RDiffUser *u = (RDiffUser *)user;
 	if (op->a_len > 0) {
 		char *a_str = r_str_ndup ((const char *)op->a_buf + op->a_off, op->a_len);
 		u->str = r_str_appendf (u->str, "+(%s)", a_str);
@@ -96,15 +223,15 @@ R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *
 }
 #endif
 
-#define diffHit(void) {\
-	const size_t i_hit = i - hit;\
-	int ra = la - i_hit;\
-	int rb = lb - i_hit;\
-	struct r_diff_op_t o = {\
-		.a_off = d->off_a+i-hit, .a_buf = a+i-hit, .a_len = R_MIN (hit, ra),\
-		.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = R_MIN (hit, rb)\
-	};\
-	d->callback (d, d->user, &o);\
+#define diffHit(void) { \
+	const size_t i_hit = i - hit; \
+	int ra = la - i_hit; \
+	int rb = lb - i_hit; \
+	struct r_diff_op_t o = { \
+		.a_off = d->off_a+i-hit, .a_buf = a+i-hit, .a_len = R_MIN (hit, ra), \
+		.b_off = d->off_b+i-hit, .b_buf = b+i-hit, .b_len = R_MIN (hit, rb) \
+	}; \
+	d->callback (d, d->user, &o); \
 }
 
 R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
@@ -113,8 +240,8 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 	la = R_ABS (la);
 	lb = R_ABS (lb);
 	if (la != lb) {
-	 	len = R_MIN (la, lb);
-		eprintf ("Buffer truncated to %d byte(s) (%d not compared)\n", len, R_ABS(lb-la));
+		len = R_MIN (la, lb);
+		eprintf ("Buffer truncated to %d byte(s) (%d not compared)\n", len, R_ABS(lb - la));
 	} else {
 		len = la;
 	}
@@ -147,12 +274,12 @@ R_API char *r_diff_buffers_unified(RDiff *d, const ut8 *a, int la, const ut8 *b,
 		r_file_hexdump (".b", b, lb, 0);
 	}
 #endif
-	char* err = NULL;
-	char* out = NULL;
+	char *err = NULL;
+	char *out = NULL;
 	int out_len;
-	char* diff_cmdline = r_str_newf ("%s .a .b", d->diff_cmd);
+	char *diff_cmdline = r_str_newf ("%s .a .b", d->diff_cmd);
 	if (diff_cmdline) {
-		(void)r_sys_cmd_str_full (diff_cmdline, NULL, &out, &out_len, &err);
+		(void)r_sys_cmd_str_full (diff_cmdline, NULL, 0, &out, &out_len, &err);
 		free (diff_cmdline);
 	}
 	r_file_rm (".a");
@@ -167,226 +294,11 @@ R_API int r_diff_buffers(RDiff *d, const ut8 *a, ut32 la, const ut8 *b, ut32 lb)
 		: r_diff_buffers_static (d, a, la, b, lb);
 }
 
-R_API bool r_diff_buffers_distance_levenstein(RDiff *d, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity) {
-	r_return_val_if_fail (a && b, false);
-	const bool verbose = d? d->verbose: false;
-	/*
-	More memory efficient version on Levenshtein Distance from:
-	https://en.wikipedia.org/wiki/Levenshtein_distance
-	http://www.codeproject.com/Articles/13525/Fast-memory-efficient-Levenshtein-algorithm
-	ObM..
-
-	8/July/2016 - More time efficient Levenshtein Distance. Now runs in about O(N*sum(MDistance)) instead of O(NM)
-	In real world testing the speedups for similar files are immense. Processing of
-	radiff2 -sV routerA/firmware_extract/bin/httpd routerB/firmware_extract/bin/httpd
-	reduced from 28 hours to about 13 minutes.
-	*/
-	int i, j;
-	const ut8 *aBufPtr;
-	const ut8 *bBufPtr;
-	ut32 aLen;
-	ut32 bLen;
-
-	// temp pointer will be used to switch v0 and v1 after processing the inner loop.
-	int *temp;
-	int *v0, *v1;
-
-	// We need these variables outside the context of the loops as we need to
-	// survive multiple loop iterations.
-	// start and stop are used in our inner loop
-	// colMin tells us the current 'best' edit distance.
-	// extendStop & extendStart are used when we get 'double up' edge conditions
-	// that require us to keep some more data.
-	int start = 0;
-	int stop = 0;
-	int smallest;
-	int colMin = 0;
-	int extendStop = 0;
-	int extendStart = 0;
-
-	//we could move cost into the 'i' loop.
-	int cost = 0;
-
-	// loops can get very big, this can be removed, but it's currently in there for debugging
-	// and optimisation testing.
-	ut64 loops = 0;
-
-	// We need the longest file to be 'A' because our optimisation tries to stop and start
-	// around the diagonal.
-	//  AAAAAAA
-	// B*
-	// B *
-	// B  *____
-	// if we have them the other way around and we terminate on the diagonal, we won't have
-	// inspected all the bytes of file B..
-	//  AAAA
-	// B*
-	// B *
-	// B  *
-	// B   *
-	// B   ?
-
-	if (la < lb) {
-		aBufPtr = b;
-		bBufPtr = a;
-		aLen = lb;
-		bLen = la;
-	} else {
-		aBufPtr = a;
-		bBufPtr = b;
-		aLen = la;
-		bLen = lb;
-	}
-	stop = bLen;
-	// Preliminary tests
-
-	// one or both buffers empty?
-	if (aLen == 0 || bLen == 0) {
-		if (distance) {
-			*distance = R_MAX (aLen, bLen);
-		}
-		if (similarity) {
-			*similarity = aLen == bLen? 1.0: 0.0;
-		}
-		return true;
-	}
-
-	//IF the files are the same size and are identical, then we have matching files
-	if (aLen == bLen && !memcmp (aBufPtr, bBufPtr, aLen)) {
-		if (distance) {
-			*distance = 0;
-		}
-		if (similarity) {
-			*similarity = 1.0;
-		}
-		return true;
-	}
-	// Only calloc if we have to do some processing
-
-	// calloc v0 & v1 and check they initialised
-	v0 = (int*) calloc ((bLen + 3), sizeof (int));
-	if (!v0) {
-		eprintf ("Error: cannot allocate %i bytes.", bLen + 3);
-		return false;
-	}
-
-	v1 = (int*) calloc ((bLen + 3), sizeof (int));
-	if (!v1) {
-		eprintf ("Error: cannot allocate %i bytes", 2 * (bLen + 3));
-		free (v0);
-		return false;
-	}
-
-	// initialise v0 and v1.
-	// With optimisiation we only strictly we only need to initialise v0[0..2]=0..2 & v1[0] = 1;
-	for (i = 0; i < bLen + 1 ; i++) {
-		v0[i] = i;
-		v1[i] = i + 1;
-	}
-
-	// Outer loop = the length of the longest input file.
-	for (i = 0; i < aLen; i++) {
-
-		// We're going to stop the inner loop at:
-		// bLen (so we don't run off the end of our array)
-		// or 'two below the diagonal' PLUS any extension we need for 'double up' edge values
-		// (see extendStop for logic)
-		stop = R_MIN ((i + extendStop + 2), bLen);
-
-		// We need a value in the result column (v1[start]).
-		// If you look at the loop below, we need it because we look at v1[j] as one of the
-		// potential shortest edit distances.
-		// In all cases where the edit distance can't 'reach',
-		// the value of v1[start] simply increments.
-		if (start > bLen) {
-			break;
-		}
-		v1[start] = v0[start] + 1;
-
-		// need to have a bigger number in colMin than we'll ever encounter in the inner loop
-		colMin = aLen;
-
-		// Inner loop does all the work:
-		for (j = start; j <= stop; j++) {
-			loops++;
-
-			// The main levenshtein comparison:
-			cost = (aBufPtr[i] == bBufPtr[j]) ? 0 : 1;
-			smallest = R_MIN ((v1[j] + 1), (v0[j + 1] + 1));
-			smallest = R_MIN (smallest, (v0[j] + cost));
-
-			// populate the next two entries in v1.
-			// only really required if this is the last loop.
-			if (j + 2 > bLen + 3) {
-				break;
-			}
-			v1[j + 1] = smallest;
-			v1[j + 2] = smallest + 1;
-
-			// If we have seen a smaller number, it's the new column Minimum
-			colMin = R_MIN ((colMin), (smallest));
-
-		}
-
-		// We're going to start at i+1 next iteration
-		// The column minimum is the current edit distance
-		// This distance is the minimum 'search width' from the optimal 'i' diagonal
-		// The extendStart picks up an edge case where we have a match on the first iteration
-		// We update extendStart after we've set start for the next iteration.
-		start = i + 1 - colMin - extendStart;
-
-		// If the last processed entry is a match, AND
-		// the current byte in 'a' and the previous processed entry in 'b' aren't a match
-		// then we need to extend our search below the optimal 'i' diagonal. because we'll
-		// have a vertical double up condition in our last two values of the results column.
-		// j-2 is used because j++ increments prior to loop exit in the processing loop above.
-		if (!cost && aBufPtr[i] != bBufPtr[j - 2]) {
-			extendStop ++;
-		}
-
-		// If new start would be a match then we have a horizontal 'double up'
-		// which means we need to keep an extra row of data
-		// so don't increment the start counter this time, BUT keep
-		// extendStart up our sleeves for next iteration.
-		if (i + 1 < aLen && start < bLen && aBufPtr[i + 1] == bBufPtr[start]) {
-			start --;
-			extendStart ++;
-		}
-		//Switch v0 and v1 pointers via temp pointer
-		temp = v0;
-		v0 = v1;
-		v1 = temp;
-
-		//Print a processing update every 10K of outer loop
-		if (verbose && i % 10000==0) {
-			eprintf ("\rProcessing %d of %d\r", i, aLen);
-		}
-	}
-	//Clean up output on loop exit (purely aesthetic)
-	if (verbose) {
-		eprintf ("\rProcessing %d of %d (loops=%"PFMT64d")\n", i, aLen,loops);
-	}
-	if (distance) {
-		// the final distance is the last byte we processed in the inner loop.
-		// v0 is used instead of v1 because we switched the pointers before exiting the outer loop
-		*distance = v0[stop];
-	}
-	if (similarity) {
-		double diff = (double) (v0[stop]) / (double) (R_MAX (aLen, bLen));
-		*similarity = (double)1 - diff;
-	}
-	free (v0);
-	free (v1);
-	return true;
-}
-
 // Eugene W. Myers' O(ND) diff algorithm
 // Returns edit distance with costs: insertion=1, deletion=1, no substitution
 R_API bool r_diff_buffers_distance_myers(RDiff *diff, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity) {
-	const bool verbose = diff ? diff->verbose: false;
-	if (!a || !b) {
-		return false;
-	}
+	r_return_val_if_fail (a && b, false);
+	const bool verbose = diff? diff->verbose: false;
 	const ut32 length = la + lb;
 	const ut8 *ea = a + la, *eb = b + lb;
 	// Strip prefix
@@ -437,11 +349,8 @@ out:
 	return true;
 }
 
-R_API bool r_diff_buffers_distance_original(RDiff *diff, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity) {
-	if (!a || !b) {
-		return false;
-	}
-
+R_API bool r_diff_buffers_distance_levenshtein(RDiff *diff, const ut8 *a, ut32 la, const ut8 *b, ut32 lb, ut32 *distance, double *similarity) {
+	r_return_val_if_fail (a && b, false);
 	const bool verbose = diff ? diff->verbose : false;
 	const ut32 length = R_MAX (la, lb);
 	const ut8 *ea = a + la, *eb = b + lb, *t;
@@ -499,12 +408,11 @@ R_API bool r_diff_buffers_distance(RDiff *d, const ut8 *a, ut32 la, const ut8 *b
 		case 'm':
 			return r_diff_buffers_distance_myers (d, a, la, b, lb, distance, similarity);
 		case 'l':
-			return r_diff_buffers_distance_levenstein (d, a, la, b, lb, distance, similarity);
 		default:
 			break;
 		}
 	}
-	return r_diff_buffers_distance_original (d, a, la, b, lb, distance, similarity);
+	return r_diff_buffers_distance_levenshtein (d, a, la, b, lb, distance, similarity);
 }
 
 // Use Needleman–Wunsch to diffchar.
@@ -522,8 +430,8 @@ R_API RDiffChar *r_diffchar_new(const ut8 *a, const ut8 *b) {
 	const size_t len_b = strlen ((const char *)b);
 	const size_t len_long = len_a > len_b ? len_a : len_b;
 	const size_t dim = len_long + 1;
-	ut8 *dup_a = malloc (len_long);
-	ut8 *dup_b = malloc (len_long);
+	char *dup_a = malloc (len_long);
+	char *dup_b = malloc (len_long);
 	st16 *align_table = malloc (dim * dim * sizeof (st16));
 	ut8 *align_a = malloc (2 * len_long);
 	ut8 *align_b = malloc (2 * len_long);
@@ -533,14 +441,14 @@ R_API RDiffChar *r_diffchar_new(const ut8 *a, const ut8 *b) {
 		free (align_table);
 		free (align_a);
 		free (align_b);
+		free (diffchar);
 		return NULL;
 	}
 
-	// Copy strings (note that strncpy does pad with nulls)
-	strncpy ((char *)dup_a, (const char *)a, len_long);
-	a = dup_a;
-	strncpy ((char *)dup_b, (const char *)b, len_long);
-	b = dup_b;
+	snprintf (dup_a, len_long, "%s", a);
+	a = (const ut8*)dup_a;
+	snprintf (dup_b, len_long, "%s", b);
+	b = (const ut8*)dup_b;
 
 	// Fill table
 	size_t row, col;
@@ -775,4 +683,291 @@ R_API void r_diffchar_free(RDiffChar *diffchar) {
 		free ((ut8 *)diffchar->align_b);
 		free (diffchar);
 	}
+}
+
+static st32 r_diff_levenshtein_nopath(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst, RLevMatches levdiff, size_t skip, ut32 alen, ut32 blen) {
+	r_return_val_if_fail (bufa && bufb && bufa->buf && bufb->buf, -1);
+	r_return_val_if_fail (blen >= alen && alen > 0, -1);
+
+	// max distance is at most length of longer input, or provided by user
+	ut32 origdst = maxdst = R_MIN (maxdst, blen);
+
+	// two rows
+	Levrow *matrix = R_NEWS0 (Levrow, 2);
+	if (!matrix) {
+		return -1;
+	}
+
+	Levrow *row = matrix;
+	Levrow *prev_row = matrix + 1;
+	// must allocate for largest row, not the first row, so don't use
+	// lev_row_init
+	row->changes = R_NEWS (ut32, 2 * maxdst + 1);
+	prev_row->changes = R_NEWS (ut32, 2 * maxdst + 1);
+	if (!prev_row->changes || !row->changes) {
+		lev_matrix_free (matrix, alen + 1);
+		return -1;
+	}
+
+	ut32 ldelta = blen - alen;
+	if (ldelta > maxdst) {
+		lev_matrix_free (matrix, alen + 1);
+		return ST32_MAX;
+	}
+
+	lev_row_adjust (row, maxdst, 0, blen, ldelta);
+	size_t i;
+	for (i = row->start; i <= row->end; i++) {
+		row->changes[i] = i;
+	}
+
+	// do the rest of the rows
+	ut32 oldmin = 0; // minimum cell in row 0
+	for (i = 1; i <= alen; i++) { // loop through all rows
+		// switch rows
+		if (row == matrix) {
+			row = prev_row;
+			prev_row = matrix;
+		} else {
+			prev_row = row;
+			row = matrix;
+		}
+		lev_row_adjust (row, maxdst, i, blen, ldelta);
+
+		ut32 start = row->start;
+		ut32 udel = UT32_MAX;
+		if (start == 0) {
+			row->changes[0] = udel = i;
+			start++;
+		}
+		ut32 newmin = UT32_MAX;
+		ut32 sub = lev_get_val (prev_row, start - 1);
+		ut32 j;
+		for (j = start; j <= row->end; j++) {
+			ut32 add = lev_get_val (prev_row, j);
+			ut32 ans = R_MIN (udel, add) + 1;
+			if (ans >= sub) {
+				// on rare occassions, when add/del is obviously better then
+				// sub, we can skip levdiff call
+				int d = levdiff (bufa, bufb, i + skip - 1, j + skip - 1)? 1: 0;
+				ans = R_MIN (ans, sub + d);
+			}
+			sub = add;
+			udel = ans;
+			row->changes[j - row->start] = ans;
+			if (ans < newmin) {
+				newmin = ans;
+			}
+		}
+
+		if (newmin > oldmin) {
+			if (maxdst == 0) { // provided bad maxdst
+				lev_matrix_free (matrix, 2);
+				return ST32_MAX;
+			}
+			// if smallest element of this row is larger then the smallest
+			// element of previous row a change must occur and thus the
+			// distance for the rest of the alg can be reduced.
+			oldmin = newmin;
+			maxdst--;
+		}
+	}
+
+	st32 ret = lev_get_val (row, row->end);
+	if (ret > origdst) {
+		ret = ST32_MAX;
+	}
+	lev_matrix_free (matrix, 2);
+	return ret;
+}
+
+/**
+ * \brief Return Levenshtein distance and put array of changes, of unkown
+ * lenght, in chgs
+ * \param bufa Structure to represent starting buffer
+ * \param bufb Structure to represent the buffer to reach
+ * \param maxdst Max Levenshtein distance need, send UT32_MAX if unkown.
+ * \param levdiff Function pointer returning true when there is a difference.
+ * \param chgs Returned array of changes to get from bufa to bufb
+ *
+ * Perform a Levenshtein diff on two buffers and obtain a RLevOp array of
+ * changes. The length of the RLevOp array is NOT provided, it is terminated by
+ * the LEVEND value. Providing a good maxdst value will increase performance of
+ * this algorithm. If computed maxdst is exceeded ST32_MAX will be returned and
+ * chgs will be left NULL. The chgs value must point to a NULL pointer. The
+ * caller must free *chgs.
+ */
+R_API st32 r_diff_levenshtein_path(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst, RLevMatches levdiff, RLevOp **chgs) {
+	r_return_val_if_fail (bufa && bufb && bufa->buf && bufb->buf, -1);
+	r_return_val_if_fail (!chgs || !*chgs, -1); // if chgs then it must point at NULL
+
+	// force buffer b to be longer, this will invert add/del resulsts
+	bool invert = false;
+	if (bufb->len < bufa->len) {
+		invert = true;
+		RLevBuf *x = bufa;
+		bufa = bufb;
+		bufb = x;
+	}
+	r_return_val_if_fail (bufb->len < UT32_MAX, -1);
+	ut32 ldelta = bufb->len - bufa->len;
+	if (ldelta > maxdst) {
+		return ST32_MAX;
+	}
+
+	// Strip start as long as bytes don't diff
+	size_t skip;
+	ut32 alen = bufa->len;
+	ut32 blen = bufb->len;
+	for (skip=0; skip < alen && !levdiff (bufa, bufb, skip, skip); skip++) {}
+
+	// strip suffix as long as bytes don't diff
+	size_t i;
+	for (i = 0; alen > skip && !levdiff (bufa, bufb, alen - 1, blen - 1); alen--, blen--, i++) {}
+	alen -= skip;
+	blen -= skip;
+
+	if (alen == 0) {
+		if (chgs) {
+			RLevOp *c = R_NEWS (RLevOp, skip + i + blen + 1);
+			if (!c) {
+				return -1;
+			}
+			*chgs = c;
+
+			lev_fill_changes (c, LEVNOP, skip);
+			c += skip;
+			lev_fill_changes (c, invert? LEVDEL: LEVADD, blen);
+			c += blen;
+			lev_fill_changes (c, LEVNOP, i);
+			c += i;
+
+			*c = LEVEND;
+		}
+		return blen;
+	}
+	if (!chgs) {
+		return r_diff_levenshtein_nopath (bufa, bufb, maxdst, levdiff, skip, alen, blen);
+	}
+
+	// max distance is at most length of longer input, or provided by user
+	ut32 origdst = maxdst = R_MIN (maxdst, blen);
+
+	// alloc array of rows
+	Levrow *matrix = R_NEWS0 (Levrow, alen + 1);
+	if (!matrix) {
+		return -1;
+	}
+
+	// init row 0
+	Levrow *row = lev_row_init (matrix, maxdst, 0, blen, ldelta);
+	if (!row) {
+		lev_matrix_free (matrix, alen + 1);
+		return -1;
+	}
+	for (i = row->start; i <= row->end; i++) {
+		row->changes[i] = i;
+	}
+
+	// do the rest of the rows
+	ut32 oldmin = 0; // minimum cell in row 0
+	Levrow *prev_row;
+	for (i = 1; i <= alen; i++) { // loop through all rows
+		prev_row = row;
+		if ((row = lev_row_init (matrix, maxdst, i, blen, ldelta)) == NULL) {
+			lev_matrix_free (matrix, alen + 1);
+			return -1;
+		}
+
+		ut32 start = row->start;
+		ut32 udel = UT32_MAX;
+		if (start == 0) {
+			row->changes[0] = udel = i;
+			start++;
+		}
+		ut32 newmin = UT32_MAX;
+		ut32 sub = lev_get_val (prev_row, start - 1);
+		ut32 j;
+		for (j = start; j <= row->end; j++) {
+			ut32 add = lev_get_val (prev_row, j);
+			ut32 ans = R_MIN (udel, add) + 1;
+			if (ans >= sub) {
+				// on rare occassions, when add/del is obviously better then
+				// sub, we can skip levdiff call
+				int d = levdiff (bufa, bufb, i + skip - 1, j + skip - 1)? 1: 0;
+				ans = R_MIN (ans, sub + d);
+			}
+			sub = add;
+			udel = ans;
+			row->changes[j - row->start] = ans;
+			if (ans < newmin) {
+				newmin = ans;
+			}
+		}
+		if (newmin > oldmin) {
+			if (maxdst == 0) { // provided bad maxdst
+				lev_matrix_free (matrix, alen + 1);
+				return ST32_MAX;
+			}
+			// if smallest element of this row is larger then the smallest
+			// element of previous row a change must occur and thus the
+			// distance for the rest of the alg can be reduced.
+			oldmin = newmin;
+			maxdst--;
+		}
+	}
+
+	st32 ret = lev_get_val (row, row->end);
+	if (ret > origdst) {
+		// can happen when off by one
+		lev_matrix_free (matrix, alen + 1);
+		return ST32_MAX;
+	}
+
+#if 0
+	{
+		// for debugging matrix
+		size_t total = 0;
+		for (i=0; i <= alen; i++) {
+			Levrow *bow = matrix + i;
+			ut32 j;
+			printf ("   ");
+			for (j=0; j <= blen; j++) {
+				ut32 val = lev_get_val (bow, j);
+				if (val >= UT32_MAX - 1) {
+					printf (" ..");
+				} else {
+					printf (" %02x", val);
+				}
+			}
+			total += bow->end + 1 - bow->start;
+			printf ("  buflen: %d\n", bow->end + 1 - bow->start);
+		}
+		printf ("\n%ld matrix cells allocated\n", total);
+	}
+#endif
+
+	RLevOp *mtxpath = NULL;
+	st32 chg_size = lev_parse_matrix (matrix, alen + 1, invert, &mtxpath);
+	lev_matrix_free (matrix, alen + 1);
+	if (chg_size > 0 && mtxpath) {
+		ut32 tail = bufb->len - skip - blen;
+		RLevOp *c = R_NEWS (RLevOp, skip + chg_size + tail + 1);
+		*chgs = c;
+		if (c) {
+			lev_fill_changes (c, LEVNOP, skip);
+			c += skip;
+
+			while (chg_size > 0) {
+				chg_size--;
+				*c = mtxpath[chg_size];
+				c++;
+			}
+			lev_fill_changes (c, LEVNOP, tail);
+			c += tail;
+			*c = LEVEND;
+		}
+	}
+	free (mtxpath);
+	return ret;
 }

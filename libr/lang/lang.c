@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake */
+/* radare2 - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_lang.h>
 #include <r_util.h>
@@ -9,8 +9,10 @@ R_LIB_VERSION(r_lang);
 #include "p/vala.c"  // hardcoded
 #include "p/rust.c"  // hardcoded
 #include "p/zig.c"   // hardcoded
-#include "p/spp.c"  // hardcoded
+#include "p/spp.c"   // hardcoded
 #include "p/c.c"     // hardcoded
+#include "p/v.c"     // hardcoded
+#include "p/go.c"    // hardcoded
 #include "p/lib.c"
 #if __UNIX__
 #include "p/cpipe.c" // hardcoded
@@ -50,6 +52,8 @@ R_API RLang *r_lang_new(void) {
 	r_lang_add (lang, &r_lang_plugin_vala);
 	r_lang_add (lang, &r_lang_plugin_rust);
 	r_lang_add (lang, &r_lang_plugin_zig);
+	r_lang_add (lang, &r_lang_plugin_v);
+	r_lang_add (lang, &r_lang_plugin_go);
 	r_lang_add (lang, &r_lang_plugin_spp);
 	r_lang_add (lang, &r_lang_plugin_pipe);
 	r_lang_add (lang, &r_lang_plugin_lib);
@@ -199,19 +203,19 @@ R_API bool r_lang_set_argv(RLang *lang, int argc, char **argv) {
 	return false;
 }
 
-R_API int r_lang_run(RLang *lang, const char *code, int len) {
+R_API bool r_lang_run(RLang *lang, const char *code, int len) {
 	if (lang->cur && lang->cur->run) {
 		return lang->cur->run (lang, code, len);
 	}
 	return false;
 }
 
-R_API int r_lang_run_string(RLang *lang, const char *code) {
+R_API bool r_lang_run_string(RLang *lang, const char *code) {
 	return r_lang_run (lang, code, strlen (code));
 }
 
-R_API int r_lang_run_file(RLang *lang, const char *file) {
-	int ret = false;
+R_API bool r_lang_run_file(RLang *lang, const char *file) {
+	bool ret = false;
 	if (lang->cur) {
 		if (!lang->cur->run_file) {
 			if (lang->cur->run) {
@@ -232,7 +236,7 @@ R_API int r_lang_run_file(RLang *lang, const char *file) {
 }
 
 /* TODO: deprecate or make it more modular .. reading from stdin in a lib?!? wtf */
-R_API int r_lang_prompt(RLang *lang) {
+R_API bool r_lang_prompt(RLang *lang) {
 	char buf[1024];
 	const char *p;
 

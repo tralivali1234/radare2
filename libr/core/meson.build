@@ -1,7 +1,9 @@
 r_core_sources = [
+  'rvc.c',
   'anal_tp.c',
   'anal_objc.c',
   'casm.c',
+  'cproject.c',
   'blaze.c',
   'citem.c',
   'canal.c',
@@ -12,6 +14,7 @@ r_core_sources = [
   'cmd.c',
   #'cmd_anal.c',
   'cmd_api.c',
+  'cmd_helps.c',
   #'cmd_cmp.c',
   #'cmd_debug.c',
   #'cmd_egg.c',
@@ -64,8 +67,8 @@ r_core_sources = [
   'vmenus_zigns.c',
   'yank.c',
   'p/core_a2f.c',
-  'p/core_java.c',
-  'cannotated_code.c'
+  'p/core_sixref.c',
+  'p/core_java.c'
 ]
 
 r_core_inc = []
@@ -102,8 +105,7 @@ r_core_deps = [
   platform_deps,
   gdb_dep,
   java_dep,
-  lrt,
-  shell_parser_dep
+  lrt
 ]
 
 if use_libuv
@@ -116,6 +118,7 @@ r_core = library('r_core', r_core_sources,
   dependencies: r_core_deps,
   install: true,
   implicit_include_directories: false,
+  install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 

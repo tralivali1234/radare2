@@ -26,8 +26,8 @@ static int can_replace(const char *str, int idx, int max_operands) {
 static int replace(int argc, const char *argv[], char *newstr) {
 	int i,j,k;
 	struct {
-		char *op;
-		char *str;
+		const char *op;
+		const char *str;
 		int max_operands;
 	} ops[] = {
 		{ "add", "1 = 2 + 3", 3},
@@ -250,7 +250,7 @@ static int parse(RParse *p, const char *data, char *str) {
 	return true;
 }
 
-static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
+static bool subvar(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
 	RListIter *iter;
 	char *oldstr;
 	char *tstr = strdup (data);
@@ -372,7 +372,7 @@ RParsePlugin r_parse_plugin_mips_pseudo = {
 	.init = NULL,
 	.fini = NULL,
 	.parse = parse,
-	.varsub = varsub,
+	.subvar = subvar,
 };
 
 #ifndef R2_PLUGIN_INCORE

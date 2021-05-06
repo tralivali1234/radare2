@@ -35,6 +35,12 @@ static Sdb *get_sdb (RBinFile *bf) {
 static char *entitlements(RBinFile *bf, bool json) {
 	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
 	struct MACH0_(obj_t) *bin = bf->o->bin_obj;
+	if (json) {
+		const char *s = r_str_get ((const char *)bin->signature);
+		PJ *pj = pj_new ();
+		pj_s (pj, s);
+		return pj_drain (pj);
+	}
 	return r_str_dup (NULL, (const char*)bin->signature);
 }
 
@@ -361,17 +367,19 @@ static RBinImport *import_from_name(RBin *rbin, const char *orig_name, HtPP *imp
 static RList *imports(RBinFile *bf) {
 	RBinObject *obj = bf ? bf->o : NULL;
 	struct MACH0_(obj_t) *bin = bf ? bf->o->bin_obj : NULL;
-	struct import_t *imports = NULL;
 	const char *name;
 	RBinImport *ptr = NULL;
-	RList *ret = NULL;
 	int i;
 
-	if (!obj || !bin || !obj->bin_obj || !(ret = r_list_newf (free))) {
+	if (!obj || !bin || !obj->bin_obj) {
 		return NULL;
 	}
-	if (!(imports = MACH0_(get_imports) (bf->o->bin_obj))) {
-		return ret;
+	RList *ret = r_list_newf((RListFree)r_bin_import_free);
+	struct import_t *imports = MACH0_(get_imports)(bf->o->bin_obj);
+	if (!ret || !imports) {
+		r_list_free (ret);
+		free (imports);
+		return NULL;
 	}
 	bin->has_canary = false;
 	bin->has_retguard = -1;
@@ -434,6 +442,7 @@ static RList *relocs(RBinFile *bf) {
 		if (reloc->name[0]) {
 			RBinImport *imp;
 			if (!(imp = import_from_name (bf->rbin, (char*) reloc->name, bin->imports_by_name))) {
+				free (ptr);
 				break;
 			}
 			ptr->import = imp;
@@ -605,7 +614,7 @@ static RList* patch_relocs(RBin *b) {
 	}
 
 	if (!io->cached) {
-		eprintf ("Warning: run r2 with -e io.cache=true to fix relocations in disassembly\n");
+		eprintf ("Warning: run r2 with -e bin.cache=true to fix relocations in disassembly\n");
 		goto beach;
 	}
 
@@ -615,8 +624,8 @@ static RList* patch_relocs(RBin *b) {
 	void **vit;
 	r_pvector_foreach (&io->maps, vit) {
 		RIOMap *map = *vit;
-		if (map->itv.addr > offset) {
-			offset = map->itv.addr;
+		if (r_io_map_begin (map) > offset) {
+			offset = r_io_map_begin (map);
 			g = map;
 		}
 	}
@@ -632,7 +641,7 @@ static RList* patch_relocs(RBin *b) {
 		goto beach;
 	}
 
-	RIOMap *gotr2map = b->iob.map_get (io, n_vaddr);
+	RIOMap *gotr2map = b->iob.map_get_at (io, n_vaddr);
 	if (!gotr2map) {
 		goto beach;
 	}
@@ -745,7 +754,7 @@ static int rebasing_and_stripping_io_read(RIO *io, RIODesc *fd, ut8 *buf, int co
 	ut64 io_off = io->off;
 	int result = obj->original_io_read (io, fd, internal_buffer, count);
 	if (result == count) {
-		rebase_buffer (obj, io_off, fd, internal_buffer, count);
+		rebase_buffer (obj, io_off - bf->o->boffset, fd, internal_buffer, count);
 		memcpy (buf, internal_buffer, result);
 	}
 	return result;

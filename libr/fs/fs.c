@@ -1,15 +1,19 @@
-/* radare2 - LGPL - Copyright 2011-2019 - pancake */
+/* radare2 - LGPL - Copyright 2011-2021 - pancake */
 
 #include <r_fs.h>
 #include "config.h"
 #include "types.h"
 #include <errno.h>
-#include "../../shlr/grub/include/grub/msdos_partition.h"
 
 #if WITH_GPL
 # ifndef USE_GRUB
 #  define USE_GRUB 1
 # endif
+#endif
+
+#if WITH_GPL && USE_GRUB
+#include "../../shlr/grub/include/grubfs.h"
+#include "../../shlr/grub/include/grub/msdos_partition.h"
 #endif
 
 R_LIB_VERSION (r_fs);
@@ -237,6 +241,7 @@ R_API RFSFile* r_fs_open(RFS* fs, const char* p, bool create) {
 	RFSFile* f = NULL;
 	const char* dir;
 	char* path = r_str_trim_dup (p);
+	r_str_trim_path (path);
 	RList *roots = r_fs_root (fs, path);
 	if (!r_list_empty (roots)) {
 		r_list_foreach (roots, iter, root) {
@@ -277,23 +282,22 @@ R_API void r_fs_close(RFS* fs, RFSFile* file) {
 
 R_API int r_fs_write(RFS* fs, RFSFile* file, ut64 addr, const ut8 *data, int len) {
 	if (len < 1) {
-		return false;
+		return -1;
 	}
 	if (fs && file) {
 		// TODO: fill file->data ? looks like dupe of rbuffer 
 		if (file->p && file->p->write) {
-			file->p->write (file, addr, data, len);
-			return true;
+			return file->p->write (file, addr, data, len);;
 		}
 		eprintf ("r_fs_write: file->p->write is null\n");
 	}
-	return false;
+	return -1;
 }
 
 R_API int r_fs_read(RFS* fs, RFSFile* file, ut64 addr, int len) {
 	if (len < 1) {
 		eprintf ("r_fs_read: too short read\n");
-		return false;
+		return -1;
 	}
 	if (fs && file) {
 		if (file->p && file->p->read) {
@@ -301,13 +305,12 @@ R_API int r_fs_read(RFS* fs, RFSFile* file, ut64 addr, int len) {
 				free (file->data);
 				file->data = calloc (1, len + 1);
 			}
-			file->p->read (file, addr, len);
-			return true;
+			return file->p->read (file, addr, len);
 		} else {
 			eprintf ("r_fs_read: file->p->read is null\n");
 		}
 	}
-	return false;
+	return -1;
 }
 
 R_API RList* r_fs_dir(RFS* fs, const char* p) {
@@ -340,6 +343,7 @@ R_API RList* r_fs_dir(RFS* fs, const char* p) {
 }
 
 R_API int r_fs_dir_dump(RFS* fs, const char* path, const char* name) {
+
 	RList* list;
 	RListIter* iter;
 	RFSFile* file, * item;
@@ -519,10 +523,7 @@ R_API RFSFile* r_fs_slurp(RFS* fs, const char* path) {
 	return file;
 }
 
-// TODO: move into grubfs
-#include "../../shlr/grub/include/grubfs.h"
-
-#if USE_GRUB
+#if USE_GRUB && WITH_GPL
 static int grub_parhook(void* disk, void* ptr, void* closure) {
 	struct grub_partition* par = ptr;
 	RList* list = (RList*) closure;
@@ -625,6 +626,7 @@ R_API int r_fs_partition_type_str(const char* type) {
 }
 
 R_API const char* r_fs_partition_type(const char* part, int type) {
+#if USE_GRUB && WITH_GPL
 	// XXX: part is ignored O_o
 	switch (type) {
 	case GRUB_PC_PARTITION_TYPE_FAT12:
@@ -664,6 +666,8 @@ R_API const char* r_fs_partition_type(const char* part, int type) {
 	default:
 		return NULL;
 	}
+#endif
+	return NULL;
 }
 
 R_API char* r_fs_name(RFS* fs, ut64 offset) {

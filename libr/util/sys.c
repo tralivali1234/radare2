@@ -1,10 +1,11 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_userconf.h>
 #include <stdlib.h>
 #include <string.h>
 #if defined(__NetBSD__)
 # include <sys/param.h>
+# include <sys/sysctl.h>
 # if __NetBSD_Prereq__(7,0,0)
 #  define NETBSD_WITH_BACKTRACE
 # endif
@@ -15,6 +16,10 @@
 # if __FreeBSD_version >= 1000000
 #  define FREEBSD_WITH_BACKTRACE
 # endif
+#endif
+#if defined(__DragonFly__)
+# include <sys/param.h>
+# include <sys/sysctl.h>
 #endif
 #if defined(__HAIKU__)
 # include <kernel/image.h>
@@ -56,6 +61,7 @@ int proc_pidpath(int pid, void * buffer, ut32 buffersize);
 # include <sys/wait.h>
 # include <sys/stat.h>
 # include <errno.h>
+# include <pwd.h>
 # include <signal.h>
 extern char **environ;
 
@@ -143,7 +149,11 @@ R_API int r_sys_fork(void) {
 #endif
 }
 
-#if HAVE_SIGACTION
+#if __WINDOWS__
+R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
+	return -1;
+}
+#elif HAVE_SIGACTION
 R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
 	struct sigaction sigact = { };
 	int ret, i;
@@ -166,19 +176,16 @@ R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
 			return ret;
 		}
 	}
-
 	return 0;
 }
 #else
-R_API int r_sys_sigaction(int *sig, void (*handler) (int)) {
-	int ret, i;
-
+R_API int r_sys_sigaction(int *sig, void (*handler)(int)) {
 	if (!sig) {
 		return -EINVAL;
 	}
-
+	size_t i;
 	for (i = 0; sig[i] != 0; i++) {
-		ret = signal (sig[i], handler);
+		void (*ret)(int) = signal (sig[i], handler);
 		if (ret == SIG_ERR) {
 			eprintf ("Failed to set signal handler for signal '%d': %s\n", sig[i], strerror(errno));
 			return -1;
@@ -274,6 +281,23 @@ R_API char *r_sys_cmd_strf(const char *fmt, ...) {
 	return ret;
 }
 
+R_API ut8 *r_sys_unxz(const ut8 *buf, size_t len, size_t *olen) {
+	char *err = NULL;
+	ut8 *out = NULL;
+	int _olen = 0;
+	int rc = r_sys_cmd_str_full ("xz -d", (const char *)buf, (int)len, (char **)&out, &_olen, &err);
+	if (rc == 0 || rc == 1) {
+		if (olen) {
+			*olen = (size_t)_olen;
+		}
+		free (err);
+		return out;
+	}
+	free (out);
+	free (err);
+	return NULL;
+}
+
 #ifdef __MAC_10_7
 #define APPLE_WITH_BACKTRACE 1
 #endif
@@ -340,7 +364,13 @@ R_API int r_sys_usleep(int usecs) {
 	rqtp.tv_nsec = (usecs - (rqtp.tv_sec * 1000000)) * 1000;
 	return clock_nanosleep (CLOCK_MONOTONIC, 0, &rqtp, NULL);
 #elif __UNIX__
+#if defined(__GLIBC__) && defined(__GLIBC_MINOR__) && (__GLIBC__ <= 2) && (__GLIBC_MINOR__ <= 2)
+	// Old versions of GNU libc return void for usleep
+	usleep (usecs);
+	return 0;
+#else
 	return usleep (usecs);
+#endif
 #else
 	// w32 api uses milliseconds
 	usecs /= 1000;
@@ -502,8 +532,9 @@ err_r_sys_get_env:
 }
 
 R_API bool r_sys_getenv_asbool(const char *key) {
+	r_return_val_if_fail (key, false);
 	char *env = r_sys_getenv (key);
-	const bool res = (env && *env == '1');
+	const bool res = env && r_str_is_true (env);
 	free (env);
 	return res;
 }
@@ -547,6 +578,19 @@ R_API bool r_sys_aslr(int val) {
 		ret = false;
 	}
 #endif
+#elif __NetBSD__
+	size_t vlen = sizeof (val);
+	if (sysctlbyname ("security.pax.aslr.enabled", NULL, 0, &val, vlen) == -1) {
+		eprintf ("Failed to set RVA\n");
+		ret = false;
+	}
+#elif __DragonFly__
+	size_t vlen = sizeof (val);
+	if (sysctlbyname ("vm.randomize_mmap", NULL, 0, &val, vlen) == -1) {
+		eprintf ("Failed to set RVA\n");
+		ret = false;
+	}
+#elif __DragonFly__
 #endif
 	return ret;
 }
@@ -564,26 +608,29 @@ R_API int r_sys_thp_mode(void) {
 		}
 		free (val);
 	}
-
 	return ret;
 #else
-  return 0;
+	return 0;
 #endif
 }
 
 #if __UNIX__
-R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, int *len, char **sterr) {
+R_API int r_sys_cmd_str_full(const char *cmd, const char *input, int ilen, char **output, int *len, char **sterr) {
 	char *mysterr = NULL;
 	if (!sterr) {
 		sterr = &mysterr;
 	}
-	char buffer[1024], *outputptr = NULL;
+	ut8 buffer[1024];
+	char *outputptr = NULL;
 	char *inputptr = (char *)input;
 	int pid, bytes = 0, status;
 	int sh_in[2], sh_out[2], sh_err[2];
 
 	if (len) {
 		*len = 0;
+	}
+	if (ilen == -1 && inputptr) {
+		ilen = strlen (inputptr);
 	}
 	if (pipe (sh_in)) {
 		return false;
@@ -646,6 +693,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 		// we should handle broken pipes somehow better
 		r_sys_signal (SIGPIPE, SIG_IGN);
 		size_t err_len = 0, out_len = 0;
+		size_t written = 0;
 		for (;;) {
 			fd_set rfds, wfds;
 			int nfd;
@@ -663,7 +711,7 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 			memset (buffer, 0, sizeof (buffer));
 			nfd = select (sh_err[0] + 1, &rfds, &wfds, NULL, NULL);
 			if (nfd < 0) {
-				break;
+				// eprintf ("nfd %d 2%c", nfd, 10);
 			}
 			if (output && FD_ISSET (sh_out[0], &rfds)) {
 				if ((bytes = read (sh_out[0], buffer, sizeof (buffer))) < 1) {
@@ -689,20 +737,14 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 				*sterr = tmp;
 				memcpy (*sterr + err_len, buffer, bytes);
 				err_len += bytes;
-			} else if (FD_ISSET (sh_in[1], &wfds) && inputptr && *inputptr) {
-				int inputptr_len = strlen (inputptr);
-				bytes = write (sh_in[1], inputptr, inputptr_len);
-				if (bytes != inputptr_len) {
-					break;
-				}
-				inputptr += bytes;
-				if (!*inputptr) {
+			} else if (FD_ISSET (sh_in[1], &wfds) && written < ilen) {
+				int inputptr_len = ilen >= 0? ilen - written: strlen (inputptr + written);
+				inputptr_len = R_MIN (inputptr_len, sizeof (buffer));
+				bytes = write (sh_in[1], inputptr + written, inputptr_len);
+				written += bytes;
+				if (written >= ilen) {
 					close (sh_in[1]);
-					/* If neither stdout nor stderr should be captured,
-					 * abort now - nothing more to do for select(). */
-					if (!output && !sterr) {
-						break;
-					}
+					// break;
 				}
 			}
 		}
@@ -736,16 +778,17 @@ R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, 
 		} else {
 			free (outputptr);
 		}
+		free (mysterr);
 		return ret;
 	}
 	return false;
 }
 #elif __WINDOWS__
-R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, int *len, char **sterr) {
-	return r_sys_cmd_str_full_w32 (cmd, input, output, len, sterr);
+R_API int r_sys_cmd_str_full(const char *cmd, const char *input, int ilen, char **output, int *len, char **sterr) {
+	return r_sys_cmd_str_full_w32 (cmd, input, ilen, output, len, sterr);
 }
 #else
-R_API int r_sys_cmd_str_full(const char *cmd, const char *input, char **output, int *len, char **sterr) {
+R_API int r_sys_cmd_str_full(const char *cmd, const char *input, int ilen, char **output, int *len, char **sterr) {
 	eprintf ("r_sys_cmd_str: not yet implemented for this platform\n");
 	return false;
 }
@@ -794,7 +837,7 @@ R_API int r_sys_cmd(const char *str) {
 
 R_API char *r_sys_cmd_str(const char *cmd, const char *input, int *len) {
 	char *output = NULL;
-	if (r_sys_cmd_str_full (cmd, input, &output, len, NULL)) {
+	if (r_sys_cmd_str_full (cmd, input, -1, &output, len, NULL)) {
 		return output;
 	}
 	free (output);
@@ -884,7 +927,7 @@ R_API void r_sys_perror_str(const char *fun) {
 			0, NULL )) {
 		char *err = r_sys_conv_win_to_utf8 (lpMsgBuf);
 		if (err) {
-			eprintf ("%s: (%#x) %s%s", fun, dw, err,
+			eprintf ("%s: (%#lx) %s%s", fun, dw, err,
 			         r_str_endswith (err, "\n") ? "" : "\n");
 			free (err);
 		}
@@ -1038,18 +1081,6 @@ R_API int r_sys_run_rop(const ut8 *buf, int len) {
 	return 0;
 }
 
-R_API bool r_is_heap (void *p) {
-	void *q = malloc (8);
-	ut64 mask = UT64_MAX;
-	ut64 addr = (ut64)(size_t)q;
-	addr >>= 16;
-	addr <<= 16;
-	mask >>= 16;
-	mask <<= 16;
-	free (q);
-	return (((ut64)(size_t)p) == mask);
-}
-
 R_API char *r_sys_pid_to_path(int pid) {
 #if __WINDOWS__
 	// TODO: add maximum path length support
@@ -1153,7 +1184,7 @@ R_API char *r_sys_pid_to_path(int pid) {
 #endif
 #else
 	int ret;
-#if __FreeBSD__
+#if __FreeBSD__ || __DragonFly__
 	char pathbuf[PATH_MAX];
 	size_t pathbufl = sizeof (pathbuf);
 	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PATHNAME, pid};
@@ -1166,7 +1197,7 @@ R_API char *r_sys_pid_to_path(int pid) {
 	int32_t group = 0;
 	image_info ii;
 
-	while (get_next_image_info (0, &group, &ii) == B_OK) {
+	while (get_next_image_info ((team_id)pid, &group, &ii) == B_OK) {
 		if (ii.type == B_APP_IMAGE) {
 			break;
 		}
@@ -1214,15 +1245,34 @@ R_API void r_sys_set_environ(char **e) {
 	env = e;
 }
 
-R_API char *r_sys_whoami (char *buf) {
-	char _buf[32];
-	int pid = getpid ();
-	int hasbuf = (buf)? 1: 0;
-	if (!hasbuf) {
-		buf = _buf;
+R_API char *r_sys_whoami(void) {
+	char buf[32];
+#if __WINDOWS__
+	DWORD buf_sz = sizeof (buf);
+	if (!GetUserName (buf, (LPDWORD)&buf_sz) ) {
+		return strdup ("?");
 	}
-	sprintf (buf, "pid%d", pid);
-	return hasbuf? buf: strdup (buf);
+#else
+	struct passwd *pw = getpwuid (getuid ());
+	if (pw) {
+		return strdup (pw->pw_name);
+	}
+	int uid = getuid ();
+	snprintf (buf, sizeof (buf), "uid%d", uid);
+#endif
+	return strdup (buf);
+}
+
+R_API int r_sys_uid(void) {
+#if __WINDOWS__
+	char buf[32];
+	DWORD buf_sz = sizeof (buf);
+	if (!GetUserName (buf, (LPDWORD)&buf_sz) ) {
+		return strdup ("?");
+	}
+#else
+	return getuid ();
+#endif
 }
 
 R_API int r_sys_getpid(void) {
@@ -1299,7 +1349,7 @@ R_API RSysInfo *r_sys_info(void) {
 	if (!si) {
 		return NULL;
 	}
-	
+
 	if (RegOpenKeyExA (HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0,
 		KEY_QUERY_VALUE, &key) != ERROR_SUCCESS) {
 		r_sys_perror ("r_sys_info/RegOpenKeyExA");
@@ -1334,7 +1384,7 @@ R_API RSysInfo *r_sys_info(void) {
 		|| type != REG_SZ) {
 		goto beach;
 	}
-	si->version = r_str_newf ("%d.%d.%s", major, minor, tmp);
+	si->version = r_str_newf ("%lu.%lu.%s", major, minor, tmp);
 
 	size = sizeof (tmp);
 	if (RegQueryValueExA (key, "ReleaseId", NULL, &type,

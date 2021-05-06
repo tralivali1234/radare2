@@ -103,7 +103,7 @@ R_API RSearchKeyword* r_search_keyword_new_wide(const char *kwbuf, const char *b
 		RRune ch;
 		int num_utf8_bytes = r_utf8_decode ((const ut8 *)p2, kwbuf + len - p2, &ch);
 		if (num_utf8_bytes < 1) {
-			eprintf ("WARNING: Malformed UTF8 at pos %td\n", p2 - kwbuf);
+			eprintf ("Warning: Malformed UTF8 at pos %td\n", p2 - kwbuf);
 			p[0] = *p2;
 			p[1] = 0;
 			p2++;
@@ -209,7 +209,7 @@ R_API RSearchKeyword *r_search_keyword_new_regexp (const char *str, const char *
 	for (start = i; str[i]; i++) {
 		if (str[i] == '/' && str[i - 1] != '\\') {
 			break;
-		} else if (str[i - 1] == '\\' && isalpha (str[i])) {
+		} else if (str[i - 1] == '\\' && isalpha ((unsigned char)str[i])) {
 			specials++;
 		}
 	}

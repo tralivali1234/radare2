@@ -15,7 +15,7 @@ static size_t socket_slurp(RSocket *s, RBuffer *buf) {
 	if (r_socket_ready (s, 1, 0) != 1) {
 		return 0;
 	}
-	r_socket_block_time (s, 1, 0, 1000);
+	r_socket_block_time (s, true, 0, 1000);
 	for (i = 0; i < SOCKET_HTTP_MAX_HEADER_LENGTH; i += 1) {
 		ut8 c;
 		int olen = r_socket_read_block (s, &c, 1);
@@ -34,7 +34,7 @@ static char *socket_http_answer(RSocket *s, int *code, int *rlen, ut32 redirecti
 	r_return_val_if_fail (s, NULL);
 	const char *p;
 	int ret, len = 0, delta = 0;
-	char *dn;
+	char *dn = NULL;
 	RBuffer *b = r_buf_new ();
 	if (!b) {
 		return NULL;
@@ -47,11 +47,21 @@ static char *socket_http_answer(RSocket *s, int *code, int *rlen, ut32 redirecti
 	}
 	r_buf_read_at (b, 0, (ut8 *)buf, olen);
 	buf[olen] = 0;
-	if ((dn = (char*)r_str_casestr (buf, "\n\n"))) {
-		delta += 2;
-	} else if ((dn = (char*)r_str_casestr (buf, "\r\n\r\n"))) {
-		delta += 4;
+	char *dnn = (char *)r_str_casestr (buf, "\n\n");
+	char *drn = (char *)r_str_casestr (buf, "\r\n\r\n");
+	if (dnn) {
+		if (drn && (drn < dnn)) {
+			dn = drn;
+			delta = 4;
+		} else {
+			dn = dnn;
+			delta = 2;
+		}
 	} else {
+		dn = drn;
+		delta = 4;
+	}
+	if (!dn) {
 		goto exit;
 	}
 
@@ -109,7 +119,7 @@ static char *socket_http_answer(RSocket *s, int *code, int *rlen, ut32 redirecti
 			}
 		}
 	} else {
-		res = NULL;
+		res = strdup ("");
 	}
 exit:
 	free (buf);
@@ -152,7 +162,7 @@ static char *http_get_w32(const char *url, int *code, int *rlen) {
 		ret = tmp;
 	} while (!(res = InternetReadFile (hOpenUrl, ret + w, read_sz, &r)) || r);
 
-	if (w) {
+	if (res) {
 		char *tmp = realloc (ret, (size_t)w + 1);
 		if (tmp) {
 			ret = tmp;
@@ -312,6 +322,7 @@ R_API char *r_socket_http_post(const char *url, const char *data, int *code, int
 	if (!r_socket_connect_tcp (s, host, port, 0)) {
 		eprintf ("Cannot connect to %s:%s\n", host, port);
 		free (uri);
+		r_socket_free (s);
 		return NULL;
 	}
 	/* Send */

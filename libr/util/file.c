@@ -27,7 +27,7 @@
 
 #define BS 1024
 
-static int file_stat (const char *file, struct stat* const pStat) {
+static int file_stat(const char *file, struct stat* const pStat) {
 	r_return_val_if_fail (file && pStat, -1);
 #if __WINDOWS__
 	wchar_t *wfile = r_utf8_to_utf16 (file);
@@ -40,6 +40,33 @@ static int file_stat (const char *file, struct stat* const pStat) {
 #else // __WINDOWS__
 	return stat (file, pStat);
 #endif // __WINDOWS__
+}
+
+// r_file_new("", "bin", NULL) -> /bin
+// r_file_new(".", "bin", NULL) -> ./bin
+// r_file_new("/", "bin", NULL) -> //bin # shall we be stricts?
+R_API char *r_file_new(const char *root, ...) {
+	va_list ap;
+	va_start (ap, root);
+	RStrBuf *sb = r_strbuf_new ("");
+	char *home = r_str_home (NULL);
+	const char *arg = va_arg (ap, char *);
+	r_strbuf_append (sb, arg);
+	arg = va_arg (ap, char *);
+	while (arg) {
+		if (!strcmp (arg, "~")) {
+			arg = home;
+		}
+		r_strbuf_append (sb, R_SYS_DIR);
+		r_strbuf_append (sb, arg);
+		arg = va_arg (ap, char *);
+	}
+	va_end (ap);
+	free (home);
+	char *path = r_strbuf_drain (sb);
+	char *abs = r_file_abspath (path);
+	free (path);
+	return abs;
 }
 
 R_API bool r_file_truncate(const char *filename, ut64 newsize) {
@@ -160,11 +187,14 @@ R_API bool r_file_fexists(const char *fmt, ...) {
 }
 
 R_API bool r_file_exists(const char *str) {
+	char *absfile = r_file_abspath (str);
 	struct stat buf = {0};
 	r_return_val_if_fail (!R_STR_ISEMPTY (str), false);
-	if (file_stat (str, &buf) == -1) {
+	if (file_stat (absfile, &buf) == -1) {
+		free (absfile);
 		return false;
 	}
+	free (absfile);
 	return S_IFREG == (S_IFREG & buf.st_mode);
 }
 
@@ -184,7 +214,7 @@ R_API bool r_file_is_abspath(const char *file) {
 
 R_API char *r_file_abspath_rel(const char *cwd, const char *file) {
 	char *ret = NULL;
-	if (!file || !strcmp (file, ".") || !strcmp (file, "./")) {
+	if (!file || !*file || !strcmp (file, ".") || !strcmp (file, "./")) {
 		return r_sys_getdir ();
 	}
 	if (strstr (file, "://")) {
@@ -242,6 +272,19 @@ R_API char *r_file_abspath(const char *file) {
 		return ret;
 	}
 	return NULL;
+}
+
+R_API char *r_file_binsh(void) {
+	char *bin_sh = r_sys_getenv ("SHELL");
+	if (R_STR_ISEMPTY (bin_sh)) {
+		free (bin_sh);
+		bin_sh = r_file_path("sh");
+		if (R_STR_ISEMPTY (bin_sh)) {
+			free (bin_sh);
+			bin_sh = strdup ("/bin/sh");
+		}
+	}
+	return bin_sh;
 }
 
 R_API char *r_file_path(const char *bin) {
@@ -365,6 +408,13 @@ R_API char *r_file_slurp(const char *str, R_NULLABLE size_t *usz) {
 				}
 				size += r;
 			} while (!feof (fd));
+			char *nbuf = realloc (buf, size + 1);
+			if (!nbuf) {
+				free (buf);
+				return NULL;
+			}
+			buf = nbuf;
+			buf[size] = '\0';
 			if (usz) {
 				*usz = size;
 			}
@@ -699,6 +749,7 @@ R_API bool r_file_hexdump(const char *file, const ut8 *buf, int len, int append)
 }
 
 R_API bool r_file_touch(const char *file) {
+	r_return_val_if_fail (file, false);
 	return r_file_dump (file, NULL, 0, true);
 }
 
@@ -726,6 +777,29 @@ R_API bool r_file_dump(const char *file, const ut8 *buf, int len, bool append) {
 		}
 	}
 	fclose (fd);
+	return true;
+}
+
+R_API bool r_file_move(const char *src, const char *dst) {
+	r_return_val_if_fail (!R_STR_ISEMPTY (src) && !R_STR_ISEMPTY (dst), false);
+	if (r_sandbox_enable (0)) {
+		return false;
+	}
+	// rename fails when files are in different mountpoints
+	// in this situation it needs to be copied and removed
+	if (rename (src, dst) != 0) {
+		char *a = r_str_escape (src);
+		char *b = r_str_escape (dst);
+		char *input = r_str_newf ("\"%s\" \"%s\"", a, b);
+#if __WINDOWS__
+		int rc = r_sys_cmdf ("move %s", input);
+#else
+		int rc = r_sys_cmdf ("mv %s", input);
+#endif
+		free (a);
+		free (b);
+		return rc == 0;
+	}
 	return true;
 }
 
@@ -896,7 +970,7 @@ static RMmap *r_file_mmap_unix (RMmap *m, int fd) {
 		m->rw?PROT_READ|PROT_WRITE:PROT_READ,
 		MAP_SHARED, fd, (off_t)m->base);
 	if (m->buf == MAP_FAILED) {
-		R_FREE (m);
+		m->buf = NULL;
 	}
 	return m;
 }
@@ -1035,7 +1109,7 @@ R_API void r_file_mmap_free(RMmap *m) {
 	free (m);
 }
 
-R_API char *r_file_temp (const char *prefix) {
+R_API char *r_file_temp(const char *prefix) {
 	if (!prefix) {
 		prefix = "";
 	}
@@ -1170,7 +1244,7 @@ R_API char *r_file_tmpdir(void) {
 	return path;
 }
 
-R_API bool r_file_copy (const char *src, const char *dst) {
+R_API bool r_file_copy(const char *src, const char *dst) {
 	/* TODO: implement in C */
 	/* TODO: Use NO_CACHE for iOS dyldcache copying */
 #if HAVE_COPYFILE_H
@@ -1201,7 +1275,54 @@ R_API bool r_file_copy (const char *src, const char *dst) {
 #endif
 }
 
-static void recursive_search_glob (const char *path, const char *glob, RList* list, int depth) {
+static bool dir_recursive(RList *dst, const char *dir) {
+	char *name;
+	RListIter *iter;
+	bool ret = true;
+	RList *files = r_sys_dir (dir);
+	if (!files) {
+		return false;
+	}
+	r_list_foreach (files, iter, name) {
+		char *path;
+		if (!strcmp (name, "..") || !strcmp (name, ".")) {
+			continue;
+		}
+		path = r_str_newf ("%s" R_SYS_DIR "%s", dir, name);
+		if (!path) {
+			ret = false;
+			break;
+		}
+		if (!r_list_append (dst, path)) {
+			ret = false;
+			free (path);
+			break;
+		}
+		if (r_file_is_directory (path)) {
+			if (!dir_recursive (dst, path)) {
+				ret = false;
+				break;
+			}
+		}
+	}
+	r_list_free (files);
+	return ret;
+}
+
+R_API RList *r_file_lsrf(const char *dir) {
+	RList *ret = r_list_new ();
+	if (!ret) {
+		return NULL;
+	}
+	if (!dir_recursive (ret, dir)) {
+		r_list_free (ret);
+		return NULL;
+	}
+	return ret;
+}
+
+
+static void recursive_search_glob(const char *path, const char *glob, RList* list, int depth) {
 	if (depth < 1) {
 		return;
 	}
@@ -1228,7 +1349,7 @@ static void recursive_search_glob (const char *path, const char *glob, RList* li
 	r_list_free (dir);
 }
 
-R_API RList* r_file_globsearch (const char *_globbed_path, int maxdepth) {
+R_API RList* r_file_globsearch(const char *_globbed_path, int maxdepth) {
 	char *globbed_path = strdup (_globbed_path);
 	RList *files = r_list_newf (free);
 	char *glob = strchr (globbed_path, '*');
@@ -1243,7 +1364,7 @@ R_API RList* r_file_globsearch (const char *_globbed_path, int maxdepth) {
 			glob_ptr = last_slash + 1;
 			if (globbed_path[0] == '~') {
 				char *rpath = r_str_newlen (globbed_path + 2, last_slash - globbed_path - 1);
-				path = r_str_home (rpath ? rpath : "");
+				path = r_str_home (r_str_get (rpath));
 				free (rpath);
 			} else {
 				path = r_str_newlen (globbed_path, last_slash - globbed_path + 1);

@@ -587,12 +587,12 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 					for (i = 0; i < egg->lang.nsyscalls; i++) {
 						if (!strcmp (egg->lang.syscalls[i].name, egg->lang.callname)) {
 							free (oldstr);
-							return strdup (egg->lang.syscalls[i].arg);
+							return strdup (r_str_get (egg->lang.syscalls[i].arg));
 						}
 					}
-					eprintf ("Unknown arg for syscall '%s'\n", egg->lang.callname);
+					eprintf ("Unknown arg for syscall '%s'\n", r_str_get (egg->lang.callname));
 				} else {
-					eprintf ("NO CALLNAME '%s'\n", egg->lang.callname);
+					eprintf ("NO CALLNAME '%s'\n", r_str_get (egg->lang.callname));
 				}
 			}
 		} else if (!strncmp (str + 1, "reg", 3)) {
@@ -614,7 +614,7 @@ R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta) {
 		str++;
 		len = strlen (str) - 1;
 		if (!egg->lang.stackfixed || egg->lang.stackfixed < len) {
-			eprintf ("WARNING: No room in the static stackframe! (%d must be %d)\n",
+			eprintf ("Warning: No room in the static stackframe! (%d must be %d)\n",
 				egg->lang.stackfixed, len);
 		}
 		str[len] = '\0';
@@ -1049,7 +1049,8 @@ static void rcc_next(REgg *egg) {
 		if (!strcmp (str, "while")) {
 			char var[128];
 			if (egg->lang.lastctxdelta >= 0) {
-				exit (eprintf ("ERROR: Unsupported while syntax\n"));
+				eprintf ("ERROR: Unsupported while syntax\n");
+				return;
 			}
 			sprintf (var, "__begin_%d_%d_%d\n", egg->lang.nfunctions, CTX, egg->lang.nestedi[CTX - 1]);
 			e->while_end (egg, var);// get_frame_label (1));
@@ -1161,7 +1162,6 @@ static void rcc_next(REgg *egg) {
 		if (*ptr) {
 			eq = strchr (ptr, '=');
 			if (eq) {
-				char *p = (char *) skipspaces (ptr);
 				vs = egg->lang.varsize;
 				*buf = *eq = '\x00';
 				e->mathop (egg, '=', vs, '$', "0", e->regs (egg, 1));
@@ -1172,7 +1172,7 @@ static void rcc_next(REgg *egg) {
 				R_FREE (egg->lang.mathline);
 				tmp = NULL;
 				// following code block is too ugly, oh noes
-				p = r_egg_mkvar (egg, buf, ptr, 0);
+				char *p = r_egg_mkvar (egg, buf, ptr, 0);
 				if (is_var (p)) {
 					char *q = r_egg_mkvar (egg, buf, p, 0);
 					if (q) {
@@ -1293,9 +1293,9 @@ R_API int r_egg_lang_parsechar(REgg *egg, char c) {
 	}
 	if (egg->lang.slurp) {
 		if (egg->lang.slurp != '"' && c == egg->lang.slurpin) {	// only happend when (...(...)...)
-			exit (eprintf (
-					"%s:%d Nesting of expressions not yet supported\n",
-					egg->lang.file, egg->lang.line));
+			eprintf ("%s:%d Nesting of expressions not yet supported\n",
+					egg->lang.file, egg->lang.line);
+			return -1;
 		}
 		if (c == egg->lang.slurp && egg->lang.oc != '\\') {	// close egg->lang.slurp
 			egg->lang.elem[egg->lang.elem_n] = '\0';

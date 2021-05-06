@@ -7,14 +7,13 @@ B=$(DESTDIR)$(BINDIR)
 L=$(DESTDIR)$(LIBDIR)
 MESON?=meson
 PYTHON?=python
-R2R=test
 R2BINS=$(shell cd binr ; echo r*2 r2agent r2pm r2-indent r2r)
 ifdef SOURCE_DATE_EPOCH
 BUILDSEC=$(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "+__%H:%M:%S" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "+__%H:%M:%S" 2>/dev/null || date -u "+__%H:%M:%S")
 else
 BUILDSEC=$(shell date "+__%H:%M:%S")
 endif
-DATADIRS=libr/cons/d libr/flag/d libr/bin/d libr/asm/d libr/syscall/d libr/magic/d libr/anal/d
+DATADIRS=libr/cons/d libr/flag/d libr/bin/d libr/asm/d libr/syscall/d libr/magic/d libr/anal/d libr/util/d
 USE_ZIP=YES
 ZIP=zip
 
@@ -36,15 +35,10 @@ CZ=gzip -f
 endif
 PWD=$(shell pwd)
 
-# For echo without quotes
-Q='
-ESC=
 ifeq ($(BUILD_OS),windows)
 ifeq ($(OSTYPE),mingw32)
 ifneq (,$(findstring mingw32-make,$(MAKE)))
 ifneq ($(APPVEYOR),True)
-	Q=
-	ESC=^
 	LC_ALL=C
 	export LC_ALL
 endif
@@ -61,30 +55,32 @@ all: plugins.cfg libr/include/r_version.h
 	${MAKE} -C libr
 	${MAKE} -C binr
 
-#.PHONY: libr/include/r_version.h
-GIT_TAP=$(shell git describe --tags --match "[0-9]*" 2>/dev/null || echo $(VERSION))
+GIT_TAP=$(shell (git tag -l --sort=refname 2> /dev/null || echo $(R2_VERSION)) | grep '^[0-9]\.[0-9]' | tail -n1 )
 GIT_TIP=$(shell git rev-parse HEAD 2>/dev/null || echo HEAD)
-R2_VER=$(shell grep VERSION configure.acr | head -n1 | awk '{print $$2}')
+R2_VER=$(shell ./configure -qV)
 ifdef SOURCE_DATE_EPOCH
 GIT_NOW=$(shell date -u -d "@$(SOURCE_DATE_EPOCH)" "+%Y-%m-%d" 2>/dev/null || date -u -r "$(SOURCE_DATE_EPOCH)" "+%Y-%m-%d" 2>/dev/null || date -u "+%Y-%m-%d")
 else
 GIT_NOW=$(shell date "+%Y-%m-%d")
 endif
 
+ele:
+	echo $(GIT_TAP)
+
 libr/include/r_version.h:
 	@echo Generating r_version.h file
-	@echo $(Q)#ifndef R_VERSION_H$(Q) > $@.tmp
-	@echo $(Q)#define R_VERSION_H 1$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION_COMMIT $(R2VC)$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION $(ESC)"$(R2_VERSION)$(ESC)"$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION_MAJOR $(R2_VERSION_MAJOR)$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION_MINOR $(R2_VERSION_MINOR)$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION_PATCH $(R2_VERSION_PATCH)$(Q) >> $@.tmp
-	@echo $(Q)#define R2_VERSION_NUMBER $(R2_VERSION_NUMBER)$(Q) >> $@.tmp
-	@echo $(Q)#define R2_GITTAP $(ESC)"$(GIT_TAP)$(ESC)"$(Q) >> $@.tmp
-	@echo $(Q)#define R2_GITTIP $(ESC)"$(GIT_TIP)$(ESC)"$(Q) >> $@.tmp
-	@echo $(Q)#define R2_BIRTH $(ESC)"$(GIT_NOW)$(BUILDSEC)$(ESC)"$(Q) >> $@.tmp
-	@echo $(Q)#endif$(Q) >> $@.tmp
+	@echo '#ifndef R_VERSION_H' > $@.tmp
+	@echo '#define R_VERSION_H 1' >> $@.tmp
+	@echo '#define R2_VERSION_COMMIT $(R2VC)' >> $@.tmp
+	@echo '#define R2_VERSION "$(R2_VERSION)"' >> $@.tmp
+	@echo '#define R2_VERSION_MAJOR $(R2_VERSION_MAJOR)' >> $@.tmp
+	@echo '#define R2_VERSION_MINOR $(R2_VERSION_MINOR)' >> $@.tmp
+	@echo '#define R2_VERSION_PATCH $(R2_VERSION_PATCH)' >> $@.tmp
+	@echo '#define R2_VERSION_NUMBER $(R2_VERSION_NUMBER)' >> $@.tmp
+	@echo '#define R2_GITTAP $(ESC)"$(GIT_TAP)$(ESC)"' >> $@.tmp
+	@echo '#define R2_GITTIP $(ESC)"$(GIT_TIP)$(ESC)"' >> $@.tmp
+	@echo '#define R2_BIRTH $(ESC)"$(GIT_NOW)$(BUILDSEC)$(ESC)"' >> $@.tmp
+	@echo '#endif' >> $@.tmp
 	@mv -f $@.tmp $@
 	@rm -f $@.tmp
 
@@ -203,6 +199,7 @@ install-man-symlink:
 	cd "${DESTDIR}${MANDIR}/man1" && ln -fs radare2.1 r2.1
 	for FILE in *.7 ; do \
 		ln -fs "${PWD}/man/$$FILE" "${DESTDIR}${MANDIR}/man7/$$FILE" ; done
+	cd "${DESTDIR}${MANDIR}/man1" && ln -fs radare2.1 r2.1
 
 install-doc:
 	mkdir -p "${DESTDIR}${DOCDIR}"
@@ -218,10 +215,10 @@ install-doc-symlink:
 	for FILE in $(shell cd doc ; ls) ; do \
 		ln -fs "$(PWD)/doc/$$FILE" "${DESTDIR}${DOCDIR}" ; done
 
-install love: install-doc install-man install-www install-pkgconfig
-	cd libr && ${MAKE} install
-	cd binr && ${MAKE} install
-	cd shlr && ${MAKE} install
+install: install-doc install-man install-www install-pkgconfig
+	$(MAKE) -C libr install
+	$(MAKE) -C binr install
+	$(MAKE) -C shlr install
 	for DIR in ${DATADIRS} ; do $(MAKE) -C "$$DIR" install ; done
 	cd "$(DESTDIR)$(LIBDIR)/radare2/" ;\
 		rm -f last ; ln -fs $(VERSION) last
@@ -234,7 +231,6 @@ install love: install-doc install-man install-www install-pkgconfig
 	#${INSTALL_SCRIPT} "${PWD}/sys/r1-docker.sh" "${DESTDIR}${BINDIR}/r2-docker"
 	cp -f doc/hud "${DESTDIR}${DATADIR}/radare2/${VERSION}/hud/main"
 	mkdir -p "${DESTDIR}${DATADIR}/radare2/${VERSION}/"
-	$(SHELL) sys/ldconfig.sh
 	$(SHELL) ./configure-plugins --rm-static $(DESTDIR)$(LIBDIR)/radare2/last/
 
 install-www:
@@ -284,7 +280,6 @@ symstall install-symlink: install-man-symlink install-doc-symlink install-pkgcon
 	cd "$(DESTDIR)$(DATADIR)/radare2/" ;\
 		rm -f last ; ln -fs $(VERSION) last
 	mkdir -p "${DESTDIR}${DATADIR}/radare2/${VERSION}/"
-	$(SHELL) sys/ldconfig.sh
 	$(SHELL) ./configure-plugins --rm-static $(DESTDIR)/$(LIBDIR)/radare2/last/
 
 deinstall uninstall:
@@ -293,6 +288,7 @@ deinstall uninstall:
 	cd libr && ${MAKE} uninstall
 	cd binr && ${MAKE} uninstall
 	cd shlr && ${MAKE} uninstall
+	cd libr/util/d && ${MAKE} uninstall
 	cd libr/syscall/d && ${MAKE} uninstall
 	cd libr/anal/d && ${MAKE} uninstall
 	@echo
@@ -389,8 +385,8 @@ shot:
 	scp "radare2-$${DATE}.${TAREXT}" \
 		radare.org:/srv/http/radareorg/get/shot
 
-tests:
-	$(MAKE) -C $(R2R)
+tests test:
+	$(MAKE) -C test
 
 macos-sign:
 	$(MAKE) -C binr/radare2 macos-sign

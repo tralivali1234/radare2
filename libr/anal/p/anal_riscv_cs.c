@@ -1,12 +1,11 @@
-/* radare2 - LGPL - Copyright 2013-2019 - pancake */
+/* radare2 - LGPL - Copyright 2013-2020 - pancake */
 
 #include <r_asm.h>
 #include <r_lib.h>
 
-#if CSNEXT
-
-#include <capstone/capstone.h>
-#include <capstone/riscv.h>
+#include <capstone.h>
+#if CS_API_MAJOR >= 5
+#include <riscv.h>
 
 // http://www.mrc.uidaho.edu/mrc/people/jff/digital/RISCVir.html
 
@@ -103,40 +102,44 @@
 
 static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 	int i;
-	r_strbuf_init (buf);
-	r_strbuf_append (buf, "{");
+	PJ *pj = pj_new ();
+	if (!pj) {
+		return;
+	}
+	pj_o (pj);
+	pj_ka (pj, "operands");
 	cs_riscv *x = &insn->detail->riscv;
-	r_strbuf_append (buf, "\"operands\":[");
 	for (i = 0; i < x->op_count; i++) {
-		cs_riscv_op *op = &x->operands[i];
-		if (i > 0) {
-			r_strbuf_append (buf, ",");
-		}
-		r_strbuf_append (buf, "{");
+		cs_riscv_op *op = x->operands + i;
+		pj_o (pj);
 		switch (op->type) {
 		case RISCV_OP_REG:
-			r_strbuf_append (buf, "\"type\":\"reg\"");
-			r_strbuf_appendf (buf, ",\"value\":\"%s\"", cs_reg_name (handle, op->reg));
+			pj_ks (pj, "type", "reg");
+			pj_ks (pj, "value", cs_reg_name (handle, op->reg));
 			break;
 		case RISCV_OP_IMM:
-			r_strbuf_append (buf, "\"type\":\"imm\"");
-			r_strbuf_appendf (buf, ",\"value\":%"PFMT64d, op->imm);
+			pj_ks (pj, "type", "imm");
+			pj_kN (pj, "value", op->imm);
 			break;
 		case RISCV_OP_MEM:
-			r_strbuf_append (buf, "\"type\":\"mem\"");
+			pj_ks (pj, "type", "mem");
 			if (op->mem.base != RISCV_REG_INVALID) {
-				r_strbuf_appendf (buf, ",\"base\":\"%s\"", cs_reg_name (handle, op->mem.base));
+				pj_ks (pj, "base", cs_reg_name (handle, op->mem.base));
 			}
-			r_strbuf_appendf (buf, ",\"disp\":%"PFMT64d"", op->mem.disp);
+			pj_kN (pj, "disp", op->mem.disp);
 			break;
 		default:
-			r_strbuf_append (buf, "\"type\":\"invalid\"");
+			pj_ks (pj, "type", "invalid");
 			break;
 		}
-		r_strbuf_append (buf, "}");
+		pj_end (pj); /* o operand */
 	}
-	r_strbuf_append (buf, "]");
-	r_strbuf_append (buf, "}");
+	pj_end (pj); /* a operands */
+	pj_end (pj);
+
+	r_strbuf_init (buf);
+	r_strbuf_append (buf, pj_string (pj));
+	pj_free (pj);
 }
 
 static const char *arg(csh *handle, cs_insn *insn, char *buf, int n) {
@@ -150,27 +153,27 @@ static const char *arg(csh *handle, cs_insn *insn, char *buf, int n) {
 				insn->detail->riscv.operands[n].reg));
 		break;
 	case RISCV_OP_IMM:
-		{
-			st64 x = (st64)insn->detail->riscv.operands[n].imm;
-			sprintf (buf, "%"PFMT64d, x);
-		}
+	{
+		st64 x = (st64)insn->detail->riscv.operands[n].imm;
+		sprintf (buf, "%"PFMT64d, x);
 		break;
+	}
 	case RISCV_OP_MEM:
-		{
-			int disp = insn->detail->riscv.operands[n].mem.disp;
-		if (disp<0) {
-		sprintf (buf, "%"PFMT64d",%s,-",
-			(ut64)-insn->detail->riscv.operands[n].mem.disp,
-			cs_reg_name (*handle,
-				insn->detail->riscv.operands[n].mem.base));
+	{
+		st64 disp = insn->detail->riscv.operands[n].mem.disp;
+		if (disp < 0) {
+			sprintf (buf, "%"PFMT64d",%s,-",
+				(ut64)-insn->detail->riscv.operands[n].mem.disp,
+				cs_reg_name (*handle,
+					insn->detail->riscv.operands[n].mem.base));
 		} else {
-		sprintf (buf, "0x%"PFMT64x",%s,+",
-			(ut64)insn->detail->riscv.operands[n].mem.disp,
-			cs_reg_name (*handle,
-				insn->detail->riscv.operands[n].mem.base));
-		}
+			sprintf (buf, "%"PFMT64d",%s,+",
+				(st64)insn->detail->riscv.operands[n].mem.disp,
+				cs_reg_name (*handle,
+					insn->detail->riscv.operands[n].mem.base));
 		}
 		break;
+	}
 	}
 	return buf;
 }
@@ -402,6 +405,8 @@ static char *get_reg_profile(RAnal *anal) {
 		"=SP	sp\n" // ABI: stack pointer
 		"=LR	ra\n" // ABI: return address
 		"=BP	s0\n" // ABI: frame pointer
+		"=A0	a0\n"
+		"=A1	a1\n"
 
 		"gpr	pc	.32	0	0\n"
 		// RV32I regs (ABI names)
@@ -487,6 +492,8 @@ static char *get_reg_profile(RAnal *anal) {
 		"=SP	sp\n" // ABI: stack pointer
 		"=LR	ra\n" // ABI: return address
 		"=BP	s0\n" // ABI: frame pointer
+		"=A0	a0\n"
+		"=A1	a1\n"
 
 		"gpr	pc	.64	0	0\n"
 		// RV64I regs (ABI names)

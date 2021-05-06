@@ -21,33 +21,8 @@ EXPECT_ERR=<<EOF
 EOF
 RUN
 
-NAME=r2 -
-FILE=-
-CMDS=e file.path
-EXPECT=<<EOF
-
-EOF
-RUN
-
-NAME=r2 -
-FILE=-
-CMDS=e file.lastpath
-EXPECT=<<EOF
-
-EOF
-RUN
-
-NAME=r2 --
-FILE=--
-CMDS=e file.path
-EXPECT=<<EOF
-
-EOF
-RUN
-
 NAME=r2 --
 FILE=bins/elf/bomb
-BROKEN=1
 CMDS=r2 -s main -qcs bins/elf/bomb
 EXPECT=<<EOF
 0x400da0
@@ -110,7 +85,6 @@ RUN
 
 NAME=r2 shortcut
 FILE=-
-ARGS=-e cfg.newshell=false
 CMDS=<<EOF
 ?q `!!r2 -h~Usage?`
 ?+ ?vi $?

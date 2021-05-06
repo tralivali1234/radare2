@@ -26,6 +26,7 @@ static const char *help_msg_t[] = {
 	"to", " <path>", "Load types from C header file",
 	"toe", " [type.name]", "Open cfg.editor to edit types",
 	"tos", " <path>", "Load types from parsed Sdb database",
+	"touch", " <file>", "Create or update timestamp in file",
 	"tp", "  <type> [addr|varname]", "cast data at <address> to <type> and print it (XXX: type can contain spaces)",
 	"tpv", " <type> @ [value]", "Show offset formatted for given type",
 	"tpx", " <type> <hexpairs>", "Show value for type with specified byte sequence (XXX: type can contain spaces)",
@@ -37,12 +38,13 @@ static const char *help_msg_t[] = {
 };
 
 static const char *help_msg_tcc[] = {
-	"Usage: tfc", "[-name]", "# type function calling conventions",
+	"Usage: tcc", "[-name]", "# type function calling conventions (see also afc? and arcc)",
 	"tcc", "", "List all calling convcentions",
-	"tcc", " r0 pascal(r0,r1,r2)", "Show signature for the 'pascal' calling convention",
+	"tcc", " r0 pascal(r0,r1,r2)", "Define signature for pascall cc (see also arcc)",
 	"tcc", "-pascal", "Remove the pascal cc",
+	"tcc-*", "", "Unregister all the calling conventions",
 	"tcck", "", "List calling conventions in k=v",
-	"tccl", "", "List the cc signatures",
+	"tccl", "", "List cc signatures (return ccname (arg0, arg1, ..) err;)",
 	"tccj", "", "List them in JSON",
 	"tcc*", "", "List them as r2 commands",
 	NULL
@@ -69,6 +71,7 @@ static const char *help_msg_to[] = {
 	"to", " -", "Open cfg.editor to load types",
 	"to", " <path>", "Load types from C header file",
 	"tos", " <path>", "Load types from parsed Sdb database",
+	"touch", " <file>", "Create or update timestamp in file",
 	NULL
 };
 
@@ -190,79 +193,100 @@ static void show_help(RCore *core) {
 	r_core_cmd_help (core, help_msg_t);
 }
 
-static void __core_cmd_tcc(RCore *core, const char *input) {
+static bool cc_cb(void *p, const char *k, const char *v) {
+	if (!strcmp (v, "cc")) {
+		RList *list = (RList*)p;
+		r_list_append (list, (void*)k);
+	}
+	return true;
+}
+
+static void cmd_afcl(RCore *core, const char *input) {
+	int mode = 0;
+	PJ *pj = NULL;
+	if (input) {
+		mode = *input;
+		if (*input == 'j') {
+			pj = r_core_pj_new (core);
+			pj_o (pj);
+		}
+	}
+	RList *list = r_list_newf (NULL);
+	sdb_foreach (core->anal->sdb_cc, cc_cb, list);
+	char *cc;
+	RListIter *iter;
+	r_list_sort (list, (RListComparator)strcmp);
+	r_list_foreach (list, iter, cc) {
+		if (pj) {
+			pj_ko (pj, cc);
+			r_anal_cc_get_json (core->anal, pj, cc);
+			pj_end (pj);
+		} else if (mode == 'l') {
+			char *sig = r_anal_cc_get (core->anal, cc);
+			r_cons_println (sig);
+			free (sig);
+		} else if (mode == '*') {
+			char *ccexpr = r_anal_cc_get (core->anal, cc);
+			r_cons_printf ("tcc %s\n", ccexpr);
+			free (ccexpr);
+		} else {
+			r_cons_println (cc);
+		}
+	}
+	r_list_free (list);
+	if (pj) {
+		pj_end (pj);
+		char *j = pj_drain (pj);
+		r_cons_println (j);
+		free (j);
+	}
+}
+
+static void cmd_afck(RCore *core, const char *c) {
+	const char *s = "anal/cc/*";
+	char *out = sdb_querys (core->sdb, NULL, 0, s);
+	if (out) {
+		r_cons_print (out);
+	}
+	free (out);
+}
+
+static void cmd_tcc(RCore *core, const char *input) {
 	switch (*input) {
 	case '?':
 		r_core_cmd_help (core, help_msg_tcc);
 		break;
 	case '-':
-		r_anal_cc_del (core->anal, r_str_trim_head_ro (input + 1));
+		if (input[1] == '*') {
+			sdb_reset (core->anal->sdb_cc);
+		} else {
+			r_anal_cc_del (core->anal, r_str_trim_head_ro (input + 1));
+		}
 		break;
 	case 0:
-		r_core_cmd0 (core, "afcl");
-		break;
-	case 'j':
-		{
-			char *ccs = r_core_cmd_strf (core, "afcl");
-			r_str_trim (ccs);
-			RList *list = r_str_split_list (ccs, "\n", 0);
-			RListIter *iter;
-			const char *cc;
-			PJ *pj = pj_new ();
-			pj_a (pj);
-			r_list_foreach (list, iter, cc) {
-				char *ccexpr = r_anal_cc_get (core->anal, cc);
-				// TODO: expose this as an object, not just an array of strings
-				pj_s (pj, ccexpr);
-				free (ccexpr);
-			}
-			pj_end (pj);
-			r_cons_printf ("%s\n", pj_string (pj));
-			pj_free (pj);
-			r_list_free (list);
-			free (ccs);
-		}
+		cmd_afcl (core, "");
 		break;
 	case 'l':
-		{
-			char *ccs = r_core_cmd_strf (core, "afcl");
-			r_str_trim (ccs);
-			RList *list = r_str_split_list (ccs, "\n", 0);
-			RListIter *iter;
-			const char *cc;
-			r_list_foreach (list, iter, cc) {
-				char *ccexpr = r_anal_cc_get (core->anal, cc);
-				r_cons_printf ("%s\n", ccexpr);
-				free (ccexpr);
-			}
-			r_list_free (list);
-			free (ccs);
-		}
+		cmd_afcl (core, "l");
+		break;
+	case 'j':
+		cmd_afcl (core, "j");
+		break;
 		break;
 	case '*':
-		{
-			char *ccs = r_core_cmd_strf (core, "afcl");
-			r_str_trim (ccs);
-			RList *list = r_str_split_list (ccs, "\n", 0);
-			RListIter *iter;
-			const char *cc;
-			r_list_foreach (list, iter, cc) {
-				char *ccexpr = r_anal_cc_get (core->anal, cc);
-				r_cons_printf ("tfc %s\n", ccexpr);
-				free (ccexpr);
-			}
-			r_list_free (list);
-			free (ccs);
-		}
+		cmd_afcl (core, "*");
 		break;
 	case 'k':
-		r_core_cmd0 (core, "afck");
+		cmd_afck (core, NULL);
 		break;
 	case ' ':
 		if (strchr (input, '(')) {
-			r_anal_cc_set (core->anal, input + 1);
+			if (!r_anal_cc_set (core->anal, input + 1)) {
+				eprintf ("Invalid syntax in cc signature.");
+			}
 		} else {
-			char *cc = r_anal_cc_get (core->anal, input + 1);
+			const char *ccname = r_str_trim_head_ro (input + 1);
+			char *cc = r_anal_cc_get (core->anal, ccname);
 			if (cc) {
 				r_cons_printf ("%s\n", cc);
 				free (cc);
@@ -441,17 +465,8 @@ static int print_struct_union_list_json(Sdb *TDB, SdbForeachCallback filter) {
 			continue;
 		}
 		pj_o (pj); // {
-		char *sizecmd = r_str_newf ("%s.%s.!size", sdbkv_value (kv), k);
-		if (!sizecmd) {
-			break;
-		}
-		char *size_s = sdb_querys (TDB, NULL, -1, sizecmd);
 		pj_ks (pj, "type", k); // key value pair of string and string
-		pj_ki (pj, "size", size_s ? atoi (size_s) : 0); // key value pair of string and int
 		pj_end (pj); // }
-
-		free (sizecmd);
-		free (size_s);
 	}
 	pj_end (pj); // ]
 
@@ -490,22 +505,30 @@ static void print_struct_union_in_c_format(Sdb *TDB, SdbForeachCallback filter, 
 			if (var2) {
 				char *val = sdb_array_get (TDB, var2, 0, NULL);
 				if (val) {
+					char *arr = sdb_array_get (TDB, var2, 2, NULL);
+					int arrnum = atoi (arr);
+					free (arr);
 					if (multiline) {
 						r_cons_printf ("\t%s", val);
 						if (p && p[0] != '\0') {
 							r_cons_printf ("%s%s", strstr (val, " *")? "": " ", p);
+							if (arrnum) {
+								r_cons_printf ("[%d]", arrnum);
+							}
 						}
+						r_cons_println (";");
 					} else {
-						r_cons_printf ("%s%s %s;", space, val, p);
+						r_cons_printf ("%s%s %s", space, val, p);
+						if (arrnum) {
+							r_cons_printf ("[%d]", arrnum);
+						}
+						r_cons_print (";");
 						space = " ";
 					}
+					free (val);
 				}
-				if (multiline) {
-					r_cons_println (";");
-				}
-				free (val);
+				free (var2);
 			}
-			free (var2);
 			free (p);
 		}
 		free (var);
@@ -546,7 +569,7 @@ static void print_enum_in_c_format(Sdb *TDB, const char *arg, bool multiline) {
 						RTypeEnum *member;
 						separator = multiline? "\t": "";
 						r_list_foreach (list, iter, member) {
-							r_cons_printf ("%s%s = %d", separator, member->name, r_num_math (NULL, member->val));
+							r_cons_printf ("%s%s = %" PFMT64u, separator, member->name, r_num_math (NULL, member->val));
 							separator = multiline? ",\n\t": ", ";
 						}
 					}
@@ -608,7 +631,7 @@ static void printFunctionType(RCore *core, const char *input) {
 	int i, args = sdb_num_get (TDB, sdb_fmt ("func.%s.args", name), 0);
 	pj_ks (pj, "name", name);
 	const char *ret_type = sdb_const_get (TDB, sdb_fmt ("func.%s.ret", name), 0);
-	pj_ks (pj, "ret", ret_type? ret_type: "void");
+	pj_ks (pj, "ret", r_str_get_fail (ret_type, "void"));
 	pj_k (pj, "args");
 	pj_a (pj);
 	for (i = 0; i < args; i++) {
@@ -666,6 +689,7 @@ static bool print_link_cb(void *p, const char *k, const char *v) {
 	return true;
 }
 
+//TODO PJ
 static bool print_link_json_cb(void *p, const char *k, const char *v) {
 	r_cons_printf ("{\"0x%s\":\"%s\"}", k + strlen ("link."), v);
 	return true;
@@ -688,6 +712,7 @@ static bool print_link_readable_cb(void *p, const char *k, const char *v) {
 	return true;
 }
 
+//TODO PJ
 static bool print_link_readable_json_cb(void *p, const char *k, const char *v) {
 	RCore *core = (RCore *)p;
 	char *fmt = r_type_format (core->anal->sdb_types, v);
@@ -1045,7 +1070,8 @@ static int cmd_type(void *data, const char *input) {
 			print_keys (TDB, core, stdifunion, printkey_cb, false);
 			break;
 		}
-	} break;
+		break;
+	}
 	case 'k': // "tk"
 		res = (input[1] == ' ')
 			? sdb_querys (TDB, NULL, -1, input + 2)
@@ -1058,12 +1084,12 @@ static int cmd_type(void *data, const char *input) {
 	case 'c': // "tc"
 		switch (input[1]) {
 		case 'c': // "tcc" -- calling conventions
-			__core_cmd_tcc (core, input + 2);
+			cmd_tcc (core, input + 2);
 			break;
 		case '?': //"tc?"
 			r_core_cmd_help (core, help_msg_tc);
 			break;
-		case ' ': {
+		case ' ': { // "tcc "
 			const char *type = r_str_trim_head_ro (input + 1);
 			const char *name = type ? strchr (type, '.') : NULL;
 			if (name && type) {
@@ -1078,17 +1104,19 @@ static int cmd_type(void *data, const char *input) {
 					r_core_cmdf (core, "ttc %s", name);
 				} else if (r_str_startswith (type, "func")) {
 					r_core_cmdf (core, "tfc %s", name);
+				} else {
+					eprintf ("unk\n");
 				}
 			}
 			break;
 		}
-		case '*':
+		case '*': // "tc*"
 			r_core_cmd0 (core, "ts*");
 			break;
-		case 0:
+		case 0: // "tc"
 			r_core_cmd0 (core, "tfc;tuc;tsc;ttc;tec");
 			break;
-		case 'd':
+		case 'd': // "tcd"
 			r_core_cmd0 (core, "tud;tsd;ttc;ted");
 			break;
 		default:
@@ -1120,7 +1148,7 @@ static int cmd_type(void *data, const char *input) {
 			break;
 		case 's':
 			if (input[2] == ' ') {
-				r_cons_printf ("%d\n", (r_type_get_bitsize (TDB, input + 3) / 8));
+				r_cons_printf ("%" PFMT64u "\n", (r_type_get_bitsize (TDB, input + 3) / 8));
 			} else {
 				r_core_cmd_help (core, help_msg_ts);
 			}
@@ -1143,8 +1171,9 @@ static int cmd_type(void *data, const char *input) {
 				print_struct_union_list_json (TDB, stdifstruct);
 			}
 			break;
-		}
-	} break;
+		} // end of switch (input[1])
+		break;
+	}
 	case 'e': { // "te"
 		char *res = NULL, *temp = strchr (input, ' ');
 		Sdb *TDB = core->anal->sdb_types;
@@ -1262,15 +1291,17 @@ static int cmd_type(void *data, const char *input) {
 			}
 			free (name);
 			ls_free (l);
-		} break;
+			break;
 		}
+		} // end of switch (input[1])
 		free (name);
 		if (res) {
 			r_cons_println (res);
 		} else if (member_name) {
 			eprintf ("Invalid enum member\n");
 		}
-	} break;
+		break;
+	}
 	case ' ':
 		showFormat (core, input + 1, 0);
 		break;
@@ -1324,6 +1355,14 @@ static int cmd_type(void *data, const char *input) {
 					}
 				}
 				free (homefile);
+			} else if (input[1] == 'u') {
+				// "tou" "touch"
+				char *arg = strchr (input, ' ');
+				if (arg) {
+					r_file_touch (arg + 1);
+				} else {
+					eprintf ("Usage: touch [filename]");
+				}
 			} else if (input[1] == 's') {
 				const char *dbpath = input + 3;
 				if (r_file_exists (dbpath)) {
@@ -1480,7 +1519,8 @@ static int cmd_type(void *data, const char *input) {
 			eprintf (" tx             list functions and the types they use\n");
 			break;
 		}
-	} break;
+		break;
+	}
 	// ta: moved to anal hints (aht)- just for tail, at the moment
 	case 'a': // "ta"
 		switch (input[1]) {
@@ -1490,7 +1530,8 @@ static int cmd_type(void *data, const char *input) {
 			} else {
 				eprintf ("Usage: tail [number] [file]\n");
 			}
-		} break;
+			break;
+		}
 		default:
 			eprintf ("[WARNING] \"ta\" is deprecated. Use \"aht\" instead.\n");
 		}
@@ -1784,7 +1825,8 @@ static int cmd_type(void *data, const char *input) {
 			eprintf ("This is not an typedef\n");
 		}
 		free (s);
-	} break;
+		break;
+	}
 	case '?':
 		show_help (core);
 		break;

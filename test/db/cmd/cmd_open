@@ -70,20 +70,6 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=oi-
-FILE=malloc://1024
-CMDS=oi-
-EXPECT=<<EOF
-EOF
-RUN
-
-NAME=oi-2
-FILE=--
-CMDS=o bins/mach0/fatmach0-3true
-EXPECT=<<EOF
-EOF
-RUN
-
 NAME=o-[0]
 FILE=malloc://1024
 CMDS=o- `o~[0]`;o
@@ -95,6 +81,17 @@ NAME=oj-
 FILE=malloc://1024
 CMDS=o- `oj~{[0].fd}`;o
 EXPECT=<<EOF
+EOF
+RUN
+
+NAME=oj-pj
+FILE=<<EOF
+bins/elf/crackme0x05
+bins/elf/crackme0x00b
+EOF
+CMDS=oj
+EXPECT=<<EOF
+[{"raised":false,"fd":3,"uri":"bins/elf/crackme0x05","from":0,"writable":false,"size":7656},{"raised":false,"fd":4,"uri":"null://4","from":0,"writable":true,"size":4},{"raised":true,"fd":5,"uri":"bins/elf/crackme0x00b","from":0,"writable":false,"size":7375},{"raised":false,"fd":6,"uri":"null://8","from":0,"writable":true,"size":8}]
 EOF
 RUN
 
@@ -348,6 +345,31 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=o: obj
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+obj~{}
+EOF
+EXPECT=<<EOF
+[
+  {
+    "name": "malloc://512",
+    "iofd": 3,
+    "bfid": 0,
+    "size": 512,
+    "obj": {
+      "arch": "x86",
+      "bits": 64,
+      "binoffset": 0,
+      "objsize": 512
+    }
+  }
+]
+EOF
+RUN
+
 NAME=o+ writable maps fix
 FILE=--
 CMDS=<<EOF
@@ -411,7 +433,6 @@ humansz  21.5K
 mode     r-x
 format   elf
 iorw     false
-blksz    0x0
 block    0x100
 type     EXEC (Executable file)
 arch     x86
@@ -452,8 +473,26 @@ humansz  512
 mode     rwx
 format   any
 iorw     true
-blksz    0x0
 block    0x100
 
 EOF
+RUN
+
+NAME=oa 
+FILE=bins/elf/ls
+ARGS=-e io.cache=true
+CMDS=<<EOF
+oa x86 64
+o bins/elf/true
+oa x86 64
+oa x86 64 bins/elf/ls
+oa x86 64 nonfile
+oa x86 
+EOF
+EXPECT=<<EOF
+More than one file is opened, specify the filename
+Cannot find file nonfile
+Missing argument
+EOF
+BROKEN=1
 RUN

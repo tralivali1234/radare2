@@ -9,6 +9,7 @@ printf "\033[33m"
 echo "Sanitize build script can be configured with the SANITIZE environment variable."
 echo "Use one of the following words to specify which sanitizers to use:"
 echo "  - address     - detect memory errors"
+echo "  - thread      - detect thread racing issues"
 echo "  - leak        - find memory leaks"
 echo "  - memory      - detect uninitialized reads"
 echo "  - undefined   - find undefined behaviour"
@@ -24,9 +25,17 @@ echo "========================================================================="
 printf "\033[0m"
 sleep 1
 
+# memory leaks are detected by default, can only be disabled via env var
+HAVE_LEAKS=1
 for a in $SANITIZE ; do
 	export CFLAGS="${CFLAGS} -fsanitize=$a"
+	if [ "$a" = leak ]; then
+		HAVE_LEAKS=0
+	fi
 done
+if [ "${HAVE_LEAKS}" = 0 ]; then
+	export ASAN_OPTIONS=detect_leaks=0
+fi
 if [ "`uname`" != Darwin ]; then
 	for a in $SANITIZE ; do
 		export LDFLAGS="${LDFLAGS} -fsanitize=$a"

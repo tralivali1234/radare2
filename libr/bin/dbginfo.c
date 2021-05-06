@@ -20,6 +20,29 @@ R_API bool r_bin_addr2line(RBin *bin, ut64 addr, char *file, int len, int *line)
 	return false;
 }
 
+R_API bool r_bin_addr2line2(RBin *bin, ut64 addr, char *file, int len, int *line) {
+	r_return_val_if_fail (bin, false);
+	if (!bin->cur || !bin->cur->sdb_addrinfo) {
+		return false;
+	}
+	char *key = r_str_newf ("0x%"PFMT64x, addr);
+	char *file_line = sdb_get (bin->cur->sdb_addrinfo, key, 0);
+	if (file_line) {
+		char *token = strchr (file_line, '|');
+		if (token) {
+			*token++ = 0;
+			if (line) {
+				*line = atoi (token);
+			}
+			r_str_ncpy (file, file_line, len);
+			free (key);
+			free (file_line);
+			return true;
+		}
+	}
+	return false;
+}
+
 R_API char *r_bin_addr2text(RBin *bin, ut64 addr, int origin) {
 	r_return_val_if_fail (bin, NULL);
 	char file[4096];
@@ -56,9 +79,9 @@ R_API char *r_bin_addr2text(RBin *bin, ut64 addr, int origin) {
 		}
 		if (origin) {
 			char *res = r_str_newf ("%s:%d%s%s",
-					file_nopath? file_nopath: "",
+					r_str_get (file_nopath),
 					line, file_nopath? " ": "",
-					out? out: "");
+					r_str_get (out));
 			free (out);
 			out = res;
 		}
@@ -88,7 +111,7 @@ R_API char *r_bin_addr2text(RBin *bin, ut64 addr, int origin) {
 					file_nopath = file;
 				}
 			}
-			return r_str_newf ("%s:%d", file_nopath? file_nopath: "", line);
+			return r_str_newf ("%s:%d", r_str_get (file_nopath), line);
 		}
 		out2 = malloc ((strlen (file) + 64 + strlen (out)) * sizeof (char));
 		if (origin > 1) {

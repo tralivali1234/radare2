@@ -86,7 +86,7 @@ RList *r_bin_ne_get_segments(r_bin_ne_obj_t *bin) {
 		bs->is_data = se->flags & IS_DATA;
 		bs->perm = __translate_perms (se->flags);
 		bs->paddr = (ut64)se->offset * bin->alignment;
-		bs->name = r_str_newf ("%s.%d", se->flags & IS_MOVEABLE ? "MOVEABLE" : "FIXED", bs->paddr);
+		bs->name = r_str_newf ("%s.%" PFMT64d, se->flags & IS_MOVEABLE ? "MOVEABLE" : "FIXED", bs->paddr);
 		bs->is_segment = true;
 		r_list_append (segments, bs);
 	}
@@ -311,7 +311,7 @@ static bool __ne_get_resources(r_bin_ne_obj_t *bin) {
 }
 
 RList *r_bin_ne_get_imports(r_bin_ne_obj_t *bin) {
-	RList *imports = r_list_newf (free);
+	RList *imports = r_list_newf ((RListFree)r_bin_import_free);
 	if (!imports) {
 		return NULL;
 	}
