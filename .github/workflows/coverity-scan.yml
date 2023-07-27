@@ -1,17 +1,19 @@
 name: Coverity Scan
 on:
+  push:
+    branches:
+      - master
   schedule:
     - cron: '0 18 * * 1,4' # Bi-weekly at 18:00 UTC on Monday and Thursday
 
 jobs:
   latest:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
     steps:
       - name: Determine current repository
         id: "determine-repo"
-        run: "echo \"::set-output name=repo::${GITHUB_REPOSITORY}\""
-
-      - uses: actions/checkout@v2
+        run: echo "{repo}={${GITHUB_REPOSITORY}}" >> $GITHUB_OUTPUT
+      - uses: actions/checkout@v3
       - name: Download Coverity Build Tool
         run: |
           wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=$TOKEN&project=radare2" -O cov-analysis-linux64.tar.gz

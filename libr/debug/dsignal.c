@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2020 - pancake */
+/* radare - LGPL - Copyright 2014-2022 - pancake */
 
 #include <r_debug.h>
 
@@ -6,7 +6,7 @@
 
 // TODO: this must be done by the debugger plugin
 // which is stored already in SDB.. but this is faster :P
-static struct {
+static const struct {
 	const char *k;
 	const char *v;
 } signals[] = {
@@ -50,30 +50,34 @@ static struct {
 	{ NULL }
 };
 
+R_API void r_debug_signal_fini(RDebug *dbg) {
+	sdb_free (DB);
+}
+
 R_API void r_debug_signal_init(RDebug *dbg) {
 	int i;
 	// XXX
 	DB = sdb_new (NULL, "signals", 0);
-	for (i=0; signals[i].k; i++) {
+	for (i = 0; signals[i].k; i++) {
 		sdb_set (DB, signals[i].k, signals[i].v, 0);
 		sdb_set (DB, signals[i].v, signals[i].k, 0);
 	}
 }
 
-static bool siglistcb (void *p, const char *k, const char *v) {
-	static char key[32] = "cfg.";
+static bool siglistcb(void *p, const char *k, const char *v) {
 	RDebug *dbg = (RDebug *)p;
-	int opt, mode = dbg->_mode;
 	if (atoi (k) > 0) {
-		strncpy (key + 4, k, 20);
-		opt = sdb_num_get (DB, key, 0);
+		int mode = dbg->_mode;
+		char *key = r_str_newf ("cfg.%s", k);
+		int opt = sdb_num_get (DB, key, 0);
+		free (key);
 		if (opt) {
 			r_cons_printf ("%s %s", k, v);
 			if (opt & R_DBG_SIGNAL_CONT) {
-				r_cons_strcat (" cont");
+				r_cons_print (" cont");
 			}
 			if (opt & R_DBG_SIGNAL_SKIP) {
-				r_cons_strcat (" skip");
+				r_cons_print (" skip");
 			}
 			r_cons_newline ();
 		} else {
@@ -150,18 +154,18 @@ R_API int r_debug_signal_set(RDebug *dbg, int num, ut64 addr) {
 
 /* TODO rename to _kill_ -> _signal_ */
 R_API RList *r_debug_kill_list(RDebug *dbg) {
-	if (dbg->h->kill_list) {
-		return dbg->h->kill_list (dbg);
+	if (dbg->current->plugin.kill_list) {
+		return dbg->current->plugin.kill_list (dbg);
 	}
 	return NULL;
 }
 
 R_API int r_debug_kill_setup(RDebug *dbg, int sig, int action) {
-	eprintf ("TODO: set signal handlers of child\n");
+	R_LOG_TODO ("set signal handlers of child");
 	// TODO: must inject code to call signal()
 #if 0
-	if (dbg->h->kill_setup)
-		return dbg->h->kill_setup (dbg, sig, action);
+	if (dbg->current->plugin.kill_setup)
+		return dbg->current->plugin.kill_setup (dbg, sig, action);
 #endif
 	// TODO: implement r_debug_kill_setup
 	return false;

@@ -1,6 +1,5 @@
 #!/bin/sh
 
-
 set -x
 STOW=0
 fromscratch=1 # 1
@@ -23,11 +22,12 @@ fi
 export BUILD=1
 
 if [ ! -d sys/ios-include/mach/vm_behavior.h  ]; then
-(
-	cd sys && \
-	wget -c https://lolcathost.org/b/ios-include.tar.gz && \
-	tar xzvf ios-include.tar.gz
-)
+#(
+#	cd sys && \
+#	wget -c https://lolcathost.org/b/ios-include.tar.gz && \
+#	tar xzvf ios-include.tar.gz
+#)
+echo je
 fi
 
 . sys/ios-env.sh
@@ -90,6 +90,12 @@ if [ "$1" = makedeb ]; then
 	onlymakedeb=1
 fi
 
+if [ "$1" = "--shell" ]; then
+	echo "Entering the ios-cydia shell"
+	${SHELL}
+	exit 0
+fi
+
 if [ $onlymakedeb = 1 ]; then
 	makeDeb
 else
@@ -99,10 +105,10 @@ else
 		make clean
 		cp -f dist/plugins-cfg/plugins.ios.cfg plugins.cfg
 		if [ "$static" = 1 ]; then
-			./configure --prefix="${PREFIX}" --with-ostype=darwin --without-libuv \
+			./configure --prefix="${PREFIX}" --with-ostype=darwin \
 			--with-compiler=ios-sdk --target=arm-unknown-darwin --with-libr
 		else
-			./configure --prefix="${PREFIX}" --with-ostype=darwin --without-libuv \
+			./configure --prefix="${PREFIX}" --with-ostype=darwin \
 			--with-compiler=ios-sdk --target=arm-unknown-darwin
 		fi
 		RV=$?
@@ -114,7 +120,7 @@ else
 			ls -l libr/flag/libr_flag.a || exit 1
 			rm -f libr/*/*.dylib
 			(
-			cd binr ; make clean ; 
+			cd binr ; make clean ;
 			cd blob ; make USE_LTO=1
 			xcrun --sdk iphoneos strip radare2
 			)

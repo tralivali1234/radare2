@@ -1,32 +1,25 @@
-/* radare - LGPL - Copyright 2010-2021 - pancake */
-
-/* covardly copied from r_cmd */
+/* radare - LGPL - Copyright 2010-2022 - pancake */
 
 #include <config.h>
 #include <r_core.h>
-#include <r_cmd.h>
-#include <r_list.h>
-#include <stdio.h>
 
 static RCorePlugin *cmd_static_plugins[] = {
 	R_CORE_STATIC_PLUGINS
 };
 
-R_API bool r_core_plugin_fini(RCmd *cmd) {
-	RListIter *iter;
-	RCorePlugin *plugin;
-	if (!cmd->plist) {
-		return false;
-	}
-	r_list_foreach (cmd->plist, iter, plugin) {
-		if (plugin && plugin->fini) {
-			plugin->fini (cmd, NULL);
+R_API void r_core_plugin_fini(RCmd *cmd) {
+	r_return_if_fail (cmd);
+	if (cmd->plist) {
+		RListIter *iter;
+		RCorePlugin *plugin;
+		r_list_foreach (cmd->plist, iter, plugin) {
+			if (plugin && plugin->fini) {
+				plugin->fini (cmd, NULL);
+			}
 		}
+		r_list_free (cmd->plist);
+		cmd->plist = NULL;
 	}
-	/* empty the list */
-	r_list_free (cmd->plist);
-	cmd->plist = NULL;
-	return true;
 }
 
 R_API bool r_core_plugin_add(RCmd *cmd, RCorePlugin *plugin) {
@@ -38,12 +31,30 @@ R_API bool r_core_plugin_add(RCmd *cmd, RCorePlugin *plugin) {
 	return true;
 }
 
+R_API bool r_core_plugin_remove(RCmd *cmd, RCorePlugin *plugin) {
+	if (!cmd) {
+		return false;
+	}
+	const char *name = plugin->name;
+	RListIter *iter, *iter2;
+	RCorePlugin *p;
+	r_list_foreach_safe (cmd->plist, iter, iter2, p) {
+		if (p && !strcmp (name, p->name)) {
+			r_list_delete (cmd->plist, iter);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 R_API bool r_core_plugin_init(RCmd *cmd) {
+	r_return_val_if_fail (cmd, false);
 	size_t i;
 	cmd->plist = r_list_newf (NULL); // memleak or dblfree
 	for (i = 0; cmd_static_plugins[i]; i++) {
 		if (!r_core_plugin_add (cmd, cmd_static_plugins[i])) {
-			eprintf ("Error loading cmd plugin\n");
+			R_LOG_ERROR ("loading cmd plugin");
 			return false;
 		}
 	}
@@ -51,12 +62,11 @@ R_API bool r_core_plugin_init(RCmd *cmd) {
 }
 
 R_API bool r_core_plugin_check(RCmd *cmd, const char *a0) {
+	r_return_val_if_fail (cmd && a0, false);
 	RListIter *iter;
 	RCorePlugin *cp;
 	r_list_foreach (cmd->plist, iter, cp) {
-		if (cp->call (NULL, a0)) {
-			return true;
-		}
+		return cp->call (NULL, a0);
 	}
 	return false;
 }

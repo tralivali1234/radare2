@@ -46,8 +46,8 @@
 
 static struct rerr {
 	int code;
-	char *name;
-	char *explain;
+	const char *name;
+	const char *explain;
 } rerrs[] = {
 	{ R_REGEX_NOMATCH,	"R_REGEX_NOMATCH",	"regexec() failed to match" },
 	{ R_REGEX_BADPAT,	"R_REGEX_BADPAT",	"invalid regular expression" },
@@ -71,7 +71,7 @@ static struct rerr {
 /*
  - regatoi - internal routine to implement R_REGEX_ATOI
  */
-static char * regatoi(const RRegex *preg, char *localbuf, size_t localbufsize) {
+static char *regatoi(const RRegex *preg, char *localbuf, size_t localbufsize) {
 	struct rerr *r;
 
 	for (r = rerrs; r->code != 0; r++) {
@@ -84,7 +84,7 @@ static char * regatoi(const RRegex *preg, char *localbuf, size_t localbufsize) {
 	}
 
 	(void)snprintf (localbuf, localbufsize, "%d", r->code);
-	return(localbuf);
+	return localbuf;
 }
 
 /*
@@ -96,7 +96,7 @@ R_API char *r_regex_error(RRegex *rx, int errcode) {
 	char *errbuf = malloc (errbuf_size);
 	struct rerr *r;
 	int target = errcode &~ R_REGEX_ITOA;
-	char *s;
+	const char *s;
 	char convbuf[50];
 
 	if (errcode == R_REGEX_ATOI) {

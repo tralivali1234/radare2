@@ -2,7 +2,7 @@
 
 #include <r_core.h>
 
-R_API RCoreItem *r_core_item_at (RCore *core, ut64 addr) {
+R_API RCoreItem *r_core_item_at(RCore *core, ut64 addr) {
 	RCoreItem *ci = R_NEW0 (RCoreItem);
 	ci->addr = addr;
 	RIOMap *map = r_io_map_get_at (core->io, addr);
@@ -45,12 +45,14 @@ R_API RCoreItem *r_core_item_at (RCore *core, ut64 addr) {
 		ci->fcnname = strdup (fcn->name);
 	}
 	RBinObject *o = r_bin_cur_object (core->bin);
-	RBinSection *sec = r_bin_get_section_at (o, addr, core->io->va);
-	if (sec) {
-		ci->sectname = strdup (sec->name);
+	if (o) {
+		RBinSection *sec = r_bin_get_section_at (o, addr, core->io->va);
+		if (sec) {
+			ci->sectname = strdup (sec->name);
+		}
 	}
 	if (!ci->data) {
-		RAnalOp* op = r_core_anal_op (core, addr, R_ANAL_OP_MASK_ESIL | R_ANAL_OP_MASK_HINT);
+		RAnalOp* op = r_core_anal_op (core, addr, R_ARCH_OP_MASK_ESIL | R_ARCH_OP_MASK_HINT);
 		if (op) {
 			if (!ci->data) {
 				if (op->mnemonic) {
@@ -83,7 +85,7 @@ R_API RCoreItem *r_core_item_at (RCore *core, ut64 addr) {
 	return ci;
 }
 
-R_API void r_core_item_free (RCoreItem *ci) {
+R_API void r_core_item_free(RCoreItem *ci) {
 	free (ci->data);
 	free (ci);
 }

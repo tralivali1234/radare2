@@ -1,20 +1,26 @@
 #ifndef R2_TYPES_BASE_H
 #define R2_TYPES_BASE_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <ctype.h>
 #include <sys/types.h>
 #include <limits.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include <math.h>
 
-#define cut8 const unsigned char
-#define ut64 unsigned long long
-#define st64 long long
-#define ut32 unsigned int
-#define st32 int
-#define ut16 unsigned short
-#define st16 short
-#define ut8 unsigned char
-#define st8 signed char
-#define boolt int
+#define cut8 const uint8_t
+#define ut64 uint64_t
+#define st64 int64_t
+#define ut32 uint32_t
+#define st32 int32_t
+#define ut16 uint16_t
+#define st16 int16_t
+#define ut8 uint8_t
+#define st8 int8_t
 
 #if defined(_MSC_VER)
 # define R_ALIGNED(x) __declspec(align(x))
@@ -22,6 +28,19 @@
 # define R_ALIGNED(x) __attribute__((aligned(x)))
 #endif
 
+#if defined(__GNUC__)
+#define R_LIKELY(x) __builtin_expect((size_t)(x),1)
+#define R_UNLIKELY(x) __builtin_expect((size_t)(x),0)
+#define R_MUSTUSE __attribute__((warn_unused_result))
+#else
+#define R_LIKELY(x) (size_t)(x)
+#define R_UNLIKELY(x) (size_t)(x)
+#define R_MUSTUSE
+#endif
+
+#define R_IGNORE_RETURN(x) if ((x)) {;}
+
+// unaligned word access
 typedef R_ALIGNED(1) ut16 uut16;
 typedef R_ALIGNED(1) ut32 uut32;
 typedef R_ALIGNED(1) ut64 uut64;
@@ -61,9 +80,6 @@ typedef struct _utX {
 
 #include <stdbool.h>
 
-#define R_EMPTY { 0 }
-#define R_EMPTY2 {{ 0 }}
-
 /* limits */
 #undef UT64_MAX
 #undef UT64_GT0
@@ -75,9 +91,9 @@ typedef struct _utX {
 #undef UT8_MIN
 #define ST64_MAX ((st64)0x7FFFFFFFFFFFFFFFULL)
 #define ST64_MIN ((st64)(-ST64_MAX-1))
-#define UT64_MAX 0xFFFFFFFFFFFFFFFFULL
-#define UT64_GT0 0x8000000000000000ULL
-#define UT64_LT0 0x7FFFFFFFFFFFFFFFULL
+#define UT64_MAX ((ut64)0xFFFFFFFFFFFFFFFFULL)
+#define UT64_GT0 ((ut64)0x8000000000000000ULL)
+#define UT64_LT0 ((ut64)0x7FFFFFFFFFFFFFFFULL)
 #define UT64_MIN 0ULL
 #define UT64_32U 0xFFFFFFFF00000000ULL
 #define UT64_16U 0xFFFFFFFFFFFF0000ULL
@@ -101,6 +117,11 @@ typedef struct _utX {
 #define UT8_MIN  0x00U
 #define ASCII_MIN 32
 #define ASCII_MAX 127
+
+#define UT24_MAX 0xFFFFFF
+#define UT40_MAX 0xFFFFFFFFFF
+#define UT48_MAX 0xFFFFFFFFFFFF
+#define UT56_MAX 0xFFFFFFFFFFFFFF
 
 #if SSIZE_MAX == ST32_MAX
 #define SZT_MAX  UT32_MAX
@@ -181,13 +202,23 @@ typedef struct _utX {
 #define B4(a,b,c,d) ((a<<12)|(b<<8)|(c<<4)|(d))
 
 /* portable non-c99 inf/nan types */
-#if !defined(INFINITY)
+#ifndef INFINITY
 #define INFINITY (1.0f/0.0f)
 #endif
 
-#if !defined(NAN)
+#ifndef NAN
 #define NAN (0.0f/0.0f)
 #endif
+
+#define F32_NAN   (strtof("NAN", NULL))
+#define F32_PINF  (strtof("INF", NULL))
+#define F32_NINF  (-strtof("INF", NULL))
+#define F64_NAN   (strtod("NAN", NULL))
+#define F64_PINF  (strtod("INF", NULL))
+#define F64_NINF  (-strtod("INF", NULL))
+#define F128_NAN  (strtold("NAN", NULL))
+#define F128_PINF (strtold("INF", NULL))
+#define F128_NINF (-strtold("INF", NULL))
 
 /* A workaround against libc headers redefinition of __attribute__:
  * Standard include has lines like
@@ -202,10 +233,22 @@ typedef struct _utX {
 
 #ifdef _MSC_VER
 #define R_PACKED( __Declaration__ ) __pragma( pack(push, 1) ) __Declaration__ __pragma( pack(pop) )
-#undef INFINITY
-#undef NAN
 #elif defined(__GNUC__) || defined(__TINYC__)
 #define R_PACKED( __Declaration__ ) __Declaration__ __attribute__((__packed__))
+#endif
+
+#define R_UNWRAP2(a,b) ((a)? a->b: NULL)
+#define R_UNWRAP3(a,b,c) ((a)? a->b? a->b->c: NULL: NULL)
+#define R_UNWRAP4(a,b,c,d) ((a)? a->b? a->b->c? a->b->c->d: NULL: NULL: NULL)
+#define R_UNWRAP5(a,b,c,d,e) ((a)? a->b? a->b->c? a->b->c->d? a->b->c->d->e: NULL: NULL: NULL: NULL)
+#define R_UNWRAP6(a,b,c,d,e,f) ((a)? a->b? a->b->c? a->b->c->d? a->b->c->d->e? a->b->c->d->e: NULL: NULL: NULL: NULL: NULL)
+
+#ifdef __GNUC__
+#define R_UNUSED __attribute__((__unused__))
+#define R_WEAK __attribute__ ((weak))
+#else
+#define R_UNUSED /* unused */
+#define R_WEAK /* weak */
 #endif
 
 #if APPLE_SDK_IPHONESIMULATOR
@@ -220,5 +263,34 @@ typedef struct _utX {
 		x *m = malloc(sizeof (x));\
 		return m? *m = n, m: m; \
 	}
+
+#define R_DIRTY(x) (x)->is_dirty = true
+#define R_IS_DIRTY(x) (x)->is_dirty
+#define R_DIRTY_VAR bool is_dirty
+
+#define R_TAG(x) (void*)((size_t)(x)|1)
+#define R_UNTAG(x) (void*)((((size_t)(x))&(size_t)-2))
+#define R_TAG_FREE(x) do { if (!((size_t)(x)&1)) { R_FREE(x); }} while(0)
+#define R_TAG_NOP(x) untagged_pointer_check(x)
+#define R_IS_TAGGED(x) ((size_t)(x)&1)
+#define R_TAGGED
+#if R_CHECKS_LEVEL == 0
+static inline void *untagged_pointer_check(void *x) {
+	return x;
+}
+#else
+static inline void *untagged_pointer_check(void *x) {
+	if (R_IS_TAGGED(x)) {
+		int *p = (int*)0; *p = 0;
+	}
+	return x;
+}
+#endif
+
+#define ALLOC_SIZE_LIMIT 0xffffff
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // R2_TYPES_BASE_H

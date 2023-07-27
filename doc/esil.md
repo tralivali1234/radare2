@@ -1,12 +1,13 @@
-ESIL
-====
+# ESIL
 
-ESIL stands for 'Evaluable Strings Intermediate Language'. It aims to describe a
-Forth-like representation for every opcode. Those representations can be
-evaluated in order to emulate code. Each element of an esil expression is
-separated by a comma. The VM can be described as this:
+ESIL stands for 'Evaluable Strings Intermediate Language'. It is used to
+describe in a Forth-like syntax the behaviour of every opcode.
 
-    while ((word=haveCommand())) {
+These strings can be evaluated in order to emulate code.
+
+Each element of an esil expression is separated by a comma. The VM can be described as this:
+
+    while ((word = haveCommand())) {
       if (word.isKeyword()) {
         esilCommands[word](esil);
       } else {
@@ -20,19 +21,85 @@ calculations and pushes the result in the stack (if any). They aim to cover all
 common operations done by CPUs, permitting to do binary operations, memory
 peeks and pokes, spawning a syscall, etc.
 
-#### Use ESIL
+## Use ESIL
 
-    [0x00000000]> e asm.esil = true
+To display the esil expression associated with each instruction you must set this
+config variable:
 
-Syntax
-======
+```
+[0x00000000]> e asm.esil = true
+```
+
+Note that this information is provided by RArch, as part of the instruction details.
+
+The `ae` command have subcommands act as a debugger, for stepping, changing registers, etc.
+
+You can evaluate a string using this command:
+
+```
+[0x000048a0]> ""ae 1024,rax,:=
+```
+
+The double quote tells the command parser to ignore the rest of the line, it's handy
+to avoid undesired effects when not escaping the `|` or `>` operators.
+
+### Debugging ESIL
+
+In visual mode, `V`, one can iterate through the instructions via the `s` (step) key
+and see how registers are changing interactively as `;-- pc` (program counter) advances,
+just like in r2's debug facilities:
+
+```
+[0x00100004 [xaDvc]0 2% 395 bin/ired_v850]> diq;?t0;f .. @ entry0+4 # 0x100004
+dead at 0x00000000
+- offset -   0 1  2 3  4 5  6 7  8 9  A B  C D  E F  0123456789ABCDEF
+0x00200000  ffff ffff ffff ffff ffff ffff ffff ffff  ................
+0x00200010  ffff ffff ffff ffff ffff ffff ffff ffff  ................
+0x00200020  ffff ffff ffff ffff ffff ffff ffff ffff  ................
+0x00200030  ffff ffff ffff ffff ffff ffff ffff ffff  ................
+   zero 0x00000000       r0 0x00000000       r1 0x00000000       r2 0x00000000
+     r3 0x00200000       sp 0x00200000       r4 0x00116eb8       gp 0x00116eb8
+     r5 0x00000000       tp 0x00000000       r6 0x0010ef0a       r7 0x0010ef34
+     r8 0x00000000       r9 0x00000000      r10 0x00000000      r11 0x00000000
+    r12 0x00000000      r13 0x00000000      r14 0x00000000      r15 0x00000000
+    r16 0x00000000      r17 0x00000000      r18 0x00000000      r19 0x00000000
+    r20 0x000000ff      r21 0x0000ffff      r22 0x00000000      r23 0x00000000
+    r24 0x00000000      r25 0x00000000      r26 0x00000000      r27 0x00000000
+    r28 0x00000000      r29 0x00000000      r30 0x0010eeb8       ep 0x0010eeb8
+    r31 0x00000000       lp 0x00000000       pc 0x00100032      psw 0x00000000
+s:0 z:0 c:0 o:0 p:0
+            0x00100004      00a8           mov r0,  r21                ; r0,r21,=
+            0x00100006      80aeffff       ori 65535,  r0,  r21        ; 65535,r0,|,r21,=
+            0x0010000a      401e2000       movhi 32,  r0,  sp          ; 16,32,<<,r0,+,sp,=
+            0x0010000e      231e0000       movea 0,  sp,  sp           ; 0,sp,+,sp,=
+            0x00100012      40f61100       movhi 17,  r0,  ep          ; 16,17,<<,r0,+,ep,=
+            0x00100016      3ef6b8ee       movea -4424,  ep,  ep       ; -4424,ep,+,ep,=
+            0x0010001a      40261100       movhi 17,  r0,  gp          ; 16,17,<<,r0,+,gp,=
+            0x0010001e      2426b86e       movea 28344,  gp,  gp       ; 28344,gp,+,gp,=
+            0x00100022      40361100       movhi 17,  r0,  r6          ; 16,17,<<,r0,+,r6,=
+            0x00100026      2636c0ee       movea -4416,  r6,  r6       ; -4416,r6,+,r6,=
+            0x0010002a      403e1100       movhi 17,  r0,  r7          ; 16,17,<<,r0,+,r7,=
+            0x0010002e      273e34ef       movea -4300,  r7,  r7       ; -4300,r7,+,r7,=
+            ;-- pc:
+        ┌─> 0x00100032      46070000       st.b r0,  0[r6]             ; r0,0,r6,+,=[4]
+        ╎   0x00100036      06360100       addi 1,  r6,  r6            ; 1,r6,+,r6,=
+        ╎   0x0010003a      e731           cmp r7,  r6                 ; r7,r6,==,$z,z,:=,$s,s,:=,$c,c,:=
+        └─< 0x0010003c      b1fd           bl 0x100032                 ; 0x100032,PC,=
+            0x0010003e      80ff666f       jarl sym.___main,  lp       ;[1] ; PC,lp,=,0x106fa4,PC,=
+            0x00100042      031ef0ff       addi -16,  sp,  sp          ; -16,sp,+,sp,=
+```
+
+There's also an ESIL expression debugger which can be accessed via the `aev` command
+
+## Syntax
+
 An opcode is translated into a comma separated list of ESIL expressions.
 
     xor eax, eax    ->    0,eax,=,1,zf,=
 
 Memory access is defined by brackets.
 
-    mov eax, [0x80480]   ->   0x80480,[],eax,=
+    mov eax, [0x80480]   ->   0x80480,[4],eax,=
 
 Default size is the destination of the operation. In this case 8bits, aka 1 byte.
 
@@ -43,7 +110,7 @@ Conditionals are expressed with the '?' char at the beginning of the expression.
     cmp eax, 123  ->   123,eax,==,$z,zf,=
     jz eax        ->   zf,?{,eax,eip,=,}
 
-So.. if you want to run more than one expression under a conditional, you'll have to write it 
+So.. if you want to run more than one expression under a conditional, you'll have to write it
 
     zf,?{,eip,esp,=[],eax,eip,=,$r,esp,-=,}
 
@@ -54,8 +121,8 @@ The whitespace, newlines and other chars are ignored in esil, so the first thing
 
 Syscalls are specially handled by '$' at the beginning of the expression. After that char you have an optional numeric value that specifies the number of syscall. The emulator must handle those expressions and 'simulate' the syscalls. (`r_esil_syscall`)
 
-Order of arguments
-==================
+## Order of arguments
+
 As discussed on irc, current implementation works like this:
 
     a,b,-      b - a
@@ -63,8 +130,7 @@ As discussed on irc, current implementation works like this:
 
 This approach is more readable, but it's less stack-friendly
 
-Special instructions
-====================
+# Special instructions
 
 NOPs are represented as empty strings. Unknown or invalid instructions
 
@@ -76,8 +142,7 @@ Traps are implemented with the `<trap>,<code>,$$` command. They are used to
 throw exceptions like invalid instructions, division by zero, memory read
 error, etc.
 
-Quick analysis
-==============
+# Quick analysis
 
 Here's a list of some quick checks to retrieve information from an esil string.
 Relevant information will be probably found in the first expression of the
@@ -98,23 +163,21 @@ list.
     indexOf("LOOP")    ->    is a loop (rep?)
     equalsTo("")       ->    empty string, means: nop (wrong, if we append pc+=x)
 
-Common operations:
+## Common operations:
 
  * Check dstreg
  * Check srcreg
- * Get destinaion
+ * Get destination
  * Is jump
  * Is conditional
  * Evulate
  * Is syscall
 
-CPU Flags
-=========
+# CPU Flags
 
 CPU flags are usually defined as 1 bit registers in the RReg profile. and sometimes under the 'flg' register type.
 
-ESIL Flags
-==========
+# ESIL Flags
 
 ESIL VM have an internal state flags that can are read only and can be used to
 export those values to the underlying CPU flags. This is because the ESIL vm
@@ -131,8 +194,7 @@ p - parity
 r - regsize ( asm.bits/8 )
 ```
 
-Variables
-=========
+# Variables
 
 1. No predefined bitness (should be easy to extend them to 128,256 and 512bits, e.g. for MMX, SSE, AVX, Neon)
 2. Infinite number (for SSA-form compatibility)
@@ -140,12 +202,12 @@ Variables
 4. Numbers can be specified in any base supported by RNum (dec, hex, oct, binary ...)
 5. Each ESIL backend should have an associated RReg profile to describe the esil register specs
 
-Bitarrays
-=========
+# Bitarrays
+
 What to do with them? What about bit arithmetic if use variables instead of registers?
 
-Arithmetic
-===========
+# Arithmetic
+
 1. ADD ("+")
 2. MUL ("*")
 3. SUB ("-")
@@ -153,8 +215,8 @@ Arithmetic
 5. MOD ("%")
 
 
-Bit arithmetic
-===============
+# Bit arithmetic
+
 1. AND  "&"
 2. OR   "|"
 3. XOR  "^"
@@ -164,13 +226,11 @@ Bit arithmetic
 7. ROR  ">>>"
 8. NEG  "!"
 
-Floating point
-==============
+# Floating point
 
 _TODO_
 
-The x86 REP prefix in ESIL
-==========================
+## The x86 REP prefix in ESIL
 
 ESIL specifies that the parsing control-flow commands are in uppercase. Bear in
 mind that some archs have uppercase register names. The register profile should
@@ -185,14 +245,16 @@ take care to not reuse any of the following:
 
 Usage example:
 
-rep cmpsb
----------
+### rep cmpsb
 
-	ecx,!,?{,BREAK,},edi,[1],esi,[1],==,$z,zf,:=,8,$b,cf,:=,$p,pf,:=,7,$s,sf,:=,edi,[1],0x80,-,!,7,$o,^,of,:=,3,$b,af,:=,df,?{,1,edi,-=,1,esi,-=,}{,1,edi,+=,1,esi,+=,},ecx,--=,zf,!,?{,BREAK,},0,GOTO
+```
+ecx,!,?{,BREAK,},edi,[1],esi,[1],==,$z,zf,:=,8,$b,cf,:=,$p,pf,:=,7,$s,sf,:=,edi,[1],0x80,-,!,7,$o,^,of,:=,3,$b,af,:=,df,?{,1,edi,-=,1,esi,-=,}{,1,edi,+=,1,esi,+=,},ecx,--=,zf,!,?{,BREAK,},0,GOTO
+```
+
+## Executing r2 commands
 
 
-Unimplemented/unhandled instructions
-====================================
+## Unimplemented/unhandled instructions
 
 Those are expressed with the 'TODO' command. which acts as a 'BREAK', but
 displaying a warning message describing which instruction is not implemented
@@ -202,8 +264,7 @@ For example:
 
 	fmulp ST(1), ST(0)      =>      TODO,fmulp ST(1),ST(0)
 
-Disassembly example:
-====================
+## Disassembly example:
 
 ```
 [0x1000010f8]> e asm.esil=true
@@ -233,11 +294,10 @@ Disassembly example:
     │ │││   0x100001147    48394a38     rdx,56,+,[8],rcx,==,cz,?=
 ```
 
-Radare anal ESIL code example
-==============================
+# Radare anal ESIL code example
 
 As an example implementation of ESIL analysis for the AVR family of
-microcontrollers there is a `avr_op` function in `/libr/anal/p/anal_avr.c`
+microcontrollers there is a `avr_op` function in `/libr/arch/p/avr/plugin.c`
 which contains information on how the instructions are expressed in ESIL and
 other opcode information such as cycle counts per instruction:
 
@@ -268,8 +328,7 @@ Looking at other architectures which already have mature ESIL support such as
 x86 can help in understanding the syntax and conventions of radare's ESIL.
 
 
-Introspection
-=============
+# Introspection
 
 To ease esil parsing we should have a way to express introspection expressions
 to extract the data we want. For example. We want to get the target address of
@@ -292,8 +351,7 @@ expressions to get:
 - all regs modified (write)
 - all regs accessed (read)
 
-API HOOKS
-=========
+# API HOOKS
 
 It is important for emulation to be able to setup hooks in the parser, so we
 can extend the parser to implement the analysis without having to write the

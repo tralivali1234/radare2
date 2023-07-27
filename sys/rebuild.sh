@@ -18,13 +18,13 @@ Rebuild() {
 	cd "$1" || exit 1
 	$MAKE clean
 	$MAKE -j8 || exit 1
-	cd -
+	cd - > /dev/null
 }
 
 Build() {
 	cd "$1" || exit 1
 	$MAKE -j8 || exit 1
-	cd -
+	cd - > /dev/null
 }
 
 RebuildIOSDebug() {
@@ -46,11 +46,19 @@ RebuildSpp() {
 	Rebuild libr/lang
 }
 
+RebuildQJS() {
+	rm -f shlr/qjs/js_repl.c
+	make -C shlr/qjs
+	Rebuild libr/lang
+	touch libr/core/cmd.c
+	make -C libr/core
+}
+
 RebuildJava() {
 	Rebuild shlr/java
-	Rebuild libr/asm
-	Rebuild libr/anal
 	Rebuild libr/bin
+	Rebuild libr/asm
+	Rebuild libr/arch
 	Rebuild libr/core
 }
 
@@ -97,7 +105,7 @@ RebuildZip() {
 
 RebuildTcc() {
 	Rebuild shlr/tcc
-	Rebuild libr/parse
+	Rebuild libr/asm
 }
 
 case "$1" in
@@ -111,6 +119,7 @@ tcc)    RebuildTcc ; ;;
 bin)    RebuildBin ; ;;
 zip)    RebuildZip ; ;;
 java)   RebuildJava ; ;;
+qjs)    RebuildQJS ; ;;
 iosdbg) RebuildIOSDebug ; ;;
 capstone|cs) RebuildCapstone ; ;;
 *)

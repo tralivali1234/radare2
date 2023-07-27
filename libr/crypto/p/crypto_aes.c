@@ -1,35 +1,31 @@
-/* radare - LGPL - Copyright 2015-2017 - pancake */
+/* radare - LGPL - Copyright 2015-2022 - pancake */
 
 #include <r_lib.h>
 #include <r_crypto.h>
 #include "crypto_aes_algo.h"
 
-// TODO: avoid globals
-static struct aes_state st = {{0}};
+#define BLOCK_SIZE 16
 
-static bool aes_set_key (RCrypto *cry, const ut8 *key, int keylen, int mode, int direction) {
+static bool aes_set_key(RCryptoJob *cj, const ut8 *key, int keylen, int mode, int direction) {
 	if (!(keylen == 128 / 8 || keylen == 192 / 8 || keylen == 256 / 8)) {
 		return false;
 	}
-	st.key_size = keylen;
-	st.rounds = 6 + (int)(keylen / 4);
-	st.columns = (int)(keylen / 4);
-	memcpy (st.key, key, keylen);
-	cry->dir = direction;
+	cj->key_len = keylen;
+	memcpy (cj->key, key, keylen);
+	cj->dir = direction;
 	return true;
 }
 
-static int aes_get_key_size (RCrypto *cry) {
-	return st.key_size;
+static int aes_get_key_size(RCryptoJob *cj) {
+	return cj->key_len;
 }
 
-static bool aes_use (const char *algo) {
+static bool aes_check(const char *algo) {
 	return !strcmp (algo, "aes-ecb");
 }
 
-#define BLOCK_SIZE 16
-
-static bool update (RCrypto *cry, const ut8 *buf, int len) {
+static bool update(RCryptoJob *cj, const ut8 *buf, int len) {
+	struct aes_state st;
 	// Pad to the block size, do not append dummy block
 	const int diff = (BLOCK_SIZE - (len % BLOCK_SIZE)) % BLOCK_SIZE;
 	const int size = len + diff;
@@ -53,37 +49,43 @@ static bool update (RCrypto *cry, const ut8 *buf, int len) {
 		ibuf[len] = 8; //0b1000;
 	}
 
-	if (cry->dir == 0) {
+	st.key_size = cj->key_len;
+	st.rounds = 6 + (st.key_size / 4);
+	st.columns = (st.key_size / 4);
+	memcpy (st.key, cj->key, st.key_size);
+
+	if (cj->dir == 0) {
 		for (i = 0; i < blocks; i++) {
 			const int delta = BLOCK_SIZE * i;
 			aes_encrypt (&st, ibuf + delta, obuf + delta);
 		}
-	} else if (cry->dir > 0) {
+	} else if (cj->dir > 0) {
 		for (i = 0; i < blocks; i++) {
 			const int delta = BLOCK_SIZE * i;
 			aes_decrypt (&st, ibuf + delta, obuf + delta);
 		}
 	}
 
-	// printf("%128s\n", obuf);
-
-	r_crypto_append (cry, obuf, size);
+	r_crypto_job_append (cj, obuf, size);
 	free (obuf);
 	free (ibuf);
 	return true;
 }
 
-static bool final (RCrypto *cry, const ut8 *buf, int len) {
-	return update (cry, buf, len);
+static bool end(RCryptoJob *cj, const ut8 *buf, int len) {
+	return update (cj, buf, len);
 }
 
 RCryptoPlugin r_crypto_plugin_aes = {
+	.type = R_CRYPTO_TYPE_ENCRYPT,
 	.name = "aes-ecb",
+	.author = "pancake",
+	.license = "MIT",
 	.set_key = aes_set_key,
 	.get_key_size = aes_get_key_size,
-	.use = aes_use,
+	.check = aes_check,
 	.update = update,
-	.final = final
+	.end = end
 };
 
 #ifndef R2_PLUGIN_INCORE

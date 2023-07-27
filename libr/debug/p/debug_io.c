@@ -1,15 +1,14 @@
-/* radare - LGPL - Copyright 2016-2018 pancake */
+/* radare - LGPL - Copyright 2016-2022 pancake */
 
-#include <r_io.h>
-#include <r_asm.h>
 #include <r_debug.h>
+#include <r_asm.h>
 
-static int __io_step(RDebug *dbg) {
+static bool __io_step(RDebug *dbg) {
 	free (dbg->iob.system (dbg->iob.io, "ds"));
 	return true;
 }
 
-static int __io_step_over(RDebug *dbg) {
+static bool __io_step_over(RDebug *dbg) {
 	free (dbg->iob.system (dbg->iob.io, "dso"));
 	return true;
 }
@@ -64,12 +63,12 @@ static RList *__io_maps(RDebug *dbg) {
 	return list;
 }
 
-static int __io_wait(RDebug *dbg, int pid) {
+static RDebugReasonType __io_wait(RDebug *dbg, int pid) {
 	/* do nothing */
-	return true;
+	return R_DEBUG_REASON_NONE;
 }
 
-static int __io_attach(RDebug *dbg, int pid) {
+static bool __io_attach(RDebug *dbg, int pid) {
 	return true;
 }
 
@@ -90,13 +89,13 @@ static char *__io_reg_profile(RDebug *dbg) {
 }
 
 // "dr8" read register state
-static int __reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
+static bool __reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	char *dr8 = dbg->iob.system (dbg->iob.io, "dr8");
 	if (!dr8) {
 		const char *fb = r_cons_get_buffer ();
-		if (!fb || !*fb) {
-			eprintf ("debug.io: Failed to get dr8 from io\n");
-			return -1;
+		if (R_STR_ISEMPTY (fb)) {
+			R_LOG_ERROR ("Failed to get dr8 from io");
+			return false;
 		}
 		dr8 = strdup (fb);
 		r_cons_reset ();
@@ -104,25 +103,20 @@ static int __reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	ut8 *bregs = calloc (1, strlen (dr8));
 	if (!bregs) {
 		free (dr8);
-		return -1;
+		return false;
 	}
 	r_str_trim ((char *)bregs);
 	int sz = r_hex_str2bin (dr8, bregs);
 	if (sz > 0) {
 		memcpy (buf, bregs, R_MIN (size, sz));
-		free (bregs);
-		free (dr8);
-		return size;
-	} else {
-		// eprintf ("SIZE %d (%s)\n", sz, regs);
 	}
 	free (bregs);
 	free (dr8);
-	return -1;
+	return (sz > 0);
 }
 
 // "dc" continue execution
-static int __io_continue(RDebug *dbg, int pid, int tid, int sig) {
+static bool __io_continue(RDebug *dbg, int pid, int tid, int sig) {
 	dbg->iob.system (dbg->iob.io, "dc");
 	r_cons_flush ();
 	return true;
@@ -130,15 +124,19 @@ static int __io_continue(RDebug *dbg, int pid, int tid, int sig) {
 
 // "dk" send kill signal
 static bool __io_kill(RDebug *dbg, int pid, int tid, int sig) {
-	const char *cmd = sdb_fmt ("dk %d", sig);
+	r_strf_var (cmd, 32, "dk %d", sig);
 	dbg->iob.system (dbg->iob.io, cmd);
 	r_cons_flush ();
 	return true;
 }
 
 RDebugPlugin r_debug_plugin_io = {
-	.name = "io",
-	.license = "MIT",
+	.meta = {
+		.name = "io",
+		.author = "pancake",
+		.license = "MIT",
+		.desc = "io debug plugin",
+	},
 	.arch = "any", // TODO: exception!
 	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
 	.step = __io_step,
@@ -152,7 +150,7 @@ RDebugPlugin r_debug_plugin_io = {
 	.step_over = __io_step_over,
 	.canstep = 1,
 #if 0
-	.init = __esil_init,
+	.init_debugger = __esil_init,
 	.contsc = __esil_continue_syscall,
 	.detach = &__esil_detach,
 	.stop = __esil_stop,

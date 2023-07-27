@@ -1,32 +1,36 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2023 - pancake */
 
-#include "r_config.h"
-#include "r_core.h"
-#include "r_util.h"
+#include <r_core.h>
 
-static const char *help_msg_P[] = {
-	"Usage:", "P[?osi] [file]", "Project management",
-	"P", "", "list all projects",
-	"Pc", " [file]", "show project script to console",
-	"Pd", " [file]", "delete project",
+static RCoreHelpMessage help_msg_P = {
+	"Usage:", "P[?.+-*cdilnsS] [file]", "Project management",
+	"P", " [file]", "open project (formerly Po)",
+	"P.", "", "show current loaded project (see prj.name)",
+	"P+", " [name]", "save project (same as Ps, but doesnt checks for changes)",
+	"P-", " [name]", "delete project",
+	"P*", "", "printn project script as r2 commands",
+	"P!", "([cmd])", "open a shell or run command in the project directory",
+	"Pc", "", "close current project",
+	"Pd", " [N]", "diff Nth commit",
 	"Pi", " [file]", "show project information",
-	"Pn", "[j]", "show project notes (Pnj for json)",
-	"Pn", " [base64]", "set notes text",
-	"Pn", " -", "edit notes with cfg.editor",
-	"Po", " [file]", "open project",
-	"Ps", " [file]", "save project",
+	"Pl", "", "list all projects",
+	"Pn", " -", "edit current loaded project notes using cfg.editor",
+	"Pn", "[j]", "manage notes associated with the project",
+	"Ps", " [file]", "save project (see dir.projects)",
 	"PS", " [file]", "save script file",
-	"P-", " [file]", "delete project (alias for Pd)",
-	"NOTE:", "", "The 'e prj.name' evar can save/open/rename/list projects.",
-	"NOTE:", "", "See the other 'e??prj.' evars for more options.",
-	"NOTE:", "", "project are stored in " R_JOIN_2_PATHS ("~", R2_HOME_PROJECTS),
+	"PS*", " [name]", "print the project script file (Like P*, but requires a project)",
+	"Pz", "[ie] [zipfile]", "import/export r2 project in zip form (.zrp extension)",
+	"NOTE:", "", "the 'e prj.name' evar can save/open/rename/list projects.",
+	"NOTE:", "", "see the other 'e??prj.' evars for more options.",
+	"NOTE:", "", "project are stored in dir.projects",
 	NULL
 };
 
-static const char *help_msg_Pn[] = {
+static RCoreHelpMessage help_msg_Pn = {
 	"Usage:", "Pn[j-?] [...]", "Project Notes",
 	"Pn", "", "show project notes",
 	"Pn", " -", "edit notes with cfg.editor",
+	"Pn", " [base64]", "set notes text",
 	"Pn-", "", "delete notes",
 	"Pn-", "str", "delete lines matching /str/ in notes",
 	"Pn+", "str", "append one line to the notes",
@@ -36,9 +40,77 @@ static const char *help_msg_Pn[] = {
 	NULL
 };
 
-static void cmd_project_init(RCore *core, RCmdDesc *parent) {
-	DEFINE_CMD_DESCRIPTOR (core, P);
-	DEFINE_CMD_DESCRIPTOR (core, Pn);
+static RCoreHelpMessage help_msg_Pz = {
+	"Usage:", "Pz[ie] ([file])", "Import/Export Projects in Zip form",
+	"Pz", "", "export project to prjname.zrp",
+	"Pze", " foo.zrp", "export project, same as Pz",
+	"Pzi", " foo.zrp", "import radare2 project from given zrp file",
+	NULL
+};
+
+static bool r_core_project_zip_import(RCore *core, const char *inzip) {
+	if (inzip && !r_str_endswith (inzip, ".zrp")) {
+		R_LOG_ERROR ("Project zips must use the .zrp extension");
+		return false;
+	}
+	char *prjdir = r_file_abspath (r_config_get (core->config, "dir.projects"));
+	int ret = r_sys_mkdirp (prjdir);
+	if (!ret) {
+		R_LOG_ERROR ("Cannot mkdir dir.projects");
+	}
+	// unzip in there
+	int res = r_sys_cmdf ("unzip %s -d %s", inzip, prjdir);
+	free (prjdir);
+	return res == 0;
+}
+
+// export project
+static void r_core_project_zip_export(RCore *core, const char *prjname, const char *outzip) {
+	char *prj_dir = r_file_abspath (r_config_get (core->config, "dir.projects"));
+	char *cwd = r_sys_getdir ();
+	const char *prj_name = prjname? prjname: r_config_get (core->config, "prj.name");
+	if (R_STR_ISEMPTY (prj_name)) {
+		R_LOG_ERROR ("No project to export");
+		return;
+	}
+	if (outzip && !r_str_endswith (outzip, ".zrp")) {
+		R_LOG_ERROR ("Project zips must use the .zrp extension");
+		return;
+	}
+	if (r_sys_chdir (prj_dir)) {
+		if (!strchr (prj_name, '\'')) {
+			char *zipfile = r_str_newf ("%s/%s.zrp", cwd, prj_name);
+			r_file_rm (zipfile);
+			// XXX use the ZIP api instead!
+			r_sys_cmdf ("zip -r %s %s", outzip? outzip: zipfile, prj_name);
+			free (zipfile);
+		} else {
+			R_LOG_WARN ("Command injection attempt?");
+		}
+	} else {
+		R_LOG_ERROR ("Cannot chdir %s", prj_dir);
+	}
+	r_sys_chdir (cwd);
+	free (cwd);
+}
+
+static void cmd_Pz(RCore *core, const char *cmd) {
+	char *arg = strchr (cmd, ' ');
+	if (arg) {
+		arg++;
+	}
+	switch (*cmd) {
+	case 'i':
+		r_core_project_zip_import (core, arg);
+		break;
+	case 'e':
+	case ' ':
+		r_core_project_zip_export (core, NULL, arg);
+		break;
+	default:
+		r_core_cmd_help (core, help_msg_Pz);
+		break;
+	}
 }
 
 static int cmd_project(void *data, const char *input) {
@@ -64,51 +136,131 @@ static int cmd_project(void *data, const char *input) {
 	file = arg;
 	switch (input[0]) {
 	case 'c': // "Pc"
-		if (input[1] == ' ') {
-			r_core_project_cat (core, input + 2);
+		if (R_STR_ISNOTEMPTY (r_config_get (core->config, "prj.name"))) {
+			r_project_close (core->prj);
+			r_config_set (core->config, "prj.name", "");
 		} else {
-			eprintf ("Usage: Pc [prjname]\n");
+			R_LOG_WARN ("No project to close");
 		}
 		break;
-	case 'o': // "Po"
+	case 'o': // "Po" DEPRECATED
+		R_LOG_WARN ("Po is deprecated, use 'P [prjname]' instead");
+		// fallthru
+	case ' ': // "P [prj]"
 		if (input[1] == '&') { // "Po&"
 			r_core_cmdf (core, "& Po %s", file);
 		} else if (input[1]) { // "Po"
 			r_core_project_open (core, file);
 		} else {
-			if (str && *str) {
-				r_cons_println (file);
+			if (R_STR_ISNOTEMPTY (str)) {
+				r_cons_println (str);
 			}
 		}
 		break;
 	case 'd': // "Pd"
-	case '-': // "P-"
-		r_core_project_delete (core, file);
+		{
+			char *pdir = r_file_new (
+				r_config_get (core->config, "dir.projects"),
+				r_config_get (core->config, "prj.name"), NULL);
+			if (r_syscmd_pushd (pdir)) {
+				if (r_file_is_directory (".git")) {
+					// TODO: Use ravc2 api
+					r_sys_cmdf ("git diff @~%d", atoi (input + 1));
+				} else {
+					R_LOG_TODO ("Not a git project. Diffing projects is WIP for now");
+				}
+				r_syscmd_popd ();
+			}
+			free (pdir);
+		}
 		break;
+	case '-': // "P-"
+		if (!strcmp (input + 1, "-")) {
+			//r_project_close (core->prj);
+			r_config_set (core->config, "prj.name", "");
+		} else if (input[1]) {
+			if (R_STR_ISNOTEMPTY (file)) {
+				r_core_project_delete (core, file);
+			} else {
+			//	r_project_close (core->prj);
+				r_config_set (core->config, "prj.name", "");
+			}
+		} else {
+			// r_project_close (core->prj);
+			r_config_set (core->config, "prj.name", "");
+		}
+		break;
+	case 'z': // "Pz"
+		cmd_Pz (core, input + 1);
+		break;
+	case '+': // "P+"
+		// xxx
 	case 's': // "Ps"
 		if (R_STR_ISEMPTY (file)) {
 			file = str;
 		}
 		if (!R_STR_ISEMPTY (file)) {
 			if (!r_core_project_save (core, file)) {
-				r_cons_eprintf ("Cannot save project.\n");
+				R_LOG_ERROR ("Cannot save project");
 			}
 		} else {
-			r_cons_eprintf ("Use: Ps [projectname]\n");
+			R_LOG_INFO ("Use: Ps [projectname]");
 		}
+		break;
+	case '!': // "P!"
+		if (input [1] == '?') {
+			r_core_cmd_help_match (core, help_msg_P, "P!", false);
+		} else if (r_config_get_b (core->config, "scr.interactive")) {
+			char *pdir = r_file_new (
+				r_config_get (core->config, "dir.projects"),
+				r_config_get (core->config, "prj.name"), NULL);
+			r_syscmd_pushd (pdir);
+			free (pdir);
+			const char *cmd = r_str_trim_head_ro (input + 1);
+			if (R_STR_ISNOTEMPTY (cmd)) {
+				r_sys_cmdf ("%s", cmd);
+			} else {
+#if R2__WINDOWS__
+				r_sys_cmdf ("cmd");
+#else
+				r_sys_cmdf ("sh");
+#endif
+			}
+			r_syscmd_popd ();
+		} else {
+			R_LOG_ERROR ("P! requires scr.interactive to open a shell");
+		}
+		break;
+	case '*': // "P*"
+		// XXX dont use /dev/stdout
+#if R2__WINDOWS__
+		r_core_project_save_script (core, "CON", R_CORE_PRJ_ALL);
+#else
+		r_core_project_save_script (core, "/dev/stdout", R_CORE_PRJ_ALL);
+#endif
 		break;
 	case 'S': // "PS"
 		if (input[1] == ' ') {
-			r_core_project_save_script (core, input + 2, R_CORE_PRJ_ALL);
+			r_core_project_save_script (core, r_str_trim_head_ro (input + 2), R_CORE_PRJ_ALL);
+		} else if (input[1] == '*') { // "PS*"
+			if (input[2]) {
+				r_core_project_cat (core, r_str_trim_head_ro (input + 2));
+			} else {
+				if (R_STR_ISEMPTY (fileproject)) {
+					R_LOG_ERROR ("No project set. Use 'P*' or 'Ps <prjname>'");
+				} else {
+					r_core_project_cat (core, fileproject);
+				}
+			}
 		} else {
-			r_cons_eprintf ("Usage: PS [file]\n");
+			r_core_cmd_help_match (core, help_msg_P, "PS", false);
 		}
 		break;
 	case 'n': // "Pn"
 		if (input[1] == '?') {
 			r_core_cmd_help (core, help_msg_Pn);
-		} else if (!fileproject || !*fileproject) {
-			r_cons_eprintf ("No project\n");
+		} else if (R_STR_ISEMPTY (fileproject)) {
+			R_LOG_ERROR ("No project");
 		} else {
 			switch (input[1]) {
 			case '-': // "Pn-"
@@ -116,11 +268,11 @@ static int cmd_project(void *data, const char *input) {
 			{
 				FILE *fd = r_sandbox_fopen (str, "w");
 				if (!fd) {
-					eprintf ("Cannot open %s\n", str);
+					R_LOG_ERROR ("Cannot open %s", str);
 				} else {
 					char *str = r_core_project_notes_file (core, fileproject);
 					char *data = r_file_slurp (str, NULL);
-					int del = 0;
+					int count = 0;
 					if (data) {
 						char *ptr, *nl;
 						for (ptr = data; ptr; ptr = nl) {
@@ -128,7 +280,7 @@ static int cmd_project(void *data, const char *input) {
 							if (nl) {
 								*nl++ = 0;
 								if (strstr (ptr, input + 2)) {
-									del++;
+									count++;
 								} else {
 									fprintf (fd, "%s\n", ptr);
 								}
@@ -136,8 +288,8 @@ static int cmd_project(void *data, const char *input) {
 						}
 						free (data);
 					}
-					if (del > 0) {
-						eprintf ("Deleted %d lines\n", del);
+					if (count > 0) {
+						R_LOG_ERROR ("Deleted %d lines", count);
 					}
 					free (str);
 					fclose (fd);
@@ -152,7 +304,7 @@ static int cmd_project(void *data, const char *input) {
 					if (str && *str && editor && *editor) {
 						r_sys_cmdf ("%s %s", editor, str);
 					} else {
-						eprintf ("No cfg.editor configured\n");
+						R_LOG_ERROR ("No cfg.editor configured");
 					}
 					free (str);
 				} else {
@@ -207,7 +359,7 @@ static int cmd_project(void *data, const char *input) {
 						free (data);
 					}
 				} else {
-					eprintf ("Usage: `Pnj` or `Pnj ...`\n");
+					r_core_cmd_help_match (core, help_msg_P, "Pn", false);
 				}
 				break;
 			case 'x': // "Pnx"
@@ -227,20 +379,30 @@ static int cmd_project(void *data, const char *input) {
 			}
 		}
 		break;
-	case 'i': // "Pi"
-		if (file && *file) {
+	case 'i': // "Pi" DEPRECATE
+		if (R_STR_ISNOTEMPTY (file)) {
 			char *prj_name = r_core_project_name (core, file);
 			if (!R_STR_ISEMPTY (prj_name)) {
 				r_cons_println (prj_name);
 				free (prj_name);
 			}
 		} else if (r_project_is_loaded (core->prj)) {
-			r_cons_println (core->prj->name);
-			r_cons_println (core->prj->path);
+			if (R_STR_ISNOTEMPTY (core->prj->name)) {
+				r_cons_println (core->prj->name);
+			}
+			if (R_STR_ISNOTEMPTY (core->prj->path)) {
+				r_cons_println (core->prj->path);
+			}
 		}
 		break;
+	case '.': // "P."
+		r_cons_printf ("%s\n", fileproject);
+		break;
 	case 'l':
-	case 0:
+		r_core_project_list (core, input[1]);
+		break;
+	case 0: // "P"
+	case 'P':
 	case 'j': // "Pj"
 		r_core_project_list (core, input[0]);
 		break;
@@ -249,5 +411,5 @@ static int cmd_project(void *data, const char *input) {
 		break;
 	}
 	free (str);
-	return true;
+	return 0;
 }

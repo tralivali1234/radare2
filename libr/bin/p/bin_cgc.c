@@ -1,12 +1,12 @@
 /* radare - LGPL - Copyright 2009-2019 - ret2libc, pancake */
 
 #define R_BIN_CGC 1
-#include "bin_elf.inc"
+#include "bin_elf.inc.c"
 
 extern struct r_bin_dbginfo_t r_bin_dbginfo_elf;
 extern struct r_bin_write_t r_bin_write_elf;
 
-static bool check_buffer(RBuffer *buf) {
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	ut8 tmp[SCGCMAG + 1];
 	int r = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
 	return r > SCGCMAG && !memcmp (tmp, CGCMAG, SCGCMAG) && tmp[4] != 2;
@@ -87,7 +87,7 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 
 	if (data && datalen>0) {
 		//ut32 data_section = buf->length;
-		eprintf ("Warning: DATA section not support for ELF yet\n");
+		R_LOG_WARN ("DATA section not support for ELF yet");
 		B (data, datalen);
 	}
 	return buf;
@@ -106,7 +106,7 @@ RBinPlugin r_bin_plugin_cgc = {
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
-	.symbols = &symbols,
+	.symbols_vec = &symbols_vec,
 	.minstrlen = 4,
 	.imports = &imports,
 	.info = &info,

@@ -10,16 +10,15 @@ libr/util/log.c
 libr/util/cache.c
 libr/util/print.c
 
-libr/asm/p/asm_bf.c
 
-libr/hash/calc.c
-libr/hash/crc16.c
-libr/hash/luhn.c
-libr/hash/xxhash.c
-libr/hash/md4.c
-libr/hash/adler32.c
-libr/hash/hash.c
-libr/hash/sha2.c
+libr/crypto/hash/calc.c
+libr/crypto/hash/crc16.c
+libr/crypto/hash/luhn.c
+libr/crypto/hash/xxcrypto/hash.c
+libr/crypto/hash/md4.c
+libr/crypto/hash/adler32.c
+libr/crypto/hash/crypto/hash.c
+libr/crypto/hash/sha2.c
 
 libr/reg/reg.c
 libr/reg/arena.c
@@ -38,7 +37,8 @@ libr/anal/cycles.c
 libr/anal/esil.c
 libr/anal/data.c
 libr/anal/flirt.c
-libr/anal/p/anal_arc.c
+libr/arch/p/arc/plugin.c
+libr/arch/p/bf/bf.c
 
 libr/config/config.c
 libr/config/callback.c

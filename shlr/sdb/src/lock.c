@@ -1,36 +1,36 @@
-/* sdb - MIT - Copyright 2012-2021 - pancake */
+/* sdb - MIT - Copyright 2012-2022 - pancake */
 
-#include <stdio.h>
-#include <string.h>
 #include <fcntl.h>
-#include "sdb.h"
+#include "sdb/sdb.h"
 
-SDB_API const char *sdb_lock_file(const char *f) {
-	static char buf[128];
+SDB_API bool sdb_lock_file(const char *f, char *buf, size_t buf_size) {
 	size_t len;
-	if (!f || !*f) {
-		return NULL;
+	if (!f || !*f || !buf || !buf_size) {
+		return false;
 	}
 	len = strlen (f);
-	if (len + 10 > sizeof buf) {
-		return NULL;
+	if (len + 10 > buf_size) {
+		return false;
 	}
 	memcpy (buf, f, len);
 	strcpy (buf + len, ".lock");
-	return buf;
+	return true;
 }
 
 SDB_API bool sdb_lock(const char *s) {
-	int fd;
-	char *pid, pidstr[64];
+	char pidstr[64];
 	if (!s) {
 		return false;
 	}
-	fd = open (s, O_CREAT | O_TRUNC | O_WRONLY | O_EXCL, SDB_MODE);
+	int fd = open (s, O_CREAT | O_TRUNC | O_WRONLY | O_EXCL, SDB_MODE);
 	if (fd == -1) {
 		return false;
 	}
-	pid = sdb_itoa (getpid (), pidstr, 10);
+#if __wasi__ || EMSCRIPTEN || __MINGW32__
+	char *pid = sdb_itoa (rand (), 10, pidstr, sizeof (pidstr));
+#else
+	char *pid = sdb_itoa (getpid (), 10, pidstr, sizeof (pidstr));
+#endif
 	if (pid) {
 		if ((write (fd, pid, strlen (pid)) < 0)
 			|| (write (fd, "\n", 1) < 0)) {

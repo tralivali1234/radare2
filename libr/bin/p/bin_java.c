@@ -1,36 +1,36 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake, nibble, Adam Pridgen <dso@rice.edu || adam.pridgen@thecoverofnight.com> */
+/* radare - LGPL - Copyright 2009-2022 - pancake, nibble, Adam Pridgen <dso@rice.edu || adam.pridgen@thecoverofnight.com> */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
+#define R_LOG_ORIGIN "bin.java"
+
 #include <r_bin.h>
-
 #include "../../shlr/java/class.h"
 #include "../../shlr/java/code.h"
 
 #define IFDBG_BIN_JAVA if (0)
 
-static Sdb *DB = NULL;
+// R2_590 XXX we need to refactor rbin to get rid of this
+static R_TH_LOCAL Sdb *DB = NULL;
+
 static void add_bin_obj_to_sdb(RBinJavaObj *bin);
 static int add_sdb_bin_obj(const char *key, RBinJavaObj *bin_obj);
 
 static int init(void *user) {
-	IFDBG_BIN_JAVA eprintf("Calling plugin init = %d.\n", DB? 1: 0);
+	R_LOG_DEBUG ("Calling plugin init = %d", DB? 1: 0);
 	if (!DB) {
-		IFDBG_BIN_JAVA eprintf("plugin DB beeing initted.\n");
+		R_LOG_DEBUG ("plugin DB beeing initted");
 		DB = sdb_new ("bin.java", NULL, 0);
 	} else {
-		IFDBG_BIN_JAVA eprintf("plugin DB already initted.\n");
+		R_LOG_DEBUG ("plugin DB already initted");
 	}
 	return 0;
 }
 
 static int fini(void *user) {
-	IFDBG_BIN_JAVA eprintf("Calling plugin fini = %d.\n", DB? 1: 0);
+	R_LOG_DEBUG ("Calling plugin fini = %d", DB? 1: 0);
 	if (!DB) {
-		IFDBG_BIN_JAVA eprintf("plugin DB already uninited.\n");
+		IFDBG_BIN_JAVA eprintf ("plugin DB already uninited.\n");
 	} else {
-		IFDBG_BIN_JAVA eprintf("plugin DB beeing uninited.\n");
+		IFDBG_BIN_JAVA eprintf ("plugin DB beeing uninited.\n");
 		sdb_free (DB);
 		DB = NULL;
 	}
@@ -39,10 +39,10 @@ static int fini(void *user) {
 
 static int add_sdb_bin_obj(const char *key, RBinJavaObj *bin_obj) {
 	int result = false;
-	char *addr, value[1024] = {
+	char *addr, value[SDB_NUM_BUFSZ] = {
 		0
 	};
-	addr = sdb_itoa ((ut64) (size_t) bin_obj, value, 16);
+	addr = sdb_itoa ((ut64) (size_t) bin_obj, 16, value, sizeof (value));
 	if (key && bin_obj && DB) {
 		IFDBG_BIN_JAVA eprintf("Adding %s:%s to the bin_objs db\n", key, addr);
 		sdb_set (DB, key, addr, 0);
@@ -74,7 +74,7 @@ static Sdb *get_sdb(RBinFile *bf) {
 	return NULL;
 }
 
-static bool load_buffer(RBinFile * bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
 	struct r_bin_java_obj_t *tmp_bin_obj = NULL;
 	RBuffer *tbuf = r_buf_ref (buf);
 	tmp_bin_obj = r_bin_java_new_buf (tbuf, loadaddr, sdb);
@@ -98,10 +98,6 @@ static void destroy(RBinFile *bf) {
 
 static RList *entries(RBinFile *bf) {
 	return r_bin_java_get_entrypoints (bf->o->bin_obj);
-}
-
-static ut64 baddr(RBinFile *bf) {
-	return 0;
 }
 
 static RList *classes(RBinFile *bf) {
@@ -139,7 +135,7 @@ static RBinInfo *info(RBinFile *bf) {
 	return ret;
 }
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) > 32) {
 		ut8 buf[4];
 		r_buf_read_at (b, 0, buf, sizeof (buf));
@@ -155,7 +151,7 @@ static bool check_buffer(RBuffer *b) {
 }
 
 static int retdemangle(const char *str) {
-	return R_BIN_NM_JAVA;
+	return R_BIN_LANG_JAVA;
 }
 
 static RBinAddr *binsym(RBinFile *bf, int sym) {
@@ -172,8 +168,8 @@ static R_BORROW RList *lines(RBinFile *bf) {
 	/*
 	   int i;
 	   RBinJavaObj *b = bf->o->bin_obj;
-	   for (i=0; i<b->lines.count; i++) {
-	        RBinDwarfRow *row = R_NEW0(RBinDwarfRow);
+	   for (i = 0; i < b->lines.count; i++) {
+	        RBinDwarfRow *row = R_NEW0 (RBinDwarfRow);
 	        r_bin_dwarf_line_new (row, b->lines.addr[i], file, b->lines.line[i]);
 	        r_list_append (list, row);
 	   }*/
@@ -190,10 +186,6 @@ static RList *imports(RBinFile *bf) {
 	return r_bin_java_get_imports (bf->o->bin_obj);
 }
 
-static RList *fields(RBinFile *bf) {
-	return NULL;// r_bin_java_get_fields (bf->o->bin_obj);
-}
-
 static RList *libs(RBinFile *bf) {
 	return r_bin_java_get_lib_names (bf->o->bin_obj);
 }
@@ -208,7 +200,6 @@ RBinPlugin r_bin_plugin_java = {
 	.load_buffer = &load_buffer,
 	.destroy = &destroy,
 	.check_buffer = &check_buffer,
-	.baddr = &baddr,
 	.binsym = binsym,
 	.entries = &entries,
 	.sections = sections,
@@ -216,7 +207,6 @@ RBinPlugin r_bin_plugin_java = {
 	.imports = &imports,
 	.strings = &strings,
 	.info = &info,
-	.fields = fields,
 	.libs = libs,
 	.lines = &lines,
 	.classes = classes,

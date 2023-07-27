@@ -7,7 +7,7 @@
 
 static RCodeMetaItem make_code_annotation(int st, int en, RCodeMetaItemType typec,
 	ut64 offset, RSyntaxHighlightType types) {
-	RCodeMetaItem annotation = { 0 };
+	RCodeMetaItem annotation = {0};
 	annotation.start = st;
 	annotation.end = en;
 	annotation.type = typec;
@@ -22,7 +22,7 @@ static RCodeMetaItem make_code_annotation(int st, int en, RCodeMetaItemType type
 
 static RCodeMetaItem make_variable_annotation(int st, int en, RCodeMetaItemType typec,
 	const char *name) {
-	RCodeMetaItem annotation = { 0 };
+	RCodeMetaItem annotation = {0};
 	annotation.start = st;
 	annotation.end = en;
 	annotation.type = typec;
@@ -32,7 +32,7 @@ static RCodeMetaItem make_variable_annotation(int st, int en, RCodeMetaItemType 
 
 static RCodeMetaItem make_reference_annotation(int st, int en, RCodeMetaItemType typec,
 	ut64 offset, const char *name) {
-	RCodeMetaItem annotation = { 0 };
+	RCodeMetaItem annotation = {0};
 	annotation.start = st;
 	annotation.end = en;
 	annotation.type = typec;
@@ -272,17 +272,17 @@ static bool test_r_codemeta_line_offsets(void) {
 	mu_assert_eq (offsets->len, 6, "Number of offsets not expected");
 
 	ut64 *off = r_vector_index_ptr (offsets, 0);
-	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%"PFMT64u);
 	off = r_vector_index_ptr (offsets, 1);
-	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%"PFMT64u);
 	off = r_vector_index_ptr (offsets, 2);
-	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%"PFMT64u);
 	off = r_vector_index_ptr (offsets, 3);
-	mu_assert_eq_fmt (*off, (ut64)4440, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, (ut64)4440, "Unexpected offset", "%"PFMT64u);
 	off = r_vector_index_ptr (offsets, 4);
-	mu_assert_eq_fmt (*off, (ut64)4447, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, (ut64)4447, "Unexpected offset", "%"PFMT64u);
 	off = r_vector_index_ptr (offsets, 5);
-	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%llu");
+	mu_assert_eq_fmt (*off, UT64_MAX, "Unexpected offset", "%"PFMT64u);
 
 	r_vector_free (offsets);
 	r_codemeta_free (code);
@@ -389,7 +389,7 @@ static bool test_r_codemeta_itemfree_and_is_annotation_type_functions(void) {
 	RCodeMetaItem offset = make_code_annotation (58, 64, R_CODEMETA_TYPE_OFFSET, 4447, R_SYNTAX_HIGHLIGHT_TYPE_KEYWORD);
 	RCodeMetaItem syntax_highlight = make_code_annotation (1, 5, R_CODEMETA_TYPE_SYNTAX_HIGHLIGHT, 123, R_SYNTAX_HIGHLIGHT_TYPE_DATATYPE);
 	RCodeMetaItem local_variable = make_variable_annotation (1, 2, R_CODEMETA_TYPE_LOCAL_VARIABLE, "RADARE2");
-	RCodeMetaItem function_parameter = make_variable_annotation (4, 10, R_CODEMETA_TYPE_LOCAL_VARIABLE, "Cutter");
+	RCodeMetaItem function_parameter = make_variable_annotation (4, 10, R_CODEMETA_TYPE_LOCAL_VARIABLE, "Iaito");
 	RCodeMetaItem function_name = make_reference_annotation (10, 12, R_CODEMETA_TYPE_FUNCTION_NAME, 123513, "test_function");
 	RCodeMetaItem global_variable = make_reference_annotation (10, 12, R_CODEMETA_TYPE_GLOBAL_VARIABLE, 1234234, NULL);
 	RCodeMetaItem constant_variable = make_reference_annotation (21, 200, R_CODEMETA_TYPE_CONSTANT_VARIABLE, 12342314, NULL);

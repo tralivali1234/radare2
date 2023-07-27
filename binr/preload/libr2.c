@@ -2,13 +2,13 @@
 
 #include <r_core.h>
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #include <windows.h>
 #endif
 
 static RCore *core = NULL;
 
-#if __UNIX__
+#if R2__UNIX__
 
 // XXX check if its already opened
 static RCoreFile *openself(void) {
@@ -34,13 +34,14 @@ static void sigusr2(int s) {
 	r_core_cmd0 (core, "=H&");
 }
 
-static void _libwrap_init() __attribute__ ((constructor));
+static void _libwrap_init() __attribute__((constructor));
 static void _libwrap_init(void) {
 	char *web;
 	r_sys_signal (SIGUSR1, sigusr1);
 	r_sys_signal (SIGUSR2, sigusr2);
-	printf ("libr2 initialized. send SIGUSR1 to %d in order to reach the r2 prompt\n", getpid ());
-	printf ("kill -USR1 %d\n", getpid ());
+	int pid = r_sys_getpid ();
+	printf ("libr2 initialized. send SIGUSR1 to %d in order to reach the r2 prompt\n", pid);
+	printf ("kill -USR1 %d\n", pid);
 	fflush (stdout);
 	web = r_sys_getenv ("RARUN2_WEB");
 	core = r_core_new ();
@@ -53,7 +54,7 @@ static void _libwrap_init(void) {
 	// TODO: maybe reopen every time a signal is spawned to reload memory regions information
 	// TODO: open io_self
 }
-#elif __WINDOWS__
+#elif R2__WINDOWS__
 void alloc_console(void) {
 	CONSOLE_SCREEN_BUFFER_INFO coninfo;
 	HANDLE hStdin = GetStdHandle (STD_INPUT_HANDLE);

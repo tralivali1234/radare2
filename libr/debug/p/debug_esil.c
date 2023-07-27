@@ -1,11 +1,11 @@
-/* radare - LGPL - Copyright 2013-2017 pancake */
+/* radare - LGPL - Copyright 2013-2021 pancake */
 // r2 -Desil ls
 
 #include <r_asm.h>
 #include <r_debug.h>
 
 #if 0
-static int is_io_esil(RDebug *dbg) {
+static bool is_io_esil(RDebug *dbg) {
 	RIODesc *d = dbg->iob.io->desc;
 	if (d && d->plugin && d->plugin->name)
 		if (!strcmp ("esil", d->plugin->name))
@@ -14,12 +14,12 @@ static int is_io_esil(RDebug *dbg) {
 }
 #endif
 
-static int __esil_step_over(RDebug *dbg) {
-	eprintf ("TODO: ESIL STEP OVER\n");
+static bool __esil_step_over(RDebug *dbg) {
+	R_LOG_TODO ("ESIL STEP OVER");
 	return true;
 }
 
-static int __esil_step(RDebug *dbg) {
+static bool __esil_step(RDebug *dbg) {
 	int oplen;
 	ut8 buf[64];
 	ut64 pc = 0LL; // getreg("pc")
@@ -33,41 +33,41 @@ static int __esil_step(RDebug *dbg) {
 	//memset (buf, 0, sizeof (buf));
 	dbg->iob.read_at (dbg->iob.io, pc, buf, 64);
 	eprintf ("READ 0x%08"PFMT64x" %02x %02x %02x\n", pc, buf[0], buf[1], buf[2]);
-	oplen = r_anal_op (dbg->anal, &op, pc, buf, sizeof (buf), R_ANAL_OP_MASK_ESIL);
+	oplen = r_anal_op (dbg->anal, &op, pc, buf, sizeof (buf), R_ARCH_OP_MASK_ESIL);
 	if (oplen > 0) {
 		if (*R_STRBUF_SAFEGET (&op.esil)) {
 			eprintf ("ESIL: %s\n", R_STRBUF_SAFEGET (&op.esil));
-			r_anal_esil_parse (dbg->anal->esil, R_STRBUF_SAFEGET (&op.esil));
+			r_esil_parse (dbg->anal->esil, R_STRBUF_SAFEGET (&op.esil));
 		}
 	}
 	r_anal_op_fini (&op);
-	eprintf ("TODO: ESIL STEP\n");
+	R_LOG_TODO ("ESIL STEP");
 	return true;
 }
 
-static int __esil_init(RDebug *dbg) {
+static bool __esil_init(RDebug *dbg) {
 	dbg->tid = dbg->pid = 1;
 	// aeim
 	// aei
 	return true;
 }
 
-static int __esil_continue(RDebug *dbg, int pid, int tid, int sig) {
-	eprintf ("TODO continue\n");
+static bool __esil_continue(RDebug *dbg, int pid, int tid, int sig) {
+	R_LOG_TODO ("continue");
 	return true;
 }
 
-static int __esil_continue_syscall(RDebug *dbg, int pid, int num) {
-	eprintf ("TODO: esil continue until syscall\n");
+static bool __esil_continue_syscall(RDebug *dbg, int pid, int num) {
+	R_LOG_TODO ("esil continue until syscall");
 	return true;
 }
 
-static int __esil_wait(RDebug *dbg, int pid) {
+static RDebugReasonType __esil_wait(RDebug *dbg, int pid) {
 	/* do nothing */
-	return true;
+	return R_DEBUG_REASON_NONE;
 }
 
-static int __esil_attach(RDebug *dbg, int pid) {
+static bool __esil_attach(RDebug *dbg, int pid) {
 	eprintf ("OK attach\n");
 	return true;
 #if 0
@@ -77,14 +77,14 @@ static int __esil_attach(RDebug *dbg, int pid) {
 #if 0
 	RIOBdescbg *o;
 	o = dbg->iob.io->desc->data;
-eprintf ("base = %llx\n", o->bfvm->base);
-eprintf ("screen = %llx\n", o->bfvm->screen);
-eprintf ("input = %llx\n", o->bfvm->input);
+	eprintf ("base = %llx\n", o->bfvm->base);
+	eprintf ("screen = %llx\n", o->bfvm->screen);
+	eprintf ("input = %llx\n", o->bfvm->input);
 #endif
 	return true;
 }
 
-static int __esil_detach(RDebug *dbg, int pid) {
+static bool __esil_detach(RDebug *dbg, int pid) {
 	// reset vm?
 	return true;
 }
@@ -111,7 +111,7 @@ static char *__esil_reg_profile(RDebug *dbg) {
 	return r_anal_get_reg_profile (dbg->anal);
 }
 
-static int __esil_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool set) {
+static int __esil_breakpoint(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	//r_io_system (dbg->iob.io, "db");
 	return false;
 }
@@ -126,21 +126,25 @@ static int __esil_stop(RDebug *dbg) {
 	return true;
 }
 
-static int __reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
+static bool __reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	int sz;
 	/* do nothing */
 	ut8 *bytes = r_reg_get_bytes (dbg->reg, type, &sz);
 	memcpy (buf, bytes, R_MIN (size, sz));
 	free (bytes);
-	return size;
+	return true;
 }
 
 RDebugPlugin r_debug_plugin_esil = {
-	.name = "esil",
-	.license = "LGPL3",
+	.meta = {
+		.name = "esil",
+		.author = "pancake",
+		.desc = "esil debug plugin",
+		.license = "LGPL3",
+	},
 	.arch = "any", // TODO: exception!
 	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
-	.init = __esil_init,
+	.init_debugger = __esil_init,
 	.step = __esil_step,
 	.step_over = __esil_step_over,
 	.cont = __esil_continue,

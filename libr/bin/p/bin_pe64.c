@@ -1,8 +1,9 @@
-/* radare - LGPL - Copyright 2009-2019 - nibble, pancake */
-#define R_BIN_PE64 1
-#include "bin_pe.inc"
+/* radare - LGPL - Copyright 2009-2022 - nibble, pancake */
 
-static bool check_buffer(RBuffer *b) {
+#define R_BIN_PE64 1
+#include "bin_pe.inc.c"
+
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut64 length = r_buf_size (b);
 	if (length <= 0x3d) {
 		return false;
@@ -28,6 +29,7 @@ static bool check_buffer(RBuffer *b) {
 }
 
 static RList *fields(RBinFile *bf) {
+	r_strf_buffer (64);
 	RList *ret  = r_list_new ();
 	if (!ret) {
 		return NULL;
@@ -35,7 +37,7 @@ static RList *fields(RBinFile *bf) {
 
 	#define ROWL(nam,siz,val,fmt) \
 		r_list_append (ret, r_bin_field_new (addr, addr, siz, nam, \
-				sdb_fmt ("0x%08"PFMT64x, (ut64)val), fmt, false));
+				r_strf ("0x%08"PFMT64x, (ut64)val), fmt, false));
 
 	struct PE_(r_bin_pe_obj_t) * bin = bf->o->bin_obj;
 	ut64 addr = bin->rich_header_offset ? bin->rich_header_offset : 128;
@@ -43,7 +45,7 @@ static RList *fields(RBinFile *bf) {
 	RListIter *it;
 	Pe_image_rich_entry *rich;
 	r_list_foreach (bin->rich_entries, it, rich) {
-		r_list_append (ret, r_bin_field_new (addr, addr, 0, "RICH_ENTRY_NAME", strdup (rich->productName), "s", false));
+		r_list_append (ret, r_bin_field_new (addr, addr, 0, "RICH_ENTRY_NAME", rich->productName, "s", false));
 		ROWL ("RICH_ENTRY_ID", 2, rich->productId, "x"); addr += 2;
 		ROWL ("RICH_ENTRY_VERSION", 2, rich->minVersion, "x"); addr += 2;
 		ROWL ("RICH_ENTRY_TIMES", 4, rich->timesUsed, "x"); addr += 4;
@@ -320,7 +322,7 @@ static RList *trycatch(RBinFile *bf) {
 	int i;
 	ut64 offset;
 	ut32 c_handler = 0;
-	
+
 	struct PE_(r_bin_pe_obj_t) * bin = bf->o->bin_obj;
 	PE_(image_data_directory) *expdir = &bin->optional_header->DataDirectory[PE_IMAGE_DIRECTORY_ENTRY_EXCEPTION];
 	if (!expdir->Size) {
@@ -334,14 +336,17 @@ static RList *trycatch(RBinFile *bf) {
 
 	for (offset = expdir->VirtualAddress; offset < (ut64)expdir->VirtualAddress + expdir->Size; offset += sizeof (PE64_RUNTIME_FUNCTION)) {
 		PE64_RUNTIME_FUNCTION rfcn;
-		bool suc = r_io_read_at_mapped (io, offset + baseAddr, (ut8 *)&rfcn, sizeof (rfcn));
+		bool suc = r_io_read_at (io, offset + baseAddr, (ut8 *)&rfcn, sizeof (rfcn));
 		if (!rfcn.BeginAddress) {
 			break;
 		}
 		ut32 savedBeginOff = rfcn.BeginAddress;
 		ut32 savedEndOff = rfcn.EndAddress;
 		while (suc && rfcn.UnwindData & 1) {
-			suc = r_io_read_at_mapped (io, baseAddr + (rfcn.UnwindData & ~1), (ut8 *)&rfcn, sizeof (rfcn));
+			// XXX this ugly (int) cast is needed for MSVC for not to crash
+			int delta = (rfcn.UnwindData & (int)~1);
+			ut64 at = baseAddr + delta;
+			suc = r_io_read_at (io, at, (ut8 *)&rfcn, sizeof (rfcn));
 		}
 		rfcn.BeginAddress = savedBeginOff;
 		rfcn.EndAddress = savedEndOff;
@@ -349,7 +354,7 @@ static RList *trycatch(RBinFile *bf) {
 			continue;
 		}
 		PE64_UNWIND_INFO info;
-		suc = r_io_read_at_mapped (io, rfcn.UnwindData + baseAddr, (ut8 *)&info, sizeof (info));
+		suc = r_io_read_at (io, rfcn.UnwindData + baseAddr, (ut8 *)&info, sizeof (info));
 		if (!suc || info.Version != 1 || (!(info.Flags & PE64_UNW_FLAG_EHANDLER) && !(info.Flags & PE64_UNW_FLAG_CHAININFO))) {
 			continue;
 		}
@@ -362,15 +367,16 @@ static RList *trycatch(RBinFile *bf) {
 			savedBeginOff = rfcn.BeginAddress;
 			savedEndOff = rfcn.EndAddress;
 			do {
-				if (!r_io_read_at_mapped (io, exceptionDataOff, (ut8 *)&rfcn, sizeof (rfcn))) {
+				if (!r_io_read_at (io, exceptionDataOff, (ut8 *)&rfcn, sizeof (rfcn))) {
 					break;
 				}
-				suc = r_io_read_at_mapped (io, rfcn.UnwindData + baseAddr, (ut8 *)&info, sizeof (info));
+				suc = r_io_read_at (io, rfcn.UnwindData + baseAddr, (ut8 *)&info, sizeof (info));
 				if (!suc || info.Version != 1) {
 					break;
 				}
 				while (suc && (rfcn.UnwindData & 1)) {
-					suc = r_io_read_at_mapped (io, baseAddr + (rfcn.UnwindData & ~1), (ut8 *)&rfcn, sizeof (rfcn));
+					// XXX this ugly (int) cast is needed for MSVC for not to crash
+					suc = r_io_read_at (io, baseAddr + ((int)rfcn.UnwindData & (int)~1), (ut8 *)&rfcn, sizeof (rfcn));
 				}
 				if (!suc || info.Version != 1) {
 					break;
@@ -387,7 +393,7 @@ static RList *trycatch(RBinFile *bf) {
 		}
 
 		ut32 handler;
-		if (!r_io_read_at_mapped (io, exceptionDataOff, (ut8 *)&handler, sizeof (handler))) {
+		if (!r_io_read_at (io, exceptionDataOff, (ut8 *)&handler, sizeof (handler))) {
 			continue;
 		}
 		if (c_handler && c_handler != handler) {
@@ -397,8 +403,8 @@ static RList *trycatch(RBinFile *bf) {
 
 		if (!c_handler) {
 			ut32 magic, rva_to_fcninfo;
-			if (r_io_read_at_mapped (io, exceptionDataOff, (ut8 *)&rva_to_fcninfo, sizeof (rva_to_fcninfo)) &&
-				r_io_read_at_mapped (io, baseAddr + rva_to_fcninfo, (ut8 *)&magic, sizeof (magic))) {
+			if (r_io_read_at (io, exceptionDataOff, (ut8 *)&rva_to_fcninfo, sizeof (rva_to_fcninfo)) &&
+				r_io_read_at (io, baseAddr + rva_to_fcninfo, (ut8 *)&magic, sizeof (magic))) {
 				if (magic >= 0x19930520 && magic <= 0x19930522) {
 					// __CxxFrameHandler3 or __GSHandlerCheck_EH
 					continue;
@@ -407,14 +413,14 @@ static RList *trycatch(RBinFile *bf) {
 		}
 
 		PE64_SCOPE_TABLE tbl;
-		if (!r_io_read_at_mapped (io, exceptionDataOff, (ut8 *)&tbl, sizeof (tbl))) {
+		if (!r_io_read_at (io, exceptionDataOff, (ut8 *)&tbl, sizeof (tbl))) {
 			continue;
 		}
 
 		PE64_SCOPE_RECORD scope;
 		ut64 scopeRecOff = exceptionDataOff + sizeof (tbl);
 		for (i = 0; i < tbl.Count; i++) {
-			if (!r_io_read_at_mapped (io, scopeRecOff, (ut8 *)&scope, sizeof (PE64_SCOPE_RECORD))) {
+			if (!r_io_read_at (io, scopeRecOff, (ut8 *)&scope, sizeof (PE64_SCOPE_RECORD))) {
 				break;
 			}
 			if (scope.BeginAddress > scope.EndAddress

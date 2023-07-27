@@ -1,9 +1,6 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2023 - pancake */
 
-#include "r_types.h"
-#include "r_util.h"
-#include <stdio.h>
-#include <ctype.h>
+#include <r_util.h>
 
 /* int c; ret = hex_to_byte(&c, 'c'); */
 R_API bool r_hex_to_byte(ut8 *val, ut8 c) {
@@ -17,6 +14,13 @@ R_API bool r_hex_to_byte(ut8 *val, ut8 c) {
 		return true;
 	}
 	return false;
+}
+
+// takes 'c' byte and fills 2 bytes in the val string
+R_API void r_hex_from_byte(char *val, ut8 c) {
+	const char abc[] = "0123456789abcdef";
+	val[0] = abc[(c >> 4) & 0xf];
+	val[1] = abc[c & 0xf];
 }
 
 R_API char *r_hex_from_py_str(char *out, const char *code) {
@@ -115,16 +119,17 @@ R_API char *r_hex_from_c_str(char *out, const char **code) {
 		if (*iter == '\\') {
 			iter++;
 			switch (iter[0]) {
-			case 'e': *out++='1';*out++='b';break;
-			case 'r': *out++='0';*out++='d';break;
-			case 'n': *out++='0';*out++='a';break;
+			case 'e': *out++ = '1'; *out++ = 'b'; break;
+			case 'r': *out++ = '0'; *out++ = 'd'; break;
+			case 'n': *out++ = '0'; *out++ = 'a'; break;
 			case 'x': {
 				ut8 c1 = iter[1];
 				ut8 c2 = iter[2];
 				iter += 2;
 				if (c1 == '\0' || c2 == '\0') {
 					return NULL;
-				} else if (strchr (abc, c1) && strchr (abc, c2)) {
+				}
+				if (strchr (abc, c1) && strchr (abc, c2)) {
 					*out++ = tolower (c1);
 					*out++ = tolower (c2);
 				} else {
@@ -154,7 +159,7 @@ const char *skip_comment_c(const char *code) {
 		if (end) {
 			code = end + 2;
 		} else {
-			eprintf ("Missing closing comment\n");
+			R_LOG_ERROR ("Missing closing comment");
 		}
 	} else if (!strncmp (code, "//", 2)) {
 		char *end = strchr (code, '\n');
@@ -167,7 +172,7 @@ const char *skip_comment_c(const char *code) {
 
 R_API char *r_hex_from_c_array(char *out, const char *code) {
 	const char abc[] = "0123456789abcdef";
-	if (*code != '{' || !strchr(code, '}')) {
+	if (*code != '{' || !strchr (code, '}')) {
 		return NULL;
 	}
 	code++;
@@ -266,36 +271,24 @@ R_API char *r_hex_from_js(const char *code) {
 		return NULL;
 	}
 
-	char * str = r_str_ndup (start + 1, end - start - 1);
+	size_t slen = end - start;
+	char *str = r_str_ndup (start + 1, slen - 1);
 
 	/* assuming base64 input, output will always be shorter */
-	ut8 *b64d = malloc (end - start);
+	ut8 *b64d = malloc (slen);
 	if (!b64d) {
 		free (str);
 		return NULL;
 	}
 
-	r_base64_decode (b64d, str, end - start - 1);
-	if (!b64d) {
-		free (str);
-		free (b64d);
-		return NULL;
-	}
-
-	// TODO: use r_str_bin2hex
-	int i, len = strlen ((const char *)b64d);
-	char * out = malloc (len * 2 + 1);
-	if (!out) {
-		free (str);
-		free (b64d);
-		return NULL;
-	}
-	for (i = 0; i < len; i++) {
-		sprintf (&out[i * 2], "%02x", b64d[i]);
-	}
-	out[len * 2] = '\0';
-
+	int olen = r_base64_decode (b64d, str, slen - 1);
 	free (str);
+	if (!b64d) {
+		free (b64d);
+		return NULL;
+	}
+
+	char *out = r_hex_bin2strdup (b64d, olen);
 	free (b64d);
 	return out;
 }
@@ -343,24 +336,23 @@ R_API char *r_hex_from_code(const char *code) {
 	if (strstr (code, "var")) {
 		return r_hex_from_js (code);
 	}
-        /* Python */
+	/* Python */
 	return r_hex_from_py (code);
 }
 
-/* int byte = hexpair2bin("A0"); */
+/* int byte = r_hex_pair2bin("A0"); */
 // (0A) => 10 || -1 (on error)
 R_API int r_hex_pair2bin(const char *arg) {
 	ut8 *ptr, c = 0, d = 0;
 	ut32 j = 0;
 
 	for (ptr = (ut8*)arg; ;ptr = ptr + 1) {
-		if (!*ptr || *ptr==' ' || j==2) {
+		if (!*ptr || *ptr == ' ' || j == 2) {
 			break;
 		}
 		d = c;
 		if (*ptr != '.' && r_hex_to_byte (&c, *ptr)) {
-			eprintf ("Invalid hexa string at char '%c' (%s).\n",
-				*ptr, arg);
+			R_LOG_ERROR ("Invalid hexa string at char '%c' (%s)", *ptr, arg);
 			return -1;
 		}
 		c |= d;
@@ -378,7 +370,7 @@ R_API int r_hex_bin2str(const ut8 *in, int len, char *out) {
 		return 0;
 	}
 	for (idx = i = 0; i < len; i++, idx += 2)  {
-		snprintf (tmp, sizeof (tmp), "%02x", in[i]);
+		r_hex_from_byte (tmp, in[i]);
 		memcpy (out + idx, tmp, 2);
 	}
 	out[idx] = 0;
@@ -386,18 +378,21 @@ R_API int r_hex_bin2str(const ut8 *in, int len, char *out) {
 }
 
 R_API char *r_hex_bin2strdup(const ut8 *in, int len) {
+	if (!in || len < 1) {
+		return strdup ("");
+	}
 	int i, idx;
-	char tmp[5], *out;
 
 	if ((len + 1) * 2 < len) {
 		return NULL;
 	}
-	out = malloc ((len + 1) * 2);
+	char *out = malloc ((len + 1) * 2);
 	if (!out) {
 		return NULL;
 	}
+	char tmp[5];
 	for (i = idx = 0; i < len; i++, idx += 2)  {
-		snprintf (tmp, sizeof (tmp), "%02x", in[i]);
+		r_hex_from_byte (tmp, in[i]);
 		memcpy (out+idx, tmp, 2);
 	}
 	out[idx] = 0;
@@ -405,6 +400,7 @@ R_API char *r_hex_bin2strdup(const ut8 *in, int len) {
 }
 
 R_API int r_hex_str2bin(const char *in, ut8 *out) {
+	r_return_val_if_fail (in, 0);
 	long nibbles = 0;
 
 	while (in && *in) {
@@ -444,24 +440,66 @@ R_API int r_hex_str2bin(const char *in, ut8 *out) {
 		if (out) {
 			r_hex_to_byte (&out[nibbles / 2], '0');
 		}
-		return -(nibbles+1) / 2;
+		return -((nibbles + 1) / 2);
 	}
 
 	return nibbles / 2;
 }
 
+// get the hex chars from start of string, until first non-hex char, as a heap
+// allocated ut8* buffer
+R_API int r_hex_str2bin_until_new(const char *in, ut8 **out) {
+	// r_return_val_if_fail (in && out, -1);
+	if (!in || !out) {
+		return -1;
+	}
+	size_t len = strlen (in);
+	if (len <= 1) {
+		return 0;
+	}
+	len = (len + 1) / 2;
+
+	int ret = -1;
+	size_t nibbles = 0;
+	ut8 *buf = calloc (1, len);
+	if (buf) {
+		while (!r_hex_to_byte (buf + (nibbles / 2), *in)) {
+			nibbles++;
+			in++;
+		}
+
+		if (!nibbles || nibbles % 2) {
+			ret = 0;
+		} else {
+			ret = nibbles / 2;
+			*out = (ut8*)realloc (buf, ret);
+			if (!*out) {
+				ret = -1;
+			}
+		}
+
+		if (ret <= 0) {
+			free (buf);
+		}
+	}
+	return ret;
+}
+
 R_API int r_hex_str2binmask(const char *in, ut8 *out, ut8 *mask) {
 	ut8 *ptr;
-	int len, ilen = strlen (in)+1;
-	int has_nibble = 0;
+	int ilen = strlen (in) + 1;
 	memcpy (out, in, ilen);
 	for (ptr = out; *ptr; ptr++) {
 		if (*ptr == '.') {
 			*ptr = '0';
 		}
 	}
-	len = r_hex_str2bin ((char*)out, out);
-	if (len<0) { has_nibble = 1; len = -(len+1); }
+	int len = r_hex_str2bin ((char*)out, out);
+	bool has_nibble = false;
+	if (len < 0) {
+		has_nibble = true;
+		len = -(len + 1);
+	}
 	if (len != -1) {
 		memcpy (mask, in, ilen);
 		if (has_nibble) {

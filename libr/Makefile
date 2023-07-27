@@ -18,30 +18,14 @@ include libs.mk
 .PHONY: $(LIBS)
 
 all:
-ifneq ($(LIBS0),)
 	$(MAKE) $(LIBS0)
-endif
-ifneq ($(LIBS1),)
 	$(MAKE) $(LIBS1)
-endif
-ifneq ($(LIBS2),)
 	$(MAKE) $(LIBS2)
-endif
-ifneq ($(LIBS3),)
 	$(MAKE) $(LIBS3)
-endif
-ifneq ($(LIBS4),)
 	$(MAKE) $(LIBS4)
-endif
-ifneq ($(LIBS5),)
 	$(MAKE) $(LIBS5)
-endif
-ifneq ($(LIBS6),)
 	$(MAKE) $(LIBS6)
-endif
-ifneq ($(LIBS7),)
 	$(MAKE) $(LIBS7)
-endif
 ifneq ($(LIBS8),)
 	$(MAKE) $(LIBS8)
 endif
@@ -70,6 +54,9 @@ LDFLAGS+=${SSL_LDFLAGS}
 #endif
 # from env: ALFLAGS+=$(ALFLAGS)
 
+localize_hidden:
+	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+
 # ${PARTIALLD} $(ALFLAGS) $(MLFLAGS) $(PLFLAGS) -o .libr/$$(basename $${LIB}.a).o $${LIB}
 .libr: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
 	rm -rf .libr
@@ -78,23 +65,24 @@ LDFLAGS+=${SSL_LDFLAGS}
 		${PARTIALLD} $(ALFLAGS) $(MLFLAGS) $(PLFLAGS) -o .libr/$$(basename $${LIB}.a).o $${LIB} ; \
 	done
 ifeq ($(OSTYPE),linux)
-	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+	$(MAKE) localize_hidden
 endif
 ifeq ($(OSTYPE),gnulinux)
-	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+	$(MAKE) localize_hidden
 endif
 ifeq ($(OSTYPE),android)
-	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+	$(MAKE) localize_hidden
 endif
 ifeq ($(OSTYPE),bsd)
-	for LIB in .libr/* ; do $(OBJCOPY) --localize-hidden $$LIB ; done
+	$(MAKE) localize_hidden
 endif
 
 _libr.${EXT_AR}: .libr
 	-${AR} -rs $@ .libr/*.o
 
-# this code should be in do-ar-sh not inlined here..
-
+# ifeq ($(shell type libtool),)
+ifeq (1,1)
+# XXX this is not correct. libtool is required for static builds for now
 .libr2: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
 	rm -rf .libr2
 	mkdir -p .libr2
@@ -105,23 +93,39 @@ _libr.${EXT_AR}: .libr
 		( cd .libr2/$$BN ; pwd ; du -hs ../../$$LIB; ${AR} -x ../../$$LIB ) ; \
 	done
 
-libr.${EXT_AR}: .libr2
-	-${AR} -rs $@ .libr2/*/*.o
+ifeq ($(shell uname),Darwin)
+WHOLEFLAG=-all_load
+else
+WHOLEFLAG=-Wl,--whole-archive
+endif
+libr.o: ../shlr/libr_shlr.${EXT_AR}
+	$(CC) -r -nostdlib $(WHOLEFLAG) -o libr.o $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
+
+libr.${EXT_AR}: libr.o
+	$(AR) -rs $@ libr.o
+	$(RANLIB) $@
+
+#libr.${EXT_AR}: .libr2
+#	-${AR} -rs $@ .libr2/*/*.o
+else
+
+libr.${EXT_AR}: $(wildcard */libr_*.${EXT_AR}) ../shlr/libr_shlr.${EXT_AR}
+	libtool -static -o libr.${EXT_AR} $^
+	# ar -rcT libr.${EXT_AR} $^
+	du -hs libr.${EXT_AR}
+endif
+
 
 ifeq (1,$(WITH_GPL))
 E+=../shlr/grub/libgrubfs.${EXT_AR}
 endif
-E+=../shlr/yxml/libyxml.${EXT_AR}
 E+=../shlr/ar/libr_ar.${EXT_AR}
 E+=../shlr/winkd/libr_winkd.${EXT_AR}
 E+=../shlr/qnx/lib/libqnxr.${EXT_AR}
 E+=../shlr/bochs/lib/libbochs.${EXT_AR}
-#ifeq ($(COMPILER),ios-sdk)
-#E+=../shlr/sdb/src/libsdb.${EXT_AR}
-#endif
-#ifneq ($(OSTYPE),android)
-#E+=../shlr/sdb/src/libsdb.${EXT_AR}
-#endif
+
+E+=../libr/arch/p/arm/v35/arm64dis.${EXT_AR}
+E+=../libr/arch/p/arm/v35/armv7dis.${EXT_AR}
 
 ifeq ($(USE_CAPSTONE),1)
 E+=$(CAPSTONE_LDFLAGS)
@@ -130,18 +134,28 @@ E+=../shlr/capstone/libcapstone.${EXT_AR}
 endif
 
 ifeq ($(OSTYPE),darwin)
-libr_LDFLAGS=-dynamiclib -shared
+LIBR_LDFLAGS=-dynamiclib -shared
 else
-libr_LDFLAGS=-shared
+LIBR_LDFLAGS=-shared
 endif
 
-libr.${EXT_SO}: .libr2
+libr2.${EXT_SO}: .libr2
 ifeq (${COMPILER},emscripten)
 	echo nothing to do here
 else
-	$(CC) -fvisibility=hidden $(MLFLAGS) ${LINK} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} $(libr_LDFLAGS) -o libr.${EXT_SO}  \
+	$(CC) -fvisibility=hidden $(MLFLAGS) ${LINK} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} $(LIBR_LDFLAGS) -o libr.${EXT_SO}  \
 		.libr2/*/*.o \
 		../shlr/gdb/lib/libgdbr.${EXT_AR} ../shlr/java/libr_java.${EXT_AR} \
+		../shlr/libr_shlr.${EXT_AR} ../shlr/mpc/libmpc.${EXT_AR} $(E) \
+		../libr/util/libr_util.${EXT_AR}
+endif
+
+libr.${EXT_SO}: libr.${EXT_AR}
+ifeq (${COMPILER},emscripten)
+	echo nothing to do here
+else
+	$(CC) -fvisibility=hidden $(MLFLAGS) ${LINK} ${CFLAGS} ${CPPFLAGS} ${LDFLAGS} $(LIBR_LDFLAGS) -o libr.${EXT_SO}  \
+		libr.${EXT_AR} ../shlr/gdb/lib/libgdbr.${EXT_AR} ../shlr/java/libr_java.${EXT_AR} \
 		../shlr/libr_shlr.${EXT_AR} ../shlr/mpc/libmpc.${EXT_AR} $(E) \
 		../libr/util/libr_util.${EXT_AR}
 endif
@@ -188,15 +202,14 @@ install-includes:
 		done ; \
 	done)
 	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/sdb"
-	(cd ../shlr/sdb/src && for FILE in *.h ; do \
+	(cd ../shlr/sdb/include/sdb && for FILE in *.h ; do \
 		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/sdb/$$FILE" ; \
 	done)
-	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/r_util"
-	(cd include/r_util && for FILE in * ; do \
-		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_util/$$FILE" ; done)
-	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/r_crypto"
-	(cd include/r_crypto && for FILE in * ; do \
-		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/r_crypto/$$FILE" ; done)
+	for a in r_util r_crypto r_anal ; do \
+	${INSTALL_DIR} "${DESTDIR}${INCLUDEDIR}/libr/$$a" ; \
+	(cd include/$$a && for FILE in * ; do \
+		${INSTALL_DATA} $$FILE "${DESTDIR}${INCLUDEDIR}/libr/$$a/$$FILE" ; done) ; \
+	done
 
 symstall install-symlink:
 	@cd .. && \
@@ -205,13 +218,15 @@ symstall install-symlink:
 		"${DESTDIR}${LIBDIR}/pkgconfig" \
 		"${DESTDIR}${LIBDIR}/radare2/${VERSION}" ; \
 	rm -rf "${DESTDIR}${INCLUDEDIR}/libr" && ln -fs "${PWD}/include" "${DESTDIR}${INCLUDEDIR}/libr" ; \
-	rm -rf "${DESTDIR}${INCLUDEDIR}/libr/sdb" && ln -fs "${PWD}/../shlr/sdb/src" "${DESTDIR}${INCLUDEDIR}/libr/sdb" ; \
+	rm -rf "${DESTDIR}${INCLUDEDIR}/libr/sdb" && ln -fs "${PWD}/../shlr/sdb/include/sdb" "${DESTDIR}${INCLUDEDIR}/libr/sdb" ; \
 	$(MAKE) install-pkgconfig-symlink ; \
 	$(foreach lib,${LIBS}, \
 	  ln -fs "${PWD}/$(lib)/libr_$(lib).${EXT_SO}" \
 		"${DESTDIR}${LIBDIR}/libr_$(lib).${EXT_SO}" ; \
 	  ln -fs "${PWD}/$(lib)/libr_$(lib).${EXT_SO}" \
 		"${DESTDIR}${LIBDIR}/$(call libname-version,libr_$(lib).${EXT_SO},${LIBVERSION})" ; \
+	  ln -fs "${PWD}/$(lib)/libr_$(lib).${EXT_SO}" \
+		"${DESTDIR}${LIBDIR}/$(call libname-version,libr_$(lib).${EXT_SO},${ABIVERSION})" ; \
 	  ln -fs "${PWD}/$(lib)/libr_$(lib).${EXT_AR}" "${DESTDIR}${LIBDIR}/libr_$(lib).${EXT_AR}" ; \
 	  $(foreach module,$(wildcard $(lib)/p/*.${EXT_SO}), \
 	    ln -fs "${PWD}/$(module)" "${DESTDIR}${LIBDIR}/radare2/${VERSION}/" ; \
@@ -224,16 +239,18 @@ install: install-includes install-pkgconfig
 	# libraries
 	@${INSTALL_DIR} "${DESTDIR}${LIBDIR}"
 	@$(foreach lib,$(shell find * -type f -iname "*.${EXT_SO}" | grep -vE '^libr\.${EXT_SO}$$' | grep -v '(lib|parse)/t/' | grep lib | grep -v /bin/ | grep -v /p/), \
-	  echo " ${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
+	  echo " ${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION}) -> $(call libpath-to-name-version,$(lib),${ABIVERSION}) -> $(lib)"; \
 	  rm -f "${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
+	  rm -f "${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${ABIVERSION})"; \
 	  ${INSTALL_LIB} "$(lib)" "${DESTDIR}${LIBDIR}/$(call libpath-to-name-version,$(lib),${LIBVERSION})"; \
-	  ( cd "${DESTDIR}${LIBDIR}" ; ln -fs "$(call libpath-to-name-version,$(lib),${LIBVERSION})" "$(call libpath-to-name,$(lib))" ) ; \
+	  ( cd "${DESTDIR}${LIBDIR}" ; ln -fs "$(call libpath-to-name-version,$(lib),${LIBVERSION})" "$(call libpath-to-name-version,$(lib),${ABIVERSION})" ) ; \
+	  ( cd "${DESTDIR}${LIBDIR}" ; ln -fs "$(call libpath-to-name-version,$(lib),${ABIVERSION})" "$(call libpath-to-name,$(lib))" ) ; \
 	)
 	lib=libr.$(EXT_SO) ; if [ -f "$$lib" ]; then \
 	  ${INSTALL_LIB} "$$lib" "${DESTDIR}${LIBDIR}/$$lib"; \
 	fi
 	# object archives
-	@for FILE in `find * -type f -iname "*.${EXT_AR}" | grep -v fs/p` ; do \
+	@for FILE in `find * -type f -iname "*.${EXT_AR}" | grep -v dis.a | grep -v fs/p` ; do \
 	  echo " ${DESTDIR}${LIBDIR}/$$FILE"; ${INSTALL_DATA} $$FILE "${DESTDIR}${LIBDIR}" ; done || true
 	# plugins
 	@${INSTALL_DIR} "${DESTDIR}${LIBDIR}/radare2/${VERSION}"
@@ -273,6 +290,7 @@ deinstall uninstall:
 	# TODO: use for FILE in LIBS (like in binr/Makefile)
 	rm -rf "${DESTDIR}${INCLUDEDIR}/libr"
 	rm -rf "${DESTDIR}${LIBDIR}/libr_*.so.${LIBVERSION}"
+	rm -rf "${DESTDIR}${LIBDIR}/libr_*.so.${ABIVERSION}"
 	rm -rf "${DESTDIR}${LIBDIR}/libr_*.so.0"
 	rm -rf "${DESTDIR}${LIBDIR}/libr_*.so"
 	rm -rf "${DESTDIR}${LIBDIR}/libr_*.${EXT_AR}"

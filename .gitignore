@@ -27,6 +27,10 @@ langs.cfg
 *.ilk
 binr/r2agent/r2agent
 binr/r2agent/r2agent.exe
+binr/rvc2/rvc2
+binr/rvc2/rvc2.exe
+binr/ravc2/ravc2
+binr/ravc2/ravc2.exe
 binr/r2r/r2r
 binr/r2r/r2r.exe
 binr/rabin2/rabin2
@@ -49,6 +53,8 @@ binr/rasm2/rasm2
 binr/rasm2/rasm2.exe
 binr/rax2/rax2
 binr/rax2/rax2.exe
+binr/r2pm/r2pm
+binr/r2pm/r2pm.exe
 binr/*/_CodeSignature/*
 build
 build_sdb
@@ -58,6 +64,8 @@ libr/config.h
 libr/include/r_userconf.h
 libr/include/r_version.h
 libr/include/r_version.h.tmp
+libr/arch/p/arm/v35/arch-arm64
+libr/arch/p/arm/v35/arch-armv7
 shlr/capstone/
 shlr/java/out
 shlr/java/out.exe
@@ -67,8 +75,10 @@ shlr/sdb/src/sdb
 shlr/sdb/src/.sdb
 shlr/sdb/src/sdb.exe
 shlr/sdb/src/.sdb.exe
+shlr/sdb/include/sdb/version.h
 shlr/sdb/src/sdb-version.h
 shlr/sdb/src/sdb_version.h
+shlr/sdb/include/sdb/version.h
 shlr/sdb/src/libsdb.so*
 shlr/spp/config.h
 shlr/.cs_tmp.zip
@@ -126,3 +136,14 @@ __pycache__
 .ccls-cache/
 vgcore.*
 libr/include/sdb
+**/d/*.c
+**/d/*.h
+**/d/*.gperf
+**/d/*.out
+**/d/*.inc
+**/d/*.sdb.txt.tmp
+# Artifacts
+/dist/artifacts
+# libFuzzer
+crash-*
+corpus*

@@ -1,3 +1,4 @@
+ecd
 ec comment cyan
 ec usrcmt cyan
 ec args cyan
@@ -35,13 +36,12 @@ ec swi black yellow
 ec cmp cyan
 ec reg rgb:f0f0f0
 ec creg yellow
-ec num yellow
+ec num yellow black
 ec mov rgb:d0d0d0
-ec func_var white
-ec func_var_type yellow
-ec func_var_addr white
-ec widget_bg rgb:303030
-ec widget_sel rgb:ff0000
+ec var white
+ec var.type yellow
+ec var.addr white
+ec var.name white
 ec ai.read rgb:e0e0e0
 ec ai.write rgb:d0d0d0
 ec ai.exec rgb:f0f0f0
@@ -59,10 +59,10 @@ ec graph.traced rgb:f00000
 ec gui.cflow rgb:f03030
 ec gui.dataoffset rgb:3030f0
 ec gui.background rgb:000000
-ec gui.alt_background rgb:ffffff
+ec gui.background2 rgb:ffffff
 ec gui.border rgb:000000
 ec wordhl rgb:ff0000
 ec linehl rgb:101010
 
-ec widget_bg cyan rgb:3030f0
-ec widget_sel yellow rgb:090
+ec widget.bg cyan rgb:3030f0
+ec widget.sel yellow rgb:090

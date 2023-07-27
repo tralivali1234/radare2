@@ -56,8 +56,13 @@ fcn.10002660:
     fcn.10004730
     sym.imp.elf_getdata
     fcn.1000f2d0
+    sym.imp.elf_getdata
+    fcn.10006120
+    fcn.10006120
     sym.imp.gelf_xlatetof
+    fcn.1000f2d0
     sym.imp.gelf_xlatetom
+    fcn.10006120
     sym.imp.abort
 
 fcn.10002ff0:
@@ -114,6 +119,15 @@ fcn.10003e40:
     sym.imp.elf_end
     sym.imp.fsync
     sym.imp.close
+    sym.imp.elf_end
+    sym.imp.close
+    sym.imp.free
+    sym.imp.free
+    sym.imp.free
+    sym.imp.free
+    sym.imp.free
+    sym.imp.free
+    sym.imp.free
 
 fcn.10003f90:
     sym.imp.unlink
@@ -127,9 +141,14 @@ fcn.10003fe0:
 fcn.10004390:
     sym.imp.memset
     sym.imp.elf_getdata
+    sym.imp.elf_getdata
     sym.imp.gelf_getsym
     fcn.10025b30
+    sym.imp.gelf_getsym
     sym.imp.gelf_update_sym
+    sym.imp.gelf_getsym
+    sym.imp.gelf_update_sym
+    sym.imp.__assert_fail
     sym.imp.__assert_fail
 
 fcn.10004730:
@@ -148,6 +167,8 @@ fcn.100048e0:
     fcn.10004880
     sym.imp.strlen
     sym.imp.memcpy
+    sym.imp.strlen
+    sym.imp.memcpy
     sym.imp.__fxstat64
     sym.imp.fchown
     sym.imp.fchmod
@@ -159,6 +180,7 @@ fcn.100048e0:
     sym.imp.unlink
     sym.imp.__errno_location
     sym.imp.error
+    sym.imp.unlink
 
 fcn.10005480:
     sym.imp.gelf_fsize
@@ -168,6 +190,7 @@ fcn.10005a00:
     fcn.10025b30
     sym.imp.gelf_getsym
     sym.imp.gelf_update_sym
+    sym.imp.elf_getdata
     sym.imp.elf_flagscn
 
 fcn.10005cb0:
@@ -178,10 +201,12 @@ fcn.10005cb0:
 
 fcn.10006120:
     sym.imp.elf_getdata
+    sym.imp.elf_getdata
     fcn.10025b30
     sym.imp.gelf_getdyn
     sym.imp.gelf_update_dyn
     sym.imp.elf_flagscn
+    sym.imp.__assert_fail
     sym.imp.__assert_fail
 
 fcn.10006480:
@@ -217,9 +242,13 @@ fcn.10008d80:
     sym.imp.elf_getscn
     sym.imp.gelf_getshdr
     sym.imp.qsort
+    sym.imp.elf_getscn
+    sym.imp.gelf_getshdr
     sym.imp.error
     sym.imp.elf_end
     fcn.10007380
+    sym.imp.memcpy
+    sym.imp.memcpy
     sym.imp.close
     sym.imp.__assert_fail
     sym.imp.open
@@ -232,13 +261,22 @@ fcn.10009f00:
     sym.imp.strncmp
     sym.imp.strcmp
     sym.imp.elf_getdata
+    sym.imp.elf_getdata
     sym.imp.__assert_fail
     fcn.1000cbf0
     sym.imp.malloc
     fcn.1000cb20
     sym.imp.error
     fcn.1000c650
+    sym.imp.error
+    sym.imp.error
+    sym.imp.error
     sym.imp.free
+    fcn.1000c650
+    sym.imp.error
+    sym.imp.error
+    sym.imp.__assert_fail
+    sym.imp.__assert_fail
 
 fcn.1000b540:
     fcn.1000c440
@@ -247,24 +285,34 @@ fcn.1000b8e0:
     sym.imp.calloc
     fcn.10025b30
     fcn.1000cbf0
+    fcn.1000cbf0
+    fcn.1000cbf0
     fcn.10025f80
     sym.imp.error
     fcn.1000c650
+    fcn.1000c650
+    fcn.1000c650
     sym.imp.free
     sym.imp.__assert_fail
+    sym.imp.calloc
+    sym.imp.error
 
-loc.1000c6a8:
+fcn.1000c650:
+    sym.imp.free
     sym.imp.free
 
 fcn.1000cbf0:
     fcn.1000c730
     sym.imp.calloc
+    sym.imp.calloc
 
-loc.1000ce88:
+fcn.1000ce30:
     sym.imp.memset
 
 fcn.1000d410:
     sym.imp.elf_getdata
+    sym.imp.elf_getdata
+    sym.imp.__assert_fail
     sym.imp.__assert_fail
 
 fcn.1000d780:
@@ -331,6 +379,7 @@ RUN
 NAME=ppc-update-suffix-esil
 FILE=bins/elf/a6ppc.out
 CMDS=<<EOF
+aeim
 40ds
 dr?r3
 dr?r4
@@ -339,9 +388,9 @@ dr?r3
 dr?r4
 EOF
 EXPECT=<<EOF
-0xffffffbf
+0x00177fbf
 0x10000107
-0xffffffc1
+0x00177fc1
 0x1000010a
 EOF
 RUN
@@ -422,7 +471,6 @@ EXPECT=<<EOF
     "mask": "ffffffff",
     "esil": "r1,-16,r1,+,=[4],-16,r1,+=",
     "sign": false,
-    "prefix": 0,
     "id": 1072,
     "opex": {
       "operands": [
@@ -442,8 +490,6 @@ EXPECT=<<EOF
     "size": 4,
     "type": "store",
     "esilcost": 12,
-    "scale": 0,
-    "refptr": 0,
     "cycles": 0,
     "failcycles": 0,
     "delay": 0,

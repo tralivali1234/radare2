@@ -1,9 +1,8 @@
 /* Public domain - author D. J. Bernstein, modified by pancake - 2014-2016 */
 
-#include <stdio.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include "cdb.h"
+#include "sdb/cdb.h"
+#include "sdb/heap.h"
 #if USE_MMAN
 #include <sys/mman.h>
 #endif
@@ -31,7 +30,7 @@ void cdb_free(struct cdb *c) {
 #if USE_MMAN
 	(void)munmap (c->map, c->size);
 #else
-	free (c->map);
+	sdb_gh_free (c->map);
 #endif
 	c->map = NULL;
 }
@@ -54,25 +53,25 @@ bool cdb_init(struct cdb *c, int fd) {
 	cdb_findstart (c);
 	if (fd != -1 && !fstat (fd, &st) && st.st_size > 4 && st.st_size != (off_t)UT64_MAX) {
 #if USE_MMAN
-		char *x = mmap (0, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
+		char *x = (char *)mmap (0, st.st_size, PROT_READ, MAP_SHARED, fd, 0);
 		if (x == MAP_FAILED) {
-			eprintf ("Cannot mmap %d\n", (int)st.st_size);
+			// eprintf ("Cannot mmap %d\n", (int)st.st_size);
 			return false;
 		}
 		if (c->map) {
 			munmap (c->map, c->size);
 		}
 #else
-		char *x = calloc (1, st.st_size);
+		char *x = sdb_gh_calloc (1, st.st_size);
 		if (!x) {
-			eprintf ("Cannot malloc %d\n", (int)st.st_size);
+			// eprintf ("Cannot malloc %d\n", (int)st.st_size);
 			return false;
 		}
 		/* TODO: read by chunks instead of a big huge syscall */
 		if (read (fd, x, st.st_size) != st.st_size) {
 			/* handle read error */
 		}
-		free (c->map);
+		sdb_gh_free (c->map);
 #endif
 		c->map = x;
 		c->size = st.st_size;

@@ -1,6 +1,8 @@
-/* radare - LGPL - Copyright 2017 - pancake, defragger */
+/* radare - LGPL - Copyright 2017-2023 - pancake, defragger */
 
 #include <r_core.h>
+
+#define USE_SDB 0
 
 typedef enum bb_type {
 	TRAP,
@@ -30,7 +32,7 @@ typedef struct fcn {
 	ut64 ends;
 } fcn_t;
 
-static bool __is_data_block_cb(RAnalBlock *block, void *user) {
+static inline bool __is_data_block_cb(RAnalBlock *block, void *user) {
 	bool *block_exists = user;
 	*block_exists = true;
 	return false;
@@ -38,7 +40,7 @@ static bool __is_data_block_cb(RAnalBlock *block, void *user) {
 
 static int __isdata(RCore *core, ut64 addr) {
 	if (!r_io_is_valid_offset (core->io, addr, false)) {
-		// eprintf ("Warning: Invalid memory address at 0x%08"PFMT64x"\n", addr);
+		// R_LOG_WARN ("Invalid memory address at 0x%08"PFMT64x, addr);
 		return 4;
 	}
 
@@ -70,9 +72,9 @@ exit:
 	return result;
 }
 
-static bool fcnAddBB (fcn_t *fcn, bb_t* block) {
+static bool fcnAddBB(fcn_t *fcn, bb_t* block) {
 	if (!fcn) {
-		eprintf ("No function given to add a basic block\n");
+		R_LOG_ERROR ("No function given to add a basic block");
 		return false;
 	}
 	fcn->score += block->score;
@@ -81,39 +83,38 @@ static bool fcnAddBB (fcn_t *fcn, bb_t* block) {
 		fcn->ends++;
 	}
 	if (!fcn->bbs) {
-		eprintf ("Block list not initialized\n");
+		R_LOG_ERROR ("Block list not initialized");
 		return false;
 	}
 	r_list_append (fcn->bbs, block);
 	return true;
 }
 
-static fcn_t* fcnNew (bb_t *block) {
+static fcn_t* fcnNew(bb_t *block) {
 	fcn_t* fcn = R_NEW0 (fcn_t);
 	if (!fcn) {
-		eprintf ("Failed to allocate memory for function\n");
 		return NULL;
 	}
 	fcn->addr = block->start;
 	fcn->bbs = r_list_new ();
 	if (!fcnAddBB (fcn, block)) {
-		eprintf ("Failed to add block to function\n");
+		R_LOG_ERROR ("Failed to add block to function");
 	}
 	return fcn;
 }
 
-static void fcnFree (fcn_t *fcn) {
+static void fcnFree(fcn_t *fcn) {
 	r_list_free (fcn->bbs);
 	free (fcn);
 }
 
-static int bbCMP (void *_a, void *_b) {
+static int bbCMP(void *_a, void *_b) {
 	bb_t *a = (bb_t*)_a;
 	bb_t *b = (bb_t*)_b;
 	return b->start - a->start;
 }
 
-static void initBB (bb_t *bb, ut64 start, ut64 end, ut64 jump, ut64 fail, bb_type_t type, int score, int reached, int called) {
+static void initBB(bb_t *bb, ut64 start, ut64 end, ut64 jump, ut64 fail, bb_type_t type, int score, int reached, int called) {
 	if (bb) {
 		bb->start = start;
 		bb->end = end;
@@ -129,14 +130,12 @@ static void initBB (bb_t *bb, ut64 start, ut64 end, ut64 jump, ut64 fail, bb_typ
 static bool addBB(RList *block_list, ut64 start, ut64 end, ut64 jump, ut64 fail, bb_type_t type, int score) {
 	bb_t *bb = (bb_t*) R_NEW0 (bb_t);
 	if (!bb) {
-		eprintf ("Failed to calloc mem for new basic block!\n");
 		return false;
 	}
 	initBB (bb, start, end, jump, fail, type, score, 0, 0);
 	if (jump < UT64_MAX) {
 		bb_t *jump_bb = (bb_t*) R_NEW0 (bb_t);
 		if (!jump_bb) {
-			eprintf ("Failed to allocate memory for jump block\n");
 			free (bb);
 			return false;
 		}
@@ -150,7 +149,6 @@ static bool addBB(RList *block_list, ut64 start, ut64 end, ut64 jump, ut64 fail,
 	if (fail < UT64_MAX) {
 		bb_t *fail_bb = (bb_t*) R_NEW0 (bb_t);
 		if (!fail_bb) {
-			eprintf ("Failed to allocate memory for fail block\n");
 			free (bb);
 			return false;
 		}
@@ -161,12 +159,12 @@ static bool addBB(RList *block_list, ut64 start, ut64 end, ut64 jump, ut64 fail,
 	return true;
 }
 
-void dump_block(bb_t *block) {
+static void dump_block(bb_t *block) {
 	eprintf ("s: 0x%"PFMT64x" e: 0x%"PFMT64x" j: 0x%"PFMT64x" f: 0x%"PFMT64x" t: %d\n"
 			, block->start, block->end, block->jump, block->fail, block->type);
 }
 
-void dump_blocks (RList* list) {
+void dump_blocks(RList* list) {
 	RListIter *iter;
 	bb_t *block = NULL;
 	r_list_foreach (list, iter, block) {
@@ -182,36 +180,30 @@ static bool checkFunction(fcn_t *fcn) {
 	return false;
 }
 
-static void printFunctionCommands(RCore *core, fcn_t* fcn, const char *name) {
-	if (!fcn) {
-		eprintf ("No function given to print\n");
-		return;
-	}
-
-	RListIter *fcn_iter;
-	bb_t *cur = NULL;
+static R_MUSTUSE char *function_name(RCore *core, const char *name, ut64 addr) {
 	const char *pfx = r_config_get (core->config, "anal.fcnprefix");
 	if (!pfx) {
 		pfx = "fcn";
 	}
+	return name? (char *) strdup (name): r_str_newf ("%s.%" PFMT64x, pfx, addr);
+}
 
-	char *_name = name? (char *) name: r_str_newf ("%s.%" PFMT64x, pfx, fcn->addr);
+static void printFunctionCommands(RCore *core, fcn_t* fcn, const char *name) {
+	r_return_if_fail (core && fcn);
+	RListIter *fcn_iter;
+	bb_t *cur = NULL;
+	char *_name = function_name (core, name, fcn->addr);
 	r_cons_printf ("af+ 0x%08" PFMT64x " %s\n", fcn->addr, _name);
-	if (!name) {
-		free (_name);
-	}
+	free (_name);
 
 	r_list_foreach (fcn->bbs, fcn_iter, cur) {
-		r_cons_printf ("afb+ 0x%08" PFMT64x " 0x%08" PFMT64x " %llu 0x%08"PFMT64x" 0x%08"PFMT64x"\n"
-			, fcn->addr, cur->start, cur->end - cur->start, cur->jump, cur->fail);
+		r_cons_printf ("afb+ 0x%08" PFMT64x " 0x%08" PFMT64x " %"PFMT64u" 0x%08"PFMT64x" 0x%08"PFMT64x"\n",
+			fcn->addr, cur->start, cur->end - cur->start, cur->jump, cur->fail);
 	}
 }
 
 static void createFunction(RCore *core, fcn_t* fcn, const char *name) {
-	if (!fcn) {
-		eprintf ("No function given to create\n");
-		return;
-	}
+	r_return_if_fail (core && fcn);
 
 	RListIter *fcn_iter;
 	bb_t *cur = NULL;
@@ -222,13 +214,13 @@ static void createFunction(RCore *core, fcn_t* fcn, const char *name) {
 
 	RAnalFunction *f = r_anal_function_new (core->anal);
 	if (!f) {
-		eprintf ("Failed to create new function\n");
+		R_LOG_ERROR ("Failed to create new function");
 		return;
 	}
 
 	f->name = name? strdup (name): r_str_newf ("%s.%" PFMT64x, pfx, fcn->addr);
 	f->addr = fcn->addr;
-	f->bits = core->anal->bits;
+	f->bits = core->anal->config->bits;
 	f->cc = r_str_constpool_get (&core->anal->constpool, r_anal_cc_default (core->anal));
 	f->type = R_ANAL_FCN_TYPE_FCN;
 
@@ -236,43 +228,45 @@ static void createFunction(RCore *core, fcn_t* fcn, const char *name) {
 		if (__isdata (core, cur->start)) {
 			continue;
 		}
-		r_anal_fcn_add_bb (core->anal, f, cur->start, (cur->end - cur->start), cur->jump, cur->fail, NULL);
+		r_anal_function_add_bb (core->anal, f, cur->start, (cur->end - cur->start), cur->jump, cur->fail, NULL);
 	}
 	if (!r_anal_add_function (core->anal, f)) {
-		// eprintf ("Failed to insert function\n");
+		// R_LOG_ERROR ("Failed to insert function");
 		r_anal_function_free (f);
 		return;
 	}
 }
 
-#define Fhandled(x) sdb_fmt("handled.%"PFMT64x"", x)
+#define Fhandled(x) r_strf ("handled.%"PFMT64x, x)
 R_API bool core_anal_bbs(RCore *core, const char* input) {
+	r_return_val_if_fail (core && input, false);
 	if (!r_io_is_valid_offset (core->io, core->offset, false)) {
-		eprintf ("No valid offset given to analyze\n");
+		R_LOG_ERROR ("No valid offset given to analyze");
 		return false;
 	}
-
+#if USE_SDB
+	r_strf_buffer (64);
 	Sdb *sdb = NULL;
+#else
+	HtUP *ht = NULL;
+	SetU *ht2 = NULL;
+#endif
 	const ut64 start = core->offset;
 	ut64 size = input[0] ? r_num_math (core->num, input + 1) : core->blocksize;
 	ut64 b_start = start;
 	RListIter *iter;
 	int block_score = 0;
-	RList *block_list;
 	bb_t *block = NULL;
 	int invalid_instruction_barrier = -20000;
-	const bool debug = r_config_get_b (core->config, "cfg.debug");
 	const bool nopskip = r_config_get_b (core->config, "anal.nopskip");
 
-	block_list = r_list_new ();
+	RList *block_list = r_list_new ();
 	if (!block_list) {
-		eprintf ("Failed to create block_list\n");
+		return false;
 	}
 
-	if (debug) {
-		eprintf ("Analyzing [0x%08"PFMT64x"-0x%08"PFMT64x"]\n", start, start + size);
-		eprintf ("Creating basic blocks\b");
-	}
+	R_LOG_DEBUG ("Analyzing [0x%08"PFMT64x"-0x%08"PFMT64x"]", start, start + size);
+	R_LOG_DEBUG ("Creating basic blocks");
 	ut64 cur = 0, base = 0;
 	while (cur >= base && cur < size) {
 		if (r_cons_is_breaked ()) {
@@ -293,7 +287,7 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 			cur += dsize;
 			continue;
 		}
-		RAnalOp *const op = r_core_anal_op (core, dst, R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
+		RAnalOp *const op = r_core_anal_op (core, dst, R_ARCH_OP_MASK_BASIC | R_ARCH_OP_MASK_DISASM);
 
 		if (!op || !op->mnemonic) {
 			block_score -= 10;
@@ -302,8 +296,8 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 		}
 
 		if (op->mnemonic[0] == '?') {
-			eprintf ("? Bad op at: 0x%08"PFMT64x"\n", dst);
-			eprintf ("Cannot analyze opcode at 0x%"PFMT64x"\n", dst);
+			R_LOG_ERROR ("? Bad op at: 0x%08"PFMT64x, dst);
+			R_LOG_ERROR ("Cannot analyze opcode at 0x%"PFMT64x, dst);
 			block_score -= 10;
 			cur++;
 			continue;
@@ -357,36 +351,35 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 		r_anal_op_free (op);
 	}
 
-	if (debug) {
-		eprintf ("Found %d basic blocks\n", block_list->length);
-	}
+	R_LOG_DEBUG ("Found %d basic blocks", block_list->length);
 
 	RList *result = r_list_newf (free);
 	if (!result) {
 		r_list_free (block_list);
-		eprintf ("Failed to create resulting list\n");
 		return false;
 	}
 
+#if USE_SDB
 	sdb = sdb_new0 ();
 	if (!sdb) {
-		eprintf ("Failed to initialize sdb db\n");
 		r_list_free (block_list);
 		r_list_free (result);
 		return false;
 	}
+#else
+	ht = ht_up_new0 ();
+	ht2 = set_u_new ();
+#endif
 
 	r_list_sort (block_list, (RListComparator)bbCMP);
 
-	if (debug) {
-		eprintf ("Sorting all blocks done\n");
-		eprintf ("Creating the complete graph\n");
-	}
+	R_LOG_DEBUG ("Sorting all blocks done");
+	R_LOG_DEBUG ("Creating the complete graph");
 
 	while (block_list->length > 0) {
 		block = r_list_pop (block_list);
 		if (!block) {
-			eprintf ("Failed to get next block from list\n");
+			R_LOG_ERROR ("Failed to get next block from list");
 			continue;
 		}
 		if (r_cons_is_breaked ()) {
@@ -396,7 +389,7 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 		if (block_list->length > 0) {
 			bb_t *next_block = (bb_t*) r_list_iter_get_data (block_list->tail);
 			if (!next_block) {
-				eprintf ("No next block to compare with!\n");
+				R_LOG_ERROR ("No next block to compare with!");
 			}
 
 			// current block is just a split block
@@ -438,17 +431,18 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 				}
 			}
 		}
-
-		sdb_ptr_set (sdb, sdb_fmt ("bb.0x%08"PFMT64x, block->start), block, 0);
+#if USE_SDB
+		sdb_ptr_set (sdb, r_strf ("bb.0x%08"PFMT64x, block->start), block, 0);
+#else
+		ht_up_insert (ht, block->start, block);
+#endif
 		r_list_append (result, block);
 	}
 
 	// finally search for functions
 	// we simply assume that non reached blocks or called blocks
 	// are functions
-	if (debug) {
-		eprintf ("Trying to create functions\n");
-	}
+	R_LOG_DEBUG ("Trying to create functions");
 
 	r_list_foreach (result, iter, block) {
 		if (r_cons_is_breaked ()) {
@@ -462,7 +456,7 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 			bb_t *cur = NULL;
 
 			if (!r_stack_push (stack, (void*)block)) {
-				eprintf ("Failed to push initial block\n");
+				R_LOG_ERROR ("Failed to push initial block");
 			}
 
 			while (!r_stack_is_empty (stack)) {
@@ -470,7 +464,11 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 				if (!cur) {
 					continue;
 				}
-				sdb_num_set (sdb, Fhandled(cur->start), 1, 0);
+#if USE_SDB
+				sdb_num_set (sdb, Fhandled (cur->start), 1, 0);
+#else
+				set_u_add (ht2, cur->start);
+#endif
 				if (cur->score < 0) {
 					fcnFree (current_function);
 					current_function = NULL;
@@ -483,25 +481,34 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 
 				fcnAddBB (current_function, cur);
 
-				if (cur->jump < UT64_MAX && !sdb_num_get (sdb, Fhandled(cur->jump), NULL)) {
-					jump = sdb_ptr_get (sdb, sdb_fmt ("bb.0x%08"PFMT64x, cur->jump), NULL);
+#if USE_SDB
+				if (cur->jump < UT64_MAX && !sdb_num_get (sdb, Fhandled (cur->jump), NULL)) {
+					jump = sdb_ptr_get (sdb, r_strf ("bb.0x%08"PFMT64x, cur->jump), NULL);
+#else
+				if (cur->jump < UT64_MAX && !set_u_contains (ht2, cur->jump)) {
+					jump = ht_up_find (ht, cur->jump, NULL);
+#endif
 					if (!jump) {
-						eprintf ("Failed to get jump block at 0x%"PFMT64x"\n", cur->jump);
+						R_LOG_ERROR ("Failed to get jump block at 0x%"PFMT64x, cur->jump);
 						continue;
 					}
 					if (!r_stack_push (stack, (void*)jump)) {
-						eprintf ("Failed to push jump block to stack\n");
+						R_LOG_ERROR ("Failed to push jump block to stack");
 					}
 				}
-
-				if (cur->fail < UT64_MAX && !sdb_num_get (sdb, Fhandled(cur->fail), NULL)) {
-					fail = sdb_ptr_get (sdb, sdb_fmt ("bb.0x%08" PFMT64x, cur->fail), NULL);
+#if USE_SDB
+				if (cur->fail < UT64_MAX && !sdb_num_get (sdb, Fhandled (cur->fail), NULL)) {
+					fail = sdb_ptr_get (sdb, r_strf ("bb.0x%08" PFMT64x, cur->fail), NULL);
+#else
+				if (cur->fail < UT64_MAX && !set_u_contains (ht2, cur->fail)) {
+					fail = ht_up_find (ht, cur->fail, NULL);
+#endif
 					if (!fail) {
-						eprintf ("Failed to get fail block at 0x%"PFMT64x"\n", cur->fail);
+						R_LOG_ERROR ("Failed to get fail block at 0x%"PFMT64x, cur->fail);
 						continue;
 					}
 					if (!r_stack_push (stack, (void*)fail)) {
-						eprintf ("Failed to push jump block to stack\n");
+						R_LOG_ERROR ("Failed to push jump block to stack");
 					}
 				}
 			}
@@ -522,19 +529,29 @@ R_API bool core_anal_bbs(RCore *core, const char* input) {
 		}
 	}
 
+#if USE_SDB
 	sdb_free (sdb);
+#else
+	ht_up_free (ht);
+	set_u_free (ht2);
+#endif
 	r_list_free (result);
 	r_list_free (block_list);
 	return true;
 }
 
-R_API bool core_anal_bbs_range (RCore *core, const char* input) {
+R_API bool core_anal_bbs_range(RCore *core, const char* input) {
 	if (!r_io_is_valid_offset (core->io, core->offset, false)) {
-		eprintf ("No valid offset given to analyze\n");
+		R_LOG_ERROR ("No valid offset given to analyze");
 		return false;
 	}
-
+#if USE_SDB
+	r_strf_buffer (64);
 	Sdb *sdb = NULL;
+#else
+	HtUP *ht = NULL;
+	SetU *ht2 = NULL;
+#endif
 	ut64 cur = 0;
 	ut64 start = core->offset;
 	ut64 size = input[0] ? r_num_math (core->num, input + 1) : core->blocksize;
@@ -542,26 +559,22 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 	RAnalOp *op;
 	RListIter *iter;
 	int block_score = 0;
-	RList *block_list;
 	bb_t *block = NULL;
 	int invalid_instruction_barrier = -20000;
-	const bool debug = r_config_get_b (core->config, "cfg.debug");
-	ut64 lista[1024] = { 0 };
+	ut64 lista[1024] = {0};
 	int idx = 0;
 	int x;
 
-	block_list = r_list_new ();
+	RList *block_list = r_list_new ();
 	if (!block_list) {
-		eprintf ("Failed to create block_list\n");
+		R_LOG_ERROR ("Failed to create block_list");
 	}
-	if (debug) {
-		eprintf ("Analyzing [0x%08"PFMT64x"-0x%08"PFMT64x"]\n", start, start + size);
-		eprintf ("Creating basic blocks\b");
-	}
+	R_LOG_DEBUG ("Analyzing [0x%08"PFMT64x"-0x%08"PFMT64x"]", start, start + size);
+	R_LOG_DEBUG ("Creating basic blocks");
 	lista[idx++] = b_start;
 	for (x = 0; x < 1024; x++) {
 		if (lista[x] != 0) {
-			cur =0;
+			cur = 0;
 			b_start = lista[x];
 			lista[x] = 0;
 			while (cur < size) {
@@ -576,14 +589,14 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 				bool bFound = false;
 				// check if offset don't have into block_list, to end branch analisys
 				r_list_foreach (block_list, iter, block) {
-					if ( (block->type == END || block->type == NORMAL) && b_start + cur == block->start ) {
+					if ((block->type == END || block->type == NORMAL) && b_start + cur == block->start ) {
 						bFound = true;
 						break;
 					}
 				}
 
 				if (!bFound) {
-					op = r_core_anal_op (core, b_start + cur, R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_DISASM);
+					op = r_core_anal_op (core, b_start + cur, R_ARCH_OP_MASK_BASIC | R_ARCH_OP_MASK_DISASM);
 
 					if (!op || !op->mnemonic) {
 						block_score -= 10;
@@ -592,8 +605,8 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 					}
 
 					if (op->mnemonic[0] == '?') {
-						eprintf ("? Bad op at: 0x%08"PFMT64x"\n", cur + b_start);
-						eprintf ("Cannot analyze opcode at %"PFMT64x"\n", b_start + cur);
+						R_LOG_ERROR ("? Bad op at: 0x%08"PFMT64x, cur + b_start);
+						R_LOG_ERROR ("Cannot analyze opcode at %"PFMT64x, b_start + cur);
 						block_score -= 10;
 						cur++;
 						continue;
@@ -645,36 +658,35 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 			}
 		}
 	}
-	if (debug) {
-		eprintf ("Found %d basic blocks\n", block_list->length);
-	}
+	R_LOG_DEBUG ("Found %d basic blocks", block_list->length);
 
 	RList *result = r_list_newf (free);
 	if (!result) {
 		r_list_free (block_list);
-		eprintf ("Failed to create resulting list\n");
 		return false;
 	}
 
+#if USE_SDB
 	sdb = sdb_new0 ();
 	if (!sdb) {
-		eprintf ("Failed to initialize sdb db\n");
 		r_list_free (block_list);
 		r_list_free (result);
 		return false;
 	}
+#else
+	ht = ht_up_new0 ();
+	ht2 = set_u_new ();
+#endif
 
 	r_list_sort (block_list, (RListComparator)bbCMP);
 
-	if (debug) {
-		eprintf ("Sorting all blocks done\n");
-		eprintf ("Creating the complete graph\n");
-	}
+	R_LOG_DEBUG ("Sorting all blocks done");
+	R_LOG_DEBUG ("Creating the complete graph");
 
 	while (block_list->length > 0) {
 		block = r_list_pop (block_list);
 		if (!block) {
-			eprintf ("Failed to get next block from list\n");
+			R_LOG_ERROR ("Failed to get next block from list");
 			continue;
 		}
 		if (r_cons_is_breaked ()) {
@@ -684,7 +696,7 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 		if (block_list->length > 0) {
 			bb_t *next_block = (bb_t*)r_list_iter_get_data (block_list->tail);
 			if (!next_block) {
-				eprintf ("No next block to compare with!\n");
+				R_LOG_ERROR ("No next block to compare with!");
 			}
 
 			// current block is just a split block
@@ -722,21 +734,23 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 				block->fail = UT64_MAX;
 				next_block->type = block->type;
 				if (next_block->type != CALL) {
-					next_block->reached += 1;
+					next_block->reached++;
 				}
 			}
 		}
 
-		sdb_ptr_set (sdb, sdb_fmt ("bb.0x%08"PFMT64x, block->start), block, 0);
+#if USE_SDB
+		sdb_ptr_set (sdb, r_strf ("bb.0x%08"PFMT64x, block->start), block, 0);
+#else
+		ht_up_insert (ht, block->start, block);
+#endif
 		r_list_append (result, block);
 	}
 
 	// finally add bb to function
 	// we simply assume that non reached blocks
 	// don't are part of the created function
-	if (debug) {
-		eprintf ("Trying to create functions\n");
-	}
+	R_LOG_DEBUG ("Trying to create functions");
 
 	r_list_foreach (result, iter, block) {
 		if (r_cons_is_breaked ()) {
@@ -750,7 +764,7 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 			bb_t *cur = NULL;
 
 			if (!r_stack_push (stack, (void*)block)) {
-				eprintf ("Failed to push initial block\n");
+				R_LOG_ERROR ("Failed to push initial block");
 			}
 
 			while (!r_stack_is_empty (stack)) {
@@ -758,7 +772,11 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 				if (!cur) {
 					continue;
 				}
+#if USE_SDB
 				sdb_num_set (sdb, Fhandled (cur->start), 1, 0);
+#else
+				set_u_add (ht2, cur->start);
+#endif
 				if (cur->score < 0) {
 					fcnFree (current_function);
 					current_function = NULL;
@@ -771,25 +789,35 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 
 				fcnAddBB (current_function, cur);
 
+#if USE_SDB
 				if (cur->jump < UT64_MAX && !sdb_num_get (sdb, Fhandled (cur->jump), NULL)) {
-					jump = sdb_ptr_get (sdb, sdb_fmt ("bb.0x%08"PFMT64x, cur->jump), NULL);
+					jump = _ptr_get (sdb, r_strf ("bb.0x%08"PFMT64x, cur->jump), NULL);
+#else
+				if (cur->jump < UT64_MAX && !set_u_contains (ht2, cur->jump)) {
+					jump = ht_up_find (ht, cur->jump, NULL);
+#endif
 					if (!jump) {
-						eprintf ("Failed to get jump block at 0x%"PFMT64x"\n", cur->jump);
+						R_LOG_ERROR ("Failed to get jump block at 0x%"PFMT64x, cur->jump);
 						continue;
 					}
 					if (!r_stack_push (stack, (void*)jump)) {
-						eprintf ("Failed to push jump block to stack\n");
+						R_LOG_ERROR ("Failed to push jump block to stack");
 					}
 				}
 
+#if USE_SDB
 				if (cur->fail < UT64_MAX && !sdb_num_get (sdb, Fhandled (cur->fail), NULL)) {
-					fail = sdb_ptr_get (sdb, sdb_fmt ("bb.0x%08" PFMT64x, cur->fail), NULL);
+					fail = sdb_ptr_get (sdb, r_strf ("bb.0x%08" PFMT64x, cur->fail), NULL);
+#else
+				if (cur->fail < UT64_MAX && !set_u_contains (ht2, cur->fail)) {
+					fail = ht_up_find (ht, cur->fail, NULL);
+#endif
 					if (!fail) {
-						eprintf ("Failed to get fail block at 0x%"PFMT64x"\n", cur->fail);
+						R_LOG_ERROR ("Failed to get fail block at 0x%"PFMT64x, cur->fail);
 						continue;
 					}
 					if (!r_stack_push (stack, (void*)fail)) {
-						eprintf ("Failed to push jump block to stack\n");
+						R_LOG_ERROR ("Failed to push jump block to stack");
 					}
 				}
 			}
@@ -803,8 +831,7 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 					if (checkFunction (current_function)) {
 						if (input[0] == '*') {
 							printFunctionCommands (core, current_function, NULL);
-						}
-						else {
+						} else {
 							createFunction (core, current_function, NULL);
 						}
 						fcnFree (current_function);
@@ -818,7 +845,12 @@ R_API bool core_anal_bbs_range (RCore *core, const char* input) {
 		}
 	}
 
+#if USE_SDB
 	sdb_free (sdb);
+#else
+	ht_up_free (ht);
+	set_u_free (ht2);
+#endif
 	r_list_free (result);
 	r_list_free (block_list);
 	return true;

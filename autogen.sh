@@ -27,3 +27,10 @@ if [ -n "$1" ]; then
 	echo "./configure $*"
 	./configure $*
 fi
+
+[ -z "$EDITOR" ] && EDITOR=vim
+$EDITOR README.md
+$EDITOR dist/npm/package.json
+$EDITOR dist/wapm/r2/wapm.toml
+$EDITOR dist/wapm/rax2/wapm.toml
+$EDITOR dist/wapm/rasm2/wapm.toml

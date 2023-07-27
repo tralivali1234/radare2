@@ -1,17 +1,14 @@
-/* radare - LGPL - Copyright 2011-2019 - pancake */
+/* radare - LGPL - Copyright 2011-2023 - pancake */
 
 #include <r_core.h>
 
-R_API int r_core_patch_line(RCore *core, char *str) {
-	char *p, *q;
-	p = strchr (str + 1, ' ');
+R_API bool r_core_patch_line(RCore *core, char *str) {
+	char *q, *p = strchr (str + 1, ' ');
 	if (!p) {
-		return 0;
+		return false;
 	}
 	*p = 0;
-	for (++p; *p == ' '; p++) {
-		; // XXX: skipsspaces here
-	}
+	p = (char *)r_str_trim_head_ro (p + 1);
 
 	switch (*p) {
 	case '"':
@@ -19,45 +16,43 @@ R_API int r_core_patch_line(RCore *core, char *str) {
 		if (q) {
 			*q = 0;
 		}
-		r_core_cmdf (core, "s %s", str);
-		r_core_cmdf (core, "\"w %s\"", p+1);
+		r_core_cmdf (core, "\"\"s %s", str);
+		r_core_cmdf (core, "\"\"w %s", p+1);
 		break;
 	case ':':
-		r_core_cmdf (core, "s %s", str);
-		r_core_cmdf (core, "\"wa %s\"", p);
+		r_core_cmdf (core, "\"\"s %s", str);
+		r_core_cmdf (core, "\"\"wa %s", p);
 		break;
 	case 'v':
-		q = strchr (p + 1,' ');
+		q = strchr (p + 1, ' ');
 		if (q) {
 			*q = 0;
-			for (++q; *q == ' '; q++) {
-				; // XXX: skipsspaces here
-			}
+			q = (char *)r_str_trim_head_ro (q + 1);
 		} else {
 			return 0;
 		}
-		r_core_cmdf (core, "s %s", str);
-		r_core_cmdf (core, "wv%s %s", p + 1, q);
+		r_core_cmdf (core, "\"\"s %s", str);
+		r_core_cmdf (core, "\"\"wv%s %s", p + 1, q);
 		break;
 	default:
-		r_core_cmdf (core, "s %s", str);
-		r_core_cmdf (core, "wx %s", p);
+		r_core_cmdf (core, "\"\"s %s", str);
+		r_core_cmdf (core, "\"\"wx %s", p);
 		break;
 	}
-	return 1;
+	return true;
 }
 
-static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
+static bool __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 	char tmp[128];
 	char *s, *p, *q, *off;
 	RBuffer *b = r_buf_new ();
 	if (!b) {
-		return 0;
+		return false;
 	}
 	p = off = strdup (str);
 	if (!p) {
 		r_buf_free (b);
-		return 0;
+		return false;
 	}
 	for (;*p;) {
 		if (*p == '\n') {
@@ -70,14 +65,14 @@ static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 			break;
 		}
 		if ((q = strstr (str, "${"))) {
-			char *end = strchr (q+2,'}');
+			char *end = strchr (q + 2,'}');
 			if (end) {
 				*q = *end = 0;
-				*noff = r_num_math (core->num, q+2);
+				*noff = r_num_math (core->num, q + 2);
 				r_buf_append_bytes (b, (const ut8*)str, strlen (str));
 				snprintf (tmp, sizeof (tmp), "0x%08"PFMT64x, *noff);
 				r_buf_append_bytes (b, (const ut8*)tmp, strlen (tmp));
-				r_buf_append_bytes (b, (const ut8*)end+1, strlen (end+1));
+				r_buf_append_bytes (b, (const ut8*)end + 1, strlen (end + 1));
 			}
 		} else {
 			r_buf_append_bytes (b, (const ut8*)str, strlen (str));
@@ -85,7 +80,7 @@ static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 		str = p;
 	}
 
-	s = r_buf_to_string (b);
+	s = r_buf_tostring (b);
 	r_egg_load (core->egg, s, 0);
 	free (s);
 
@@ -103,7 +98,7 @@ static int __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 	r_core_write_at (core, *noff, tmpbuf, tmpsz);
 	*noff += r_buf_size (b);
 	free (off);
-	return 1;
+	return true;
 }
 
 R_API int r_core_patch(RCore *core, const char *patch) {
@@ -117,7 +112,7 @@ R_API int r_core_patch(RCore *core, const char *patch) {
 	for (; *p; p++) {
 		/* read until newline */
 		if (!*p || *p == '\n') {
-			*p++ = 0; 
+			*p++ = 0;
 		} else {
 			continue;
 		}
@@ -129,7 +124,7 @@ R_API int r_core_patch(RCore *core, const char *patch) {
 		case '\0':
 			break;
 		case ':':
-			r_core_cmd0 (core, str+1);
+			r_core_cmd0 (core, str + 1);
 			break;
 		case '.':
 		case '!':
@@ -147,8 +142,6 @@ R_API int r_core_patch(RCore *core, const char *patch) {
 		}
 		str = p;
 	}
-//	eprintf ("%d\n", *p);
-//	eprintf ("Missing newline\n");
 	free (p0);
 	return 0;
 }

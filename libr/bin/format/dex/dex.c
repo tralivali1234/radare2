@@ -1,6 +1,7 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, h4ng3r */
+/* radare - LGPL - Copyright 2009-2023 - pancake, h4ng3r */
 
-#include <r_types.h>
+#define R_LOG_ORIGIN "dex"
+
 #include <r_util.h>
 #include "dex.h"
 
@@ -46,7 +47,7 @@ static char *getstr(RBinDexObj *bin, int idx) {
 		r_buf_read_at (bin->b, bin->strings[idx] + uleblen, ptr, len + 1);
 		ptr[len] = 0;
 		if (len != r_utf8_strlen (ptr)) {
-			// eprintf ("Warning: Invalid string for index %d\n", idx);
+			// R_LOG_WARN ("Invalid string for index %d", idx);
 			return NULL;
 		}
 	}
@@ -54,7 +55,7 @@ static char *getstr(RBinDexObj *bin, int idx) {
 }
 
 
-static const char *className(RBinDexObj *dex, int idx) {
+static char *className(RBinDexObj *dex, int idx) {
 	if (idx < 0 || idx >= dex->header.types_size) {
 		return NULL;
 	}
@@ -181,7 +182,7 @@ static void readAnnotation(RBinDexObj *dex, bool readVisibility) {
 	if (typeSize < 0 || typeSize > 10000) {
 		return;
 	}
-	const char *typeString = className (dex, typeIndex);
+	char *typeString = className (dex, typeIndex);
 	if (typeString) {
 		bprintf ("      TypeSize: %d %d (%s)\n", (int)typeIndex, (int)typeSize, typeString);
 		for (i = 0; i < typeSize; i++) {
@@ -195,28 +196,33 @@ static void readAnnotation(RBinDexObj *dex, bool readVisibility) {
 			r_buf_seek (dex->b, at, R_BUF_SET);
 			parseValue (dex);
 		}
+		free (typeString);
 	} else {
 		bprintf ("      TypeSize: %d %d (?)\n", (int)typeIndex, (int)typeSize);
 	}
 }
 
-static void readAnnotationSet(RBinDexObj *dex, ut64 addr) {
-	r_buf_seek (dex->b, addr, R_BUF_SET);
+static bool readAnnotationSet(RBinDexObj *dex, ut64 addr) {
+	if (r_buf_seek (dex->b, addr, R_BUF_SET) < 1) {
+		return false;
+	}
 	ut32 i, size = r_buf_read_le32 (dex->b);
 	addr += sizeof (ut32);
 	if (size == UT32_MAX) {
-		return;
+		return false;
 	}
 	bprintf ("            set-size: %d\n", size);
 	for (i = 0; i < size; i++) {
-		r_buf_seek (dex->b, addr + (i * sizeof (ut32)), R_BUF_SET);
+		if (r_buf_seek (dex->b, addr + (i * sizeof (ut32)), R_BUF_SET) < 1) {
+			break;
+		}
 		ut32 at = r_buf_read_le32 (dex->b);
 		if (at == UT32_MAX || r_buf_seek (dex->b, at, R_BUF_SET) < 1) {
 			break;
 		}
 		readAnnotation (dex, true);
 	}
-	r_buf_seek (dex->b, addr + (i * sizeof (ut32)), R_BUF_SET);
+	return r_buf_seek (dex->b, addr + (i * sizeof (ut32)), R_BUF_SET) >= 0;
 }
 
 static void r_bin_dex_obj_free(RBinDexObj *dex) {
@@ -227,6 +233,9 @@ static void r_bin_dex_obj_free(RBinDexObj *dex) {
 }
 
 void r_bin_dex_free(RBinDexObj *dex) {
+	if (!dex) {
+		return;
+	}
 	struct dex_header_t *dexhdr = &dex->header;
 	if (dex->cal_strings) {
 		size_t i;
@@ -258,7 +267,7 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 		goto fail;
 	}
 	struct dex_header_t *dexhdr = &dex->header;
-
+	memset (dexhdr, 0, sizeof (DexHeader));
 	if (dex->size < 112) {
 		goto fail;
 	}
@@ -380,7 +389,23 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	if (dexhdr->types_offset + types_size >= dex->size) {
 		types_size = dex->size - dexhdr->types_offset;
 	}
+	if (types_size < 0) {
+		free (dex->strings);
+		free (dex->classes);
+		free (dex->methods);
+		free (dex->types);
+		goto fail;
+	}
+	if (types_size > dex->size) {
+		R_LOG_DEBUG ("oom prevented in huge types section %d / %d", types_size, dex->size);
+		free (dex->strings);
+		free (dex->classes);
+		free (dex->methods);
+		free (dex->types);
+		goto fail;
+	}
 	dexhdr->types_size = types_size / sizeof (struct dex_type_t);
+
 	dex->types = (struct dex_type_t *) calloc (types_size + 1, sizeof (struct dex_type_t));
 	for (i = 0; i < dexhdr->types_size; i++) {
 		ut64 offset = dexhdr->types_offset + i * sizeof (struct dex_type_t);
@@ -455,7 +480,7 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 			continue;
 		}
 		int j;
-		const char *cn = className (dex, dex->classes[i].class_id);
+		char *cn = className (dex, dex->classes[i].class_id);
 		r_buf_seek (dex->b, at, R_BUF_SET);
 		ut32 classAnnotationsOffset = r_buf_read_le32 (dex->b);
 		ut32 fieldsCount = r_buf_read_le32 (dex->b);
@@ -473,12 +498,19 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 		bprintf ("            annotatedMethodCount  %d\n", annotatedMethodsCount);
 		bprintf ("            annotatedParametersCount  %d\n", annotatedParametersCount);
 
+		free (cn);
+
 		if (fieldsCount == UT32_MAX || annotatedMethodsCount == UT32_MAX || annotatedParametersCount == UT32_MAX || classAnnotationsOffset == UT32_MAX) {
 			continue;
 		}
 		if (classAnnotationsOffset > 0) {
-			ut64 cur = r_buf_seek (dex->b, 0, R_BUF_CUR);
-			readAnnotationSet (dex, classAnnotationsOffset);
+			st64 cur = r_buf_seek (dex->b, 0, R_BUF_CUR);
+			if (cur < 1) {
+				break;
+			}
+			if (!readAnnotationSet (dex, classAnnotationsOffset)) {
+				break;
+			}
 			r_buf_seek (dex->b, cur, R_BUF_SET);
 		}
 		for (j = 0; j < fieldsCount; j++) {
@@ -489,8 +521,12 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 			ut32 annotationsOffset = r_buf_read_le32 (dex->b);
 			ut64 cur = r_buf_seek (dex->b, 0, R_BUF_CUR);
 			bprintf ("        Annotations for fieldId %d:\n", fieldId);
-			readAnnotationSet (dex, annotationsOffset);
-			r_buf_seek (dex->b, cur, R_BUF_SET);
+			if (!readAnnotationSet (dex, annotationsOffset)) {
+				break;
+			}
+			if (r_buf_seek (dex->b, cur, R_BUF_SET) < 1) {
+				break;
+			}
 		}
 		for (j = 0; j < annotatedMethodsCount ; j++) {
 			ut32 methodId = r_buf_read_le32 (dex->b);
@@ -500,8 +536,12 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 			}
 			ut64 cur = r_buf_seek (dex->b, 0, R_BUF_CUR);
 			bprintf ("        Annotations for methodId %d:\n", methodId);
-			readAnnotationSet (dex, annotationsOffset);
-			r_buf_seek (dex->b, cur, R_BUF_SET);
+			if (!readAnnotationSet (dex, annotationsOffset)) {
+				break;
+			}
+			if (r_buf_seek (dex->b, cur, R_BUF_SET) < 1) {
+				break;
+			}
 		}
 #if 0
 		for (j = 0; j < annotatedParametersCount ; j++) {

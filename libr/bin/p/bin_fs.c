@@ -1,17 +1,17 @@
-/* radare - LGPL - Copyright 2011-2019 - pancake */
+/* radare - LGPL - Copyright 2011-2022 - pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
-#include "../../fs/types.h"
+#include <r_fs.h>
 
 static char *fsname(RBuffer *b) {
 	ut8 buf[1024];
 	int i, j;
 
-	for (i = 0; fstypes[i].name; i++) {
-		RFSType *f = &fstypes[i];
+	for (i = 0; ; i++) {
+		const RFSType *f = r_fs_type_index (i);
+		if (!f || !f->name) {
+			break;
+		}
 
 		if (r_buf_read_at (b, f->bufoff, buf, sizeof (buf)) != sizeof (buf)) {
 			break;
@@ -39,24 +39,20 @@ static char *fsname(RBuffer *b) {
 	return NULL;
 }
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	r_return_val_if_fail (b, false);
 	char *p = fsname (b);
-	bool hasFs = p != NULL;
+	bool hasFs = p;
 	free (p);
 	return hasFs;
 }
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (buf);
+	return check_buffer (bf, buf);
 }
 
 static void destroy(RBinFile *bf) {
 	//r_bin_fs_free ((struct r_bin_fs_obj_t*)bf->o->bin_obj);
-}
-
-static ut64 baddr(RBinFile *bf) {
-	return 0;
 }
 
 /* accelerate binary load */
@@ -96,7 +92,6 @@ RBinPlugin r_bin_plugin_fs = {
 	.load_buffer = &load_buffer,
 	.destroy = &destroy,
 	.check_buffer = &check_buffer,
-	.baddr = &baddr,
 	.strings = &strings,
 	.info = &info,
 };

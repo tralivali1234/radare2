@@ -274,10 +274,11 @@ octal   010
 unit    8
 segment 0000:0008
 string  "\b"
-fvalue: 8.0
-float:  0.000000f
-double: 0.000000
+fvalue  8.0
+float   0.000000f
+double  0.000000
 binary  0b00001000
+base36  0_8
 ternary 0t22
 0x8
 int32   0
@@ -287,10 +288,11 @@ octal   00
 unit    0
 segment 0000:0000
 string  "\0"
-fvalue: 0.0
-float:  0.000000f
-double: 0.000000
+fvalue  0.0
+float   0.000000f
+double  0.000000
 binary  0b00000000
+base36  0_0
 ternary 0t0
 0x0
 EOF
@@ -347,10 +349,11 @@ octal   0173
 unit    123
 segment 0000:007b
 string  "{"
-fvalue: 123.0
-float:  0.000000f
-double: 0.000000
+fvalue  123.0
+float   0.000000f
+double  0.000000
 binary  0b01111011
+base36  0_3f
 ternary 0t11120
 EOF
 RUN
@@ -399,8 +402,8 @@ s segment.LOAD1
 ?vi $SS
 EOF
 EXPECT=<<EOF
-3   0x00000ed4  0x14c 0x08049ed4  0x150 -rw- LOAD1
-18  0x00000ed4    0x8 0x08049ed4    0x8 -rw- .preinit_array
+3   0x00000ed4  0x14c 0x08049ed4  0x150 -rw- MAP  LOAD1
+18  0x00000ed4    0x8 0x08049ed4    0x8 -rw- PREINIT_ARRAY .preinit_array
 
 336
 8

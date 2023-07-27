@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2019-2021 - pancake */
+/* radare2 - LGPL - Copyright 2019-2022 - pancake */
 
 /* This code has been written by pancake which has been based on Alvaro's
  * r2pipe-python script which was based on FireEye script for IDA Pro.
@@ -6,8 +6,12 @@
  * https://www.fireeye.com/blog/threat-research/2017/03/introduction_to_reve.html
  */
 
-#include <r_core.h>
+#define R_LOG_ORIGIN "anal.objc"
 
+#include <r_core.h>
+#include <r_vec.h>
+
+R_VEC_TYPE(RVecAnalRef, RAnalRef);
 
 typedef struct {
 	RCore *core;
@@ -19,7 +23,6 @@ typedef struct {
 	RBinSection *_const;
 	RBinSection *_data;
 } RCoreObjc;
-
 
 const size_t objc2ClassSize = 0x28;
 const size_t objc2ClassInfoOffs = 0x20;
@@ -78,15 +81,14 @@ static inline ut64 readQword(RCoreObjc *objc, ut64 addr, bool *success) {
 }
 
 static void objc_analyze(RCore *core) {
-	const char *oldstr = r_print_rowlog (core->print, "Analyzing code to find selref references");
-	r_core_cmd0 (core, "aar");
+	R_LOG_INFO ("Analyzing code to find selref references");
+	r_core_cmd_call (core, "aar");
 	if (!strcmp ("arm", r_config_get (core->config, "asm.arch"))) {
-		const bool emu_lazy = r_config_get_i (core->config, "emu.lazy");
+		const bool emu_lazy = r_config_get_b (core->config, "emu.lazy");
 		r_config_set_b (core->config, "emu.lazy", true);
-		r_core_cmd0 (core, "aae");
+		r_core_cmd_call (core, "aae");
 		r_config_set_b (core->config, "emu.lazy", emu_lazy);
 	}
-	r_print_rowlog_done (core->print, oldstr);
 }
 
 static ut64 getRefPtr(RCoreObjc *o, ut64 classMethodsVA, bool *rfound) {
@@ -129,40 +131,52 @@ static ut64 getRefPtr(RCoreObjc *o, ut64 classMethodsVA, bool *rfound) {
 
 static bool objc_build_refs(RCoreObjc *objc) {
 	ut64 off;
-	r_return_val_if_fail (objc->_const && objc->_selrefs, false);
+	if (!objc->_const || !objc->_selrefs) {
+		return false;
+	}
 
 	const ut64 va_const = objc->_const->vaddr;
 	size_t ss_const = objc->_const->vsize;
 	const ut64 va_selrefs = objc->_selrefs->vaddr;
 	size_t ss_selrefs = objc->_selrefs->vsize;
-
 	// TODO: check if ss_const or ss_selrefs are too big before going further
 	size_t maxsize = R_MAX (ss_const, ss_selrefs);
 	maxsize = R_MIN (maxsize, objc->file_size);
-
+	if (ss_const > maxsize) {
+		if (objc->core->bin->verbose) {
+			R_LOG_WARN ("aao: Truncating ss_const from %u to %u", (int)ss_const, (int)maxsize);
+		}
+		ss_const = maxsize;
+	}
+	if (ss_selrefs > maxsize) {
+		if (objc->core->bin->verbose) {
+			R_LOG_WARN ("aao: Truncating ss_selrefs from %u to %u", (int)ss_selrefs, (int)maxsize);
+		}
+		ss_selrefs = maxsize;
+	}
 	ut8 *buf = calloc (1, maxsize);
 	if (!buf) {
 		return false;
 	}
 	const size_t word_size = objc->word_size; // assuming 8 because of the read_le64
 	if (!r_io_read_at (objc->core->io, objc->_const->vaddr, buf, ss_const)) {
-		eprintf ("aao: Cannot read the whole const section %zu\n", ss_const);
+		R_LOG_WARN ("aao: Cannot read the whole const section %u", (unsigned int)ss_const);
 		return false;
 	}
 	for (off = 0; off + word_size < ss_const && off + word_size < maxsize; off += word_size) {
 		ut64 va = va_const + off;
-		ut64 xrefs_to = r_read_le64 (buf + off);
+		ut64 xrefs_to = (word_size == 8)? r_read_le64 (buf + off): r_read_le32 (buf + off);
 		if (isValid (xrefs_to)) {
 			array_add (objc, va, xrefs_to);
 		}
 	}
 	if (!r_io_read_at (objc->core->io, va_selrefs, buf, ss_selrefs)) {
-		eprintf ("aao: Cannot read the whole selrefs section\n");
+		R_LOG_WARN ("aao: Cannot read the whole selrefs section");
 		return false;
 	}
 	for (off = 0; off + word_size < ss_selrefs && off + word_size < maxsize; off += word_size) {
 		ut64 va = va_selrefs + off;
-		ut64 xrefs_to = r_read_le64 (buf + off);
+		ut64 xrefs_to = (word_size == 8)? r_read_le64 (buf + off): r_read_le32 (buf + off);
 		if (isValid (xrefs_to)) {
 			array_add (objc, xrefs_to, va);
 		}
@@ -182,9 +196,9 @@ static RCoreObjc *core_objc_new(RCore *core) {
 	if (!o->file_size) {
 		o->file_size = 512*1024*1024;
 	}
-	o->word_size = (core->rasm->bits == 64)? 8: 4;
+	o->word_size = (core->rasm->config->bits == 64)? 8: 4;
 	if (o->word_size != 8) {
-		eprintf ("Warning: aao experimental on 32bit binaries\n");
+		R_LOG_WARN ("aao experimental on 32bit binaries");
 	}
 
 	RBinSection *s;
@@ -221,7 +235,7 @@ static bool objc_find_refs(RCore *core) {
 	RCoreObjc *objc = core_objc_new (core);
 	if (!objc) {
 		if (core->anal->verbose) {
-			eprintf ("Could not find necessary Objective-C sections...\n");
+			R_LOG_ERROR ("Could not find necessary Objective-C sections");
 		}
 		return false;
 	}
@@ -230,8 +244,7 @@ static bool objc_find_refs(RCore *core) {
 		core_objc_free (objc);
 		return false;
 	}
-	const char *oldstr = r_print_rowlog (core->print, "Parsing metadata in ObjC to find hidden xrefs");
-	r_print_rowlog_done (core->print, oldstr);
+	R_LOG_INFO ("Parsing metadata in ObjC to find hidden xrefs");
 
 	ut64 off;
 	size_t total_xrefs = 0;
@@ -261,14 +274,14 @@ static bool objc_find_refs(RCore *core) {
 		ut64 delta = (objc2ClassMethSize * count);
 		ut64 to = classMethodsVA + delta - 8;
 		if (delta > objc->file_size) {
-			eprintf ("Workaround: Corrupted objc data? checking next %llx !< %llx\n", classMethodsVA, to);
+			R_LOG_WARN ("Workarounding malformed objc data. checking next %"PFMT64x" !< %"PFMT64x, classMethodsVA, to);
 			count = (objc->_data->vsize / objc2ClassMethSize) - 1;
 			delta = objc2ClassMethSize * count;
 			to = classMethodsVA + delta;
 
 		}
 		if (classMethodsVA > to) {
-			eprintf ("Warning: Fuzzed binary or bug in here, checking next %llx !< %llx\n", classMethodsVA, to);
+			R_LOG_WARN ("Fuzzed binary or bug in here, checking next %"PFMT64x" !< %"PFMT64x, classMethodsVA, to);
 			break;
 		}
 		for (va = classMethodsVA; va < to; va += objc2ClassMethSize) {
@@ -286,15 +299,15 @@ static bool objc_find_refs(RCore *core) {
 				break;
 			}
 
-			RList *list = r_anal_xrefs_get (core->anal, selRefVA);
-			if (list) {
-				RListIter *iter;
+			RVecAnalRef *xrefs = r_anal_xrefs_get (core->anal, selRefVA);
+			if (xrefs) {
 				RAnalRef *ref;
-				r_list_foreach (list, iter, ref) {
+				R_VEC_FOREACH (xrefs, ref) {
 					r_anal_xrefs_set (core->anal, ref->addr, funcVA, R_ANAL_REF_TYPE_CODE);
 					total_xrefs++;
 				}
 			}
+			RVecAnalRef_free (xrefs);
 		}
 	}
 
@@ -302,9 +315,7 @@ static bool objc_find_refs(RCore *core) {
 	const ut64 va_selrefs = objc->_selrefs->vaddr;
 	const ut64 ss_selrefs = va_selrefs + objc->_selrefs->vsize;
 
-	char rs[128];
-	snprintf (rs, sizeof (rs), "Found %zu objc xrefs...", total_xrefs);
-	r_print_rowlog (core->print, rs);
+	R_LOG_INFO ("Found %u objc xrefs", (unsigned int)total_xrefs);
 	size_t total_words = 0;
 	ut64 a;
 	const size_t word_size = objc->word_size;
@@ -313,8 +324,7 @@ static bool objc_find_refs(RCore *core) {
 		r_meta_set (core->anal, R_META_TYPE_DATA, a, word_size, NULL);
 		total_words++;
 	}
-	snprintf (rs, sizeof (rs), "Found %zu objc xrefs in %zu dwords.", total_xrefs, total_words);
-	r_print_rowlog_done (core->print, rs);
+	R_LOG_INFO ("Found %u objc xrefs in %u dwords", (unsigned int)total_xrefs, (unsigned int)total_words);
 	core_objc_free (objc);
 	return true;
 }

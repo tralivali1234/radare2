@@ -1,4 +1,6 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2023 - pancake */
+
+#define R_LOG_ORIGIN "radiff2"
 
 #include <r_core.h>
 #include <r_main.h>
@@ -7,6 +9,10 @@ enum {
 	MODE_DIFF,
 	MODE_DIFF_STRS,
 	MODE_DIFF_IMPORTS,
+	MODE_DIFF_SYMBOLS,
+	MODE_DIFF_CLASSES,
+	MODE_DIFF_METHODS,
+	MODE_DIFF_FIELDS,
 	MODE_DIST_MYERS,
 	MODE_DIST_LEVENSHTEIN,
 	MODE_CODE,
@@ -23,6 +29,7 @@ enum {
 	GRAPH_TINY_MODE,
 	GRAPH_INTERACTIVE_MODE,
 	GRAPH_DOT_MODE,
+	GRAPH_MERMAID_MODE,
 	GRAPH_STAR_MODE,
 	GRAPH_GML_MODE
 };
@@ -54,6 +61,7 @@ typedef struct {
 	bool verbose;
 	RList *evals;
 	PJ *pj;
+	ut64 baddr;
 } RadiffOptions;
 
 static RCore *opencore(RadiffOptions *ro, const char *f) {
@@ -65,14 +73,14 @@ static RCore *opencore(RadiffOptions *ro, const char *f) {
 		return NULL;
 	}
 	r_core_loadlibs (c, R_CORE_LOADLIBS_ALL, NULL);
-	r_config_set_i (c->config, "io.va", ro->useva);
-	r_config_set_i (c->config, "scr.interactive", false);
+	r_config_set_b (c->config, "io.va", ro->useva);
+	r_config_set_b (c->config, "scr.interactive", false);
 	r_list_foreach (ro->evals, iter, e) {
 		r_config_eval (c->config, e, false);
 	}
 	if (f) {
 		RIODesc * rfile = NULL;
-#if __WINDOWS__
+#if R2__WINDOWS__
 		char *winf = r_acp_to_utf8 (f);
 		rfile = r_core_file_open (c, winf, 0, 0);
 		free (winf);
@@ -119,7 +127,7 @@ static void readstr(char *s, int sz, const ut8 *buf, int len) {
 		return;
 	}
 	s[sz - 1] = 0;
-	while (*s && *s == '\n') {
+	while (*s == '\n') {
 		s++;
 	}
 	strncpy (s, (char *) buf, last);
@@ -142,7 +150,7 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 				if (!ro->quiet) {
 					printf (Color_RED);
 				}
-				printf ("-0x%08"PFMT64x":", op->a_off);
+				printf ("-0x%08"PFMT64x":", op->a_off + ro->baddr);
 				int len = op->a_len; // R_MIN (op->a_len, strlen (op->a_buf));
 				for (i = 0; i < len; i++) {
 					printf ("%02x ", op->a_buf[i]);
@@ -162,7 +170,7 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 				if (!ro->quiet) {
 					printf (Color_GREEN);
 				}
-				printf ("+0x%08"PFMT64x":", op->b_off);
+				printf ("+0x%08"PFMT64x":", op->b_off + ro->baddr);
 				for (i = 0; i < op->b_len; i++) {
 					printf ("%02x ", op->b_buf[i]);
 				}
@@ -178,27 +186,27 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 		break;
 	case 'r':
 		if (ro->disasm) {
-			eprintf ("r2cmds (-r) + disasm (-D) not yet implemented\n");
+			R_LOG_WARN ("r2cmds (-r) + disasm (-D) is not yet implemented");
 		}
 		if (op->a_len == op->b_len) {
 			printf ("wx ");
 			for (i = 0; i < op->b_len; i++) {
 				printf ("%02x", op->b_buf[i]);
 			}
-			printf (" @ 0x%08"PFMT64x "\n", op->b_off);
+			printf (" @ 0x%08"PFMT64x "\n", op->b_off + ro->baddr);
 		} else {
 			if (op->a_len > 0) {
 				printf ("r-%d @ 0x%08"PFMT64x "\n",
-					op->a_len, op->a_off + ro->delta);
+					op->a_len, op->a_off + ro->delta + ro->baddr);
 			}
 			if (op->b_len > 0) {
 				printf ("r+%d @ 0x%08"PFMT64x "\n",
-					op->b_len, op->b_off + ro->delta);
+					op->b_len, op->b_off + ro->delta + ro->baddr);
 				printf ("wx ");
 				for (i = 0; i < op->b_len; i++) {
 					printf ("%02x", op->b_buf[i]);
 				}
-				printf (" @ 0x%08"PFMT64x "\n", op->b_off + ro->delta);
+				printf (" @ 0x%08"PFMT64x "\n", op->b_off + ro->delta + ro->baddr);
 			}
 			ro->delta += (op->b_off - op->a_off);
 		}
@@ -206,12 +214,12 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 	case 'j':
 		// TODO PJ
 		if (ro->disasm) {
-			eprintf ("JSON (-j) + disasm (-D) not yet implemented\n");
+			R_LOG_WARN ("JSON (-j) + disasm (-D) not yet implemented");
 		}
 		{
 			PJ *pj = ro->pj;
 			pj_o (pj);
-			pj_kn (pj, "addr", op->a_off);
+			pj_kn (pj, "addr", op->a_off + ro->baddr);
 			char *hex_from = r_hex_bin2strdup (op->a_buf, op->a_len);
 			pj_ks (pj, "from", hex_from);
 			char *hex_to = r_hex_bin2strdup (op->b_buf, op->b_len);
@@ -223,7 +231,7 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 	default:
 		if (ro->disasm) {
 			int i;
-			printf ("--- 0x%08"PFMT64x "  ", op->a_off);
+			printf ("--- 0x%08"PFMT64x "  ", op->a_off + ro->baddr);
 			if (!ro->core) {
 				ro->core = opencore (ro, ro->file);
 				if (ro->arch) {
@@ -254,14 +262,14 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 				r_asm_code_free (ac);
 			}
 		} else {
-			printf ("0x%08"PFMT64x " ", op->a_off);
+			printf ("0x%08"PFMT64x " ", op->a_off + ro->baddr);
 			for (i = 0; i < op->a_len; i++) {
 				printf ("%02x", op->a_buf[i]);
 			}
 		}
 		if (ro->disasm) {
 			int i;
-			printf ("+++ 0x%08"PFMT64x "  ", op->b_off);
+			printf ("+++ 0x%08"PFMT64x "  ", op->b_off + ro->baddr);
 			if (!ro->core) {
 				ro->core = opencore (ro, NULL);
 			}
@@ -291,7 +299,7 @@ static int cb(RDiff *d, void *user, RDiffOp *op) {
 			for (i = 0; i < op->b_len; i++) {
 				printf ("%02x", op->b_buf[i]);
 			}
-			printf (" 0x%08"PFMT64x "\n", op->b_off);
+			printf (" 0x%08"PFMT64x "\n", op->b_off + ro->baddr);
 		}
 		return 1;
 	}
@@ -311,11 +319,11 @@ void print_bytes(const void *p, size_t len, bool big_endian) {
 static int bcb(RDiff *d, void *user, RDiffOp *op) {
 	RadiffOptions *ro = user;
 	ut64 offset_diff = op->a_off - ro->gdiff_start;
-	unsigned char opcode;
-	unsigned short USAddr = 0;
+	ut8 opcode;
+	ut16 USAddr = 0;
 	int IAddr = 0;
-	unsigned char UCLen = 0;
-	unsigned short USLen = 0;
+	ut8 UCLen = 0;
+	ut16 USLen = 0;
 	int ILen = 0;
 
 	// we copy from gdiff_start to a_off
@@ -386,15 +394,15 @@ static int bcb(RDiff *d, void *user, RDiffOp *op) {
 	// we append data
 	if (op->b_len <= 246) {
 		ut8 data = op->b_len;
-		(void) write (1, &data, 1);
+		R_UNUSED_RESULT (write (1, &data, 1));
 	} else if (op->b_len <= USHRT_MAX) {
 		USLen = (ut16) op->b_len;
 		ut8 data = 247;
-		(void) write (1, &data, 1);
+		R_UNUSED_RESULT (write (1, &data, 1));
 		print_bytes (&USLen, sizeof (USLen), true);
 	} else if (op->b_len <= INT_MAX) {
 		ut8 data = 248;
-		(void) write (1, &data, 1);
+		R_UNUSED_RESULT (write (1, &data, 1));
 		ILen = (int) op->b_len;
 		print_bytes (&ILen, sizeof (ILen), true);
 	} else {
@@ -423,26 +431,27 @@ static int bcb(RDiff *d, void *user, RDiffOp *op) {
 }
 
 static int show_help(int v) {
-	printf ("Usage: radiff2 [-abBcCdeGhijnrOpqsSxuUvVzZ] [-A[A]] [-g sym] [-m graph_mode][-t %%] [file] [file]\n");
+	printf ("Usage: radiff2 [-1abcCdeGhijnropqsSxuUvVzZ] [-A[A]] [-B #] [-g sym] [-m graph_mode][-t %%] [file] [file]\n");
 	if (v) {
 		printf (
 			"  -a [arch]  specify architecture plugin to use (x86, arm, ..)\n"
 			"  -A [-A]    run aaa or aaaa after loading each binary (see -C)\n"
 			"  -b [bits]  specify register size for arch (16 (thumb), 32, 64, ..)\n"
-			"  -B         output in binary diff (GDIFF)\n"
+			"  -B [baddr] define the base address to add the offsets when listing\n"
+			"  -1         output in Generic binary DIFF (0xd1ffd1ff magic header)\n"
 			"  -c         count of changes\n"
 			"  -C         graphdiff code (columns: off-A, match-ratio, off-B) (see -A)\n"
 			"  -d         use delta diffing\n"
 			"  -D         show disasm instead of hexpairs\n"
 			"  -e [k=v]   set eval config var value for all RCore instances\n"
-			"  -g [sym|off1,off2]   graph diff of given symbol, or between two offsets\n"
+			"  -g [arg]   graph diff of [sym] or functions in [off1,off2]\n"
 			"  -G [cmd]   run an r2 command on every RCore instance created\n"
-			"  -i         diff imports of target files (see -u, -U and -z)\n"
+			"  -i [ifscm] diff imports | fields | symbols | classes | methods\n"
 			"  -j         output in json format\n"
 			"  -n         print bare addresses only (diff.bare=1)\n"
-                        "  -m [aditsjJ]  choose the graph output mode\n"
+			"  -m [mode]  choose the graph output mode (aditsjJ)\n"
 			"  -O         code diffing with opcode bytes only\n"
-			"  -p         use physical addressing (io.va=0)\n"
+			"  -p         use physical addressing (io.va=false) (only for radiff2 -AC)\n"
 			"  -q         quiet mode (disable colors, reduce output)\n"
 			"  -r         output in radare commands\n"
 			"  -s         compute edit distance (no substitution, Eugene W. Myers' O(ND) diff algorithm)\n"
@@ -457,16 +466,16 @@ static int show_help(int v) {
 			"  -V         be verbose (current only for -s)\n"
 			"  -z         diff on extracted strings\n"
 			"  -Z         diff code comparing zignatures\n\n"
-                       "Graph Output formats: (-m [mode])\n"
-		        "  <blank/a>  Ascii art\n"
+			"Graph Output formats: (-m [mode])\n"
+		        "  <blank/a>  ascii art\n"
 	                "  s          r2 commands\n"
-		        "  d          Graphviz dot\n"
-	                "  g          Graph Modelling Language (gml)\n"
+		        "  d          graphviz dot\n"
+	                "  g          graph Modelling Language (gml)\n"
 		        "  j          json\n"
 	                "  J          json with disarm\n"
-		        "  k          SDB key-value\n"
-	                "  t          Tiny ascii art\n"
-		        "  i          Interactive ascii art\n");
+		        "  k          sdb key-value\n"
+	                "  t          tiny ascii art\n"
+		        "  i          interactive ascii art\n");
 	}
 	return 1;
 }
@@ -490,7 +499,7 @@ static void dump_cols(ut8 *a, int as, ut8 *b, int bs, int w) {
 			"0 1 2 3 4 5 6 7 8 9 A B C D E F 0123456789ABCDEF\n");
 		break;
 	default:
-		eprintf ("Invalid column width\n");
+		R_LOG_ERROR ("Invalid column width");
 		return;
 	}
 	r_cons_break_push (NULL, NULL);
@@ -594,7 +603,7 @@ static void dump_cols_hexii(ut8 *a, int as, ut8 *b, int bs, int w) {
 	PrintfCallback p = r_cons_printf;
 	r_cons_break_push (NULL, NULL);
 	for (i = 0; i < sz; i += w) {
-		if (r_cons_is_breaked()) {
+		if (r_cons_is_breaked ()) {
 			break;
 		}
 		if (i + w >= sz) {
@@ -702,7 +711,7 @@ static char *handle_sha256(const ut8 *block, int len) {
 }
 
 static ut8 *slurp(RadiffOptions *ro, RCore **c, const char *file, size_t *sz) {
-	RIODesc *d;
+	int fd;
 	RIO *io;
 	if (c && file && strstr (file, "://")) {
 		ut8 *data = NULL;
@@ -711,29 +720,29 @@ static ut8 *slurp(RadiffOptions *ro, RCore **c, const char *file, size_t *sz) {
 			*c = opencore (ro, NULL);
 		}
 		if (!*c) {
-			eprintf ("opencore failed\n");
+			R_LOG_ERROR ("opencore failed");
 			return NULL;
 		}
 		io = (*c)->io;
-		d = r_io_open (io, file, 0, 0);
-		if (!d) {
+		fd = r_io_fd_open (io, file, R_PERM_R, 0);
+		if (fd < 1) {
 			return NULL;
 		}
-		size = r_io_size (io);
+		size = r_io_fd_size (io, fd);
 		if (size > 0 && size < ST32_MAX) {
 			data = calloc (1, size);
-			if (r_io_read_at (io, 0, data, size)) {
+			if (r_io_fd_read_at (io, fd, 0, data, size)) {
 				if (sz) {
 					*sz = size;
 				}
 			} else {
-				eprintf ("slurp: read error\n");
+				R_LOG_ERROR ("slurp: read error");
 				R_FREE (data);
 			}
 		} else {
-			eprintf ("slurp: Invalid file size\n");
+			R_LOG_ERROR ("slurp: Invalid file size");
 		}
-		r_io_desc_close (d);
+		r_io_fd_close (io, fd);
 		return data;
 	}
 	return (ut8 *) r_file_slurp (file, sz);
@@ -741,6 +750,91 @@ static ut8 *slurp(RadiffOptions *ro, RCore **c, const char *file, size_t *sz) {
 
 static int import_cmp(const RBinImport *a, const RBinImport *b) {
 	return strcmp (a->name, b->name);
+}
+
+static ut8 *get_classes(RCore *c, int *len) {
+	RListIter *iter;
+
+	if (!c || !len) {
+		return NULL;
+	}
+
+	RBinClass *klass;
+	const RList *list = r_bin_get_classes (c->bin);
+	RList *reslist = r_list_newf (free);
+	r_list_foreach (list, iter, klass) {
+		r_list_append (reslist, strdup (klass->name));
+	}
+	r_list_sort (reslist, (RListComparator)strcmp);
+	char *buf = r_str_list_join (reslist, "\n");
+	*len = strlen (buf);
+	r_list_free (reslist);
+	return (ut8*)buf;
+}
+
+static ut8 *get_fields(RCore *c, int *len) {
+	RListIter *iter, *iter2;
+
+	if (!c || !len) {
+		return NULL;
+	}
+
+	RBinClass *klass;
+	const RList *list = r_bin_get_classes (c->bin);
+	RList *reslist = r_list_newf (free);
+	r_list_foreach (list, iter, klass) {
+		RBinField *field;
+		r_list_foreach (klass->fields, iter2, field) {
+			r_list_append (reslist, r_str_newf ("%s.%s", klass->name, field->name));
+		}
+	}
+	r_list_sort (reslist, (RListComparator)strcmp);
+	char *buf = r_str_list_join (reslist, "\n");
+	*len = strlen (buf);
+	r_list_free (reslist);
+	return (ut8*)buf;
+}
+
+static ut8 *get_methods(RCore *c, int *len) {
+	RListIter *iter, *iter2;
+
+	if (!c || !len) {
+		return NULL;
+	}
+
+	RBinClass *klass;
+	RBinSymbol *sym;
+	const RList *list = r_bin_get_classes (c->bin);
+	RList *reslist = r_list_newf (free);
+	r_list_foreach (list, iter, klass) {
+		r_list_foreach (klass->methods, iter2, sym) {
+			r_list_append (reslist, r_str_newf ("%s.%s", klass->name, sym->name));
+		}
+	}
+	r_list_sort (reslist, (RListComparator)strcmp);
+	char *buf = r_str_list_join (reslist, "\n");
+	*len = strlen (buf);
+	r_list_free (reslist);
+	return (ut8*)buf;
+}
+
+static ut8 *get_symbols(RCore *c, int *len) {
+	RListIter *iter;
+
+	if (!c || !len) {
+		return NULL;
+	}
+
+	RBinSymbol *sym;
+	const RList *list = r_bin_get_symbols (c->bin);
+	RList *reslist = r_list_newf (free);
+	r_list_foreach (list, iter, sym) {
+		r_list_append (reslist, strdup (sym->name));
+	}
+	char *buf = r_str_list_join (reslist, "\n");
+	*len = strlen (buf);
+	r_list_free (reslist);
+	return (ut8*)buf;
 }
 
 static ut8 *get_imports(RCore *c, int *len) {
@@ -752,8 +846,9 @@ static ut8 *get_imports(RCore *c, int *len) {
 		return NULL;
 	}
 
-	RList *list = r_bin_get_imports (c->bin);
-	r_list_sort (list, (RListComparator) import_cmp);
+	const RList *list = r_bin_get_imports (c->bin);
+	// XXX we probably dont want to sort an unowned list
+	r_list_sort ((RList *)list, (RListComparator) import_cmp);
 
 	*len = 0;
 
@@ -831,92 +926,95 @@ static ut8 *get_strings(RCore *c, int *len) {
 }
 
 static char *get_graph_commands(RCore *c, ut64 off) {
-        bool tmp_html = r_cons_singleton ()->is_html;
-        r_cons_singleton ()->is_html = false;
-        r_cons_push ();
-        r_core_anal_graph (c, off, R_CORE_ANAL_GRAPHBODY | R_CORE_ANAL_GRAPHDIFF |  R_CORE_ANAL_STAR);
-        const char *static_str = r_cons_get_buffer ();
-        char *retstr = strdup (r_str_get (static_str));
-        r_cons_pop ();
-        r_cons_echo (NULL);
-        r_cons_singleton ()->is_html = tmp_html;
-        return retstr;
+	bool tmp_html = r_cons_context ()->is_html;
+	r_cons_context ()->is_html = false;
+	r_cons_push ();
+	r_core_anal_graph (c, off, R_CORE_ANAL_GRAPHBODY | R_CORE_ANAL_GRAPHDIFF |  R_CORE_ANAL_STAR);
+	const char *static_str = r_cons_get_buffer ();
+	char *retstr = strdup (r_str_get (static_str));
+	r_cons_pop ();
+	r_cons_echo (NULL);
+	r_cons_context ()->is_html = tmp_html;
+	return retstr;
 }
 
 static void __generate_graph(RCore *c, ut64 off) {
-        r_return_if_fail (c);
-        char *ptr = get_graph_commands (c, off);
+	r_return_if_fail (c);
+	char *ptr = get_graph_commands (c, off);
 	char *str = ptr;
-        r_cons_break_push (NULL, NULL);
-        if (str) {
-                for (;;) {
-                        if (r_cons_is_breaked ()) {
-                                break;
-                        }
-                        char *eol = strchr (ptr, '\n');
-                        if (eol) {
-                                *eol = '\0';
-                        }
-                        if (*ptr) {
-                                char *p = strdup (ptr);
-                                if (!p) {
-                                        free (str);
-                                        return;
-                                }
-                                r_core_cmd0 (c, p);
-                                free (p);
-                        }
-                        if (!eol) {
-                                break;
-                        }
-                        ptr = eol + 1;
-                }
+	r_cons_break_push (NULL, NULL);
+	if (str) {
+		for (;;) {
+			if (r_cons_is_breaked ()) {
+				break;
+			}
+			char *eol = strchr (ptr, '\n');
+			if (eol) {
+				*eol = '\0';
+			}
+			if (*ptr) {
+				char *p = strdup (ptr);
+				if (!p) {
+					free (str);
+					return;
+				}
+				r_core_cmd0 (c, p);
+				free (p);
+			}
+			if (!eol) {
+				break;
+			}
+			ptr = eol + 1;
+		}
 		free (str);
-        }
-        r_cons_break_pop ();
+	}
+	r_cons_break_pop ();
 }
 
 static void __print_diff_graph(RCore *c, ut64 off, int gmode) {
-        int opts = R_CORE_ANAL_GRAPHBODY | R_CORE_ANAL_GRAPHDIFF;
-        int use_utf8 = r_config_get_i (c->config, "scr.utf8");
-        r_agraph_reset(c->graph);
-        switch (gmode) {
-        case GRAPH_DOT_MODE:
-                r_core_anal_graph (c, off, opts);
-                break;
-        case GRAPH_STAR_MODE:
-                r_core_anal_graph (c, off, opts |  R_CORE_ANAL_STAR);
-                break;
-        case GRAPH_TINY_MODE:
-                __generate_graph (c, off);
-                r_core_agraph_print (c, use_utf8, "t");
-                break;
-        case GRAPH_INTERACTIVE_MODE:
-                __generate_graph (c, off);
-                r_core_agraph_print (c, use_utf8, "v");
-                r_cons_reset_colors ();
-                break;
-        case GRAPH_SDB_MODE:
-                __generate_graph (c, off);
-                r_core_agraph_print (c, use_utf8, "k");
-                break;
-        case GRAPH_GML_MODE:
-                __generate_graph (c, off);
-                r_core_agraph_print (c, use_utf8, "g");
-                break;
-        case GRAPH_JSON_MODE:
-                r_core_anal_graph (c, off, opts | R_CORE_ANAL_JSON);
-                break;
-        case GRAPH_JSON_DIS_MODE:
-                r_core_anal_graph (c, off, opts | R_CORE_ANAL_JSON | R_CORE_ANAL_JSON_FORMAT_DISASM);
-                break;
-        case GRAPH_DEFAULT_MODE:
-        default:
-                __generate_graph (c, off);
-                r_core_agraph_print (c, use_utf8, "");
-                r_cons_reset_colors ();
-        	break;
-        }
+	int opts = R_CORE_ANAL_GRAPHBODY | R_CORE_ANAL_GRAPHDIFF;
+	int use_utf8 = r_config_get_i (c->config, "scr.utf8");
+	r_agraph_reset(c->graph);
+	switch (gmode) {
+	case GRAPH_DOT_MODE:
+		r_core_anal_graph (c, off, opts);
+		break;
+	case GRAPH_MERMAID_MODE:
+		r_core_agraph_print (c, use_utf8, "m");
+		break;
+	case GRAPH_STAR_MODE:
+		r_core_anal_graph (c, off, opts |  R_CORE_ANAL_STAR);
+		break;
+	case GRAPH_TINY_MODE:
+		__generate_graph (c, off);
+		r_core_agraph_print (c, use_utf8, "t");
+		break;
+	case GRAPH_INTERACTIVE_MODE:
+		__generate_graph (c, off);
+		r_core_agraph_print (c, use_utf8, "v");
+		r_cons_reset_colors ();
+		break;
+	case GRAPH_SDB_MODE:
+		__generate_graph (c, off);
+		r_core_agraph_print (c, use_utf8, "k");
+		break;
+	case GRAPH_GML_MODE:
+		__generate_graph (c, off);
+		r_core_agraph_print (c, use_utf8, "g");
+		break;
+	case GRAPH_JSON_MODE:
+		r_core_anal_graph (c, off, opts | R_CORE_ANAL_JSON);
+		break;
+	case GRAPH_JSON_DIS_MODE:
+		r_core_anal_graph (c, off, opts | R_CORE_ANAL_JSON | R_CORE_ANAL_JSON_FORMAT_DISASM);
+		break;
+	case GRAPH_DEFAULT_MODE:
+	default:
+		__generate_graph (c, off);
+		r_core_agraph_print (c, use_utf8, "");
+		r_cons_reset_colors ();
+		break;
+	}
 }
 
 static void radiff_options_init(RadiffOptions *ro) {
@@ -959,7 +1057,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 
 	radiff_options_init (&ro);
 
-	r_getopt_init (&opt, argc, argv, "Aa:b:BCDe:npg:m:G:OijrhcdsS:uUvVxXt:zqZ");
+	r_getopt_init (&opt, argc, argv, "1Aa:b:B:CDe:npg:m:G:Oi:jrhcdsS:uUvVxXt:zqZ");
 	while ((o = r_getopt_next (&opt)) != -1) {
 		switch (o) {
 		case 'a':
@@ -971,8 +1069,12 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 		case 'b':
 			ro.bits = atoi (opt.arg);
 			break;
-		case 'B':
+		case '1':
+			// maybe use '-o' to handle binary output to a file instead of screen :?
 			ro.diffmode = 'B';
+			break;
+		case 'B':
+			ro.baddr = r_num_math (NULL, opt.arg);
 			break;
 		case 'e':
 			r_list_append (ro.evals, (void*)opt.arg);
@@ -988,19 +1090,20 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 			addr = opt.arg;
 			break;
 		case 'm':{
-		        const char *tmp = opt.arg;
-		        switch (tmp[0]) {
-	                case 'i': ro.gmode = GRAPH_INTERACTIVE_MODE; break;
-	                case 'k': ro.gmode = GRAPH_SDB_MODE; break;
-	                case 'j': ro.gmode = GRAPH_JSON_MODE; break;
-	                case 'J': ro.gmode = GRAPH_JSON_DIS_MODE; break;
-	                case 't': ro.gmode = GRAPH_TINY_MODE; break;
-	                case 'd': ro.gmode = GRAPH_DOT_MODE; break;
-	                case 's': ro.gmode = GRAPH_STAR_MODE; break;
-	                case 'g': ro.gmode = GRAPH_GML_MODE; break;
-	                case 'a':
-                        default: ro.gmode = GRAPH_DEFAULT_MODE; break;
-		        }
+			const char *tmp = opt.arg;
+			switch (tmp[0]) {
+			case 'i': ro.gmode = GRAPH_INTERACTIVE_MODE; break;
+			case 'k': ro.gmode = GRAPH_SDB_MODE; break;
+			case 'j': ro.gmode = GRAPH_JSON_MODE; break;
+			case 'J': ro.gmode = GRAPH_JSON_DIS_MODE; break;
+			case 't': ro.gmode = GRAPH_TINY_MODE; break;
+			case 'd': ro.gmode = GRAPH_DOT_MODE; break;
+			case 's': ro.gmode = GRAPH_STAR_MODE; break;
+			case 'm': ro.gmode = GRAPH_MERMAID_MODE; break;
+			case 'g': ro.gmode = GRAPH_GML_MODE; break;
+			case 'a':
+			default: ro.gmode = GRAPH_DEFAULT_MODE; break;
+			}
 		}       break;
 		case 'G':
 			ro.runcmd = opt.arg;
@@ -1012,7 +1115,27 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 			ro.mode = MODE_CODE;
 			break;
 		case 'i':
-			ro.mode = MODE_DIFF_IMPORTS;
+			ro.diffmode = 'U';
+			switch (opt.arg[0]) {
+			case 'i':
+				ro.mode = MODE_DIFF_IMPORTS;
+				break;
+			case 's':
+				ro.mode = MODE_DIFF_SYMBOLS;
+				break;
+			case 'f':
+				ro.mode = MODE_DIFF_FIELDS;
+				break;
+			case 'm':
+				ro.mode = MODE_DIFF_METHODS;
+				break;
+			case 'c':
+				ro.mode = MODE_DIFF_CLASSES;
+				break;
+			default:
+				R_LOG_ERROR ("-i expects [s|f|i|c|m] for symbols or imports diffing");
+				return 1;
+			}
 			break;
 		case 'n':
 			ro.showbare = true;
@@ -1022,7 +1145,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 			break;
 		case 't':
 			ro.threshold = atoi (opt.arg);
-			printf ("%s\n", opt.arg);
+			// printf ("%s\n", opt.arg);
 			break;
 		case 'd':
 			delta = 1;
@@ -1090,7 +1213,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 	ro.file2 = (opt.ind + 1 < argc)? argv[opt.ind + 1]: NULL;
 
 	if (R_STR_ISEMPTY (ro.file) || R_STR_ISEMPTY (ro.file2)) {
-		eprintf ("Cannot open empty path\n");
+		R_LOG_ERROR ("Cannot open empty path");
 		return 1;
 	}
 
@@ -1098,14 +1221,18 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 	case MODE_GRAPH:
 	case MODE_CODE:
 	case MODE_DIFF_STRS:
+	case MODE_DIFF_METHODS:
+	case MODE_DIFF_CLASSES:
+	case MODE_DIFF_FIELDS:
+	case MODE_DIFF_SYMBOLS:
 	case MODE_DIFF_IMPORTS:
 		c = opencore (&ro, ro.file);
 		if (!c) {
-			eprintf ("Cannot open '%s'\n", r_str_getf (ro.file));
+			R_LOG_ERROR ("Cannot open '%s'", r_str_getf (ro.file));
 		}
 		c2 = opencore (&ro, ro.file2);
 		if (!c2) {
-			eprintf ("Cannot open '%s'\n", r_str_getf (ro.file2));
+			R_LOG_ERROR ("Cannot open '%s'", r_str_getf (ro.file2));
 		}
 		if (!c || !c2) {
 			return 1;
@@ -1178,8 +1305,36 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 				r_core_zdiff (c, c2);
 			} else {
 				r_core_gdiff (c, c2);
-				r_core_diff_show (c, c2);
+				if (ro.diffmode == 'j') {
+					r_core_diff_show_json (c, c2);
+				} else {
+					r_core_diff_show (c, c2);
+				}
 			}
+		} else if (ro.mode == MODE_DIFF_FIELDS) {
+			int sz;
+			bufa = get_fields (c, &sz);
+			sza = sz;
+			bufb = get_fields (c2, &sz);
+			szb = sz;
+		} else if (ro.mode == MODE_DIFF_METHODS) {
+			int sz;
+			bufa = get_methods (c, &sz);
+			sza = sz;
+			bufb = get_methods (c2, &sz);
+			szb = sz;
+		} else if (ro.mode == MODE_DIFF_CLASSES) {
+			int sz;
+			bufa = get_classes (c, &sz);
+			sza = sz;
+			bufb = get_classes (c2, &sz);
+			szb = sz;
+		} else if (ro.mode == MODE_DIFF_SYMBOLS) {
+			int sz;
+			bufa = get_symbols (c, &sz);
+			sza = sz;
+			bufb = get_symbols (c2, &sz);
+			szb = sz;
 		} else if (ro.mode == MODE_DIFF_IMPORTS) {
 			int sz;
 			bufa = get_imports (c, &sz);
@@ -1208,18 +1363,18 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 		bufa = slurp (&ro, &c, ro.file, &fsz);
 		sza = fsz;
 		if (!bufa) {
-			eprintf ("radiff2: Cannot open %s\n", r_str_getf (ro.file));
+			R_LOG_ERROR ("Cannot open %s", r_str_getf (ro.file));
 			return 1;
 		}
 		bufb = slurp (&ro, &c, ro.file2, &fsz);
 		szb = fsz;
 		if (!bufb) {
-			eprintf ("radiff2: Cannot open: %s\n", r_str_getf (ro.file2));
+			R_LOG_ERROR ("Cannot open: %s", r_str_getf (ro.file2));
 			free (bufa);
 			return 1;
 		}
 		if (sza != szb) {
-			eprintf ("File size differs %"PFMT64u" vs %"PFMT64u"\n", (ut64)sza, (ut64)szb);
+			R_LOG_INFO ("File size differs %"PFMT64u" vs %"PFMT64u, (ut64)sza, (ut64)szb);
 		}
 		break;
 	}
@@ -1243,6 +1398,10 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 		break;
 	case MODE_DIFF:
 	case MODE_DIFF_STRS:
+	case MODE_DIFF_FIELDS:
+	case MODE_DIFF_SYMBOLS:
+	case MODE_DIFF_METHODS:
+	case MODE_DIFF_CLASSES:
 	case MODE_DIFF_IMPORTS:
 		d = r_diff_new ();
 		r_diff_set_delta (d, delta);
@@ -1255,7 +1414,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 			pj_ka (ro.pj, "changes");
 		}
 		if (ro.diffmode == 'B') {
-			(void) write (1, "\xd1\xff\xd1\xff\x04", 5);
+			R_UNUSED_RESULT (write (1, "\xd1\xff\xd1\xff\x04", 5));
 		}
 		if (ro.diffmode == 'U') {
 			char *res = r_diff_buffers_unified (d, bufa, (int)sza, bufb, (int)szb);
@@ -1266,7 +1425,7 @@ R_API int r_main_radiff2(int argc, const char **argv) {
 		} else if (ro.diffmode == 'B') {
 			r_diff_set_callback (d, &bcb, &ro);
 			r_diff_buffers (d, bufa, (ut32)sza, bufb, (ut32)szb);
-			(void) write (1, "\x00", 1);
+			R_UNUSED_RESULT (write (1, "\x00", 1));
 		} else {
 			r_diff_set_callback (d, &cb, &ro);
 			r_diff_buffers (d, bufa, (ut32)sza, bufb, (ut32)szb);

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2017 - condret, pancake */
+/* radare - LGPL - Copyright 2017-2023 - condret, pancake */
 
 #include <r_io.h>
 #include <r_lib.h>
@@ -9,11 +9,10 @@ typedef struct {
 } RIONull;
 
 static int __write(RIO* io, RIODesc* fd, const ut8* buf, int count) {
-	RIONull* null;
 	if (!fd || !fd->data || !buf) {
 		return -1;
 	}
-	null = (RIONull*) fd->data;
+	RIONull* null = (RIONull*) fd->data;
 	if ((null->offset + count) > null->size) {
 		int ret = null->size - null->offset;
 		return ret;
@@ -27,11 +26,7 @@ static bool __resize(RIO* io, RIODesc* fd, ut64 count) {
 		RIONull* null = (RIONull*) fd->data;
 		null->size = count;
 		if (null->offset >= count) {
-			if (count) {
-				null->offset = count - 1;
-			} else {
-				null->offset = 0LL;
-			}
+			null->offset = (count != 0)? count - 1: 0LL;
 		}
 		return true;
 	}
@@ -39,11 +34,10 @@ static bool __resize(RIO* io, RIODesc* fd, ut64 count) {
 }
 
 static int __read(RIO* io, RIODesc* fd, ut8* buf, int count) {
-	RIONull* null;
 	if (!fd || !fd->data || !buf) {
 		return -1;
 	}
-	null = (RIONull*) fd->data;
+	RIONull* null = (RIONull*) fd->data;
 	if ((null->offset + count) > null->size) {
 		int ret = null->size - null->offset;
 		memset (buf, 0x00, ret);
@@ -55,9 +49,9 @@ static int __read(RIO* io, RIODesc* fd, ut8* buf, int count) {
 	return count;
 }
 
-static int __close(RIODesc* fd) {
+static bool __close(RIODesc* fd) {
 	R_FREE (fd->data);
-	return 0;
+	return true;
 }
 
 static ut64 __lseek(RIO* io, RIODesc* fd, ut64 offset, int whence) {
@@ -84,17 +78,22 @@ static ut64 __lseek(RIO* io, RIODesc* fd, ut64 offset, int whence) {
 }
 
 static bool __plugin_open(RIO* io, const char* pathname, bool many) {
-	return (!strncmp (pathname, "null://", 7));
+	return r_str_startswith (pathname, "null://");
 }
 
 static RIODesc* __open(RIO* io, const char* pathname, int rw, int mode) {
-	RIONull* null;
-	if (__plugin_open (io, pathname,0)) {
-		if (!strncmp (pathname, "null://", 7) && strlen (pathname + 7)) {
-			null = R_NEW0 (RIONull);
-			null->size = r_num_math (NULL, pathname + 7) + 1;         //???
-			null->offset = 0LL;
-			return r_io_desc_new (io, &r_io_plugin_null, pathname, rw, mode, null);
+	if (__plugin_open (io, pathname, 0)) {
+		if (r_str_startswith (pathname, "null://")) {
+			RIONull *null = R_NEW0 (RIONull);
+			if (null) {
+				null->size = r_num_math (NULL, pathname + 7) + 1;
+				if (null->size > ST32_MAX) {
+					R_LOG_ERROR ("Large null allocation is not valid");
+					return NULL;
+				}
+				null->offset = 0LL;
+				return r_io_desc_new (io, &r_io_plugin_null, pathname, rw & R_PERM_RWX, mode, null);
+			}
 		}
 	}
 	return NULL;
@@ -109,7 +108,7 @@ RIOPlugin r_io_plugin_null = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.resize = __resize,
 };

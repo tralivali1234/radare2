@@ -1,8 +1,5 @@
 /* radare2 - LGPL - Copyright 2015-2019 - pancake */
 
-// XXX: this plugin have 0 tests and no binaries
-//
-
 #include <r_types.h>
 #include <r_util.h>
 #include <r_lib.h>
@@ -21,10 +18,10 @@ typedef struct sbl_header {
 	ut32 cert_sz;
 } SblHeader;
 
-// TODO avoid globals
-static SblHeader sb = {0};
+// TODO move this global into the bf->obj
+static R_TH_LOCAL SblHeader sb = {0};
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	r_return_val_if_fail (b, false);
 	ut64 bufsz = r_buf_size (b);
 	if (sizeof (SblHeader) < bufsz) {
@@ -74,8 +71,8 @@ static bool check_buffer(RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb){
-	return check_buffer (b);
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
+	return check_buffer (bf, b);
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -83,7 +80,7 @@ static ut64 baddr(RBinFile *bf) {
 }
 
 static RList* entries(RBinFile *bf) {
-	RList* ret = r_list_newf (free);;
+	RList* ret = r_list_newf (free);
 	if (ret) {
 		RBinAddr *ptr = R_NEW0 (RBinAddr);
 		if (ptr) {
@@ -155,26 +152,24 @@ static RList* sections(RBinFile *bf) {
 }
 
 static RBinInfo* info(RBinFile *bf) {
-	RBinInfo *ret = NULL;
-	const int bits = 16;
-	if (!(ret = R_NEW0 (RBinInfo))) {
-		return NULL;
+	RBinInfo *ret = R_NEW0 (RBinInfo);
+	if (R_LIKELY (ret)) {
+		ret->file = strdup (bf->file);
+		ret->bclass = strdup ("bootloader");
+		ret->rclass = strdup ("mbn");
+		ret->os = strdup ("MBN");
+		ret->arch = strdup ("arm");
+		ret->machine = strdup (ret->arch);
+		ret->subsystem = strdup ("mbn");
+		ret->type = strdup ("sbl"); // secondary boot loader
+		ret->bits = 16;
+		ret->has_va = true;
+		ret->has_crypto = true; // must be false if there' no sign or cert sections
+		ret->has_pi = false;
+		ret->has_nx = false;
+		ret->big_endian = false;
+		ret->dbg_info = false;
 	}
-	ret->file = strdup (bf->file);
-	ret->bclass = strdup ("bootloader");
-	ret->rclass = strdup ("mbn");
-	ret->os = strdup ("MBN");
-	ret->arch = strdup ("arm");
-	ret->machine = strdup (ret->arch);
-	ret->subsystem = strdup ("mbn");
-	ret->type = strdup ("sbl"); // secondary boot loader
-	ret->bits = bits;
-	ret->has_va = true;
-	ret->has_crypto = true; // must be false if there' no sign or cert sections
-	ret->has_pi = false;
-	ret->has_nx = false;
-	ret->big_endian = false;
-	ret->dbg_info = false;
 	return ret;
 }
 

@@ -14,7 +14,7 @@
 static char *gdbr_read_feature(libgdbr_t *g, const char *file, ut64 *tot_len) {
 	ut64 retlen = 0, retmax = 0, off = 0, len = g->stub_features.pkt_sz - 2,
 		blksz = g->data_max, subret_space = 0, subret_len = 0;
-	char *tmp, *tmp2, *tmp3, *ret = NULL, *subret = NULL, msg[128] = { 0 },
+	char *tmp, *tmp2, *tmp3, *ret = NULL, *subret = NULL, msg[128] = {0},
 		status, tmpchar;
 	while (1) {
 		snprintf (msg, sizeof (msg), "qXfer:features:read:%s:%"PFMT64x
@@ -81,12 +81,13 @@ static char *gdbr_read_feature(libgdbr_t *g, const char *file, ut64 *tot_len) {
 				continue;
 			}
 			if (subret_len > retmax - retlen - 1) {
-				tmp3 = NULL;
-				if (!(tmp3 = realloc (ret, retmax + subret_len))) {
+				int ptrdiff = tmp - ret;
+				tmp3 = realloc (ret, retmax + subret_len);
+				if (!tmp3) {
 					free (subret);
 					goto exit_err;
 				}
-				tmp = tmp3 + (tmp - ret);
+				tmp = tmp3 + ptrdiff;
 				ret = tmp3;
 				retmax += subret_len + 1;
 			}
@@ -110,7 +111,7 @@ exit_err:
 static char *gdbr_read_osdata(libgdbr_t *g, const char *file, ut64 *tot_len) {
 	ut64 retlen = 0, retmax = 0, off = 0, len = g->stub_features.pkt_sz - 2,
 		blksz = g->data_max;
-	char *tmp, *ret = NULL, msg[128] = { 0 }, status;
+	char *tmp, *ret = NULL, msg[128] = {0}, status;
 	while (1) {
 		snprintf (msg, sizeof (msg), "qXfer:osdata:read:%s:%" PFMT64x ",%" PFMT64x, file, off, len);
 		if (send_msg (g, msg) < 0 || read_packet (g, false) < 0 || send_ack (g) < 0) {
@@ -226,11 +227,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 			_write_flag_bits (flag_bits, tmpflag);
 		}
 		packed_size = 0;
-		if (tmpreg->size >= 64 &&
-			(strstr (tmpreg->type, "fpu") ||
-				strstr (tmpreg->type, "mmx") ||
-				strstr (tmpreg->type, "xmm") ||
-				strstr (tmpreg->type, "ymm"))) {
+		if (tmpreg->size >= 64 && (strstr (tmpreg->type, "fpu") || r_str_startswith (tmpreg->type, "vec"))) {
 			packed_size = tmpreg->size / 8;
 		}
 		profile_len += snprintf (profile + profile_len, 128,
@@ -297,6 +294,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 		case 32:
 			if (!(profile = r_str_prepend (profile,
 						     "=PC	eip\n"
+						     "=A0	eax\n"
 						     "=SP	esp\n"
 						     "=BP	ebp\n"))) {
 				goto exit_err;
@@ -305,6 +303,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 		case 64:
 			if (!(profile = r_str_prepend (profile,
 						     "=PC	rip\n"
+						     "=A0	rax\n"
 						     "=SP	rsp\n"
 						     "=BP	rbp\n"))) {
 				goto exit_err;
@@ -314,6 +313,7 @@ static int gdbr_parse_target_xml(libgdbr_t *g, char *xml_data, ut64 len) {
 	case R_SYS_ARCH_MIPS:
 		if (!(profile = r_str_prepend (profile,
 						"=PC	pc\n"
+			    	    	    	"=A0	a0\n"
 						"=SP	r29\n"))) {
 			goto exit_err;
 		}
@@ -420,13 +420,13 @@ static int gdbr_parse_processes_xml(libgdbr_t *g, char *xml_data, ut64 len, int 
 			if (gdbr_read_file (g, (unsigned char *)status, sizeof (status)) != -1) {
 				pid_info = _extract_pid_info (status, cmdline, ipid);
 			} else {
-				eprintf ("Failed to read from data from procfs file of pid (%d)\n", ipid);
+				R_LOG_ERROR ("Failed to read from data from procfs file of pid (%d)", ipid);
 			}
 			if (gdbr_close_file (g) != 0) {
-				eprintf ("Failed to close procfs file of pid (%d)\n", ipid);
+				R_LOG_ERROR ("Failed to close procfs file of pid (%d)", ipid);
 			}
 		} else {
-			eprintf ("Failed to open procfs file of pid (%d)\n", ipid);
+			R_LOG_ERROR ("Failed to open procfs file of pid (%d)", ipid);
 			if (!(pid_info = R_NEW0 (RDebugPid)) || !(pid_info->path = strdup (cmdline))) {
 				ret = -1;
 				goto end;
@@ -566,7 +566,7 @@ static int _resolve_arch(libgdbr_t *g, char *xml_data) {
 			g->target.arch = R_SYS_ARCH_X86;
 			g->target.bits = 64;
 		} else {
-			eprintf ("Warning: Unknown architecture parsing XML (%s)\n", xml_data);
+			R_LOG_WARN ("Unknown architecture parsing XML (%s)", xml_data);
 		}
 	}
 	return 0;
@@ -753,29 +753,29 @@ static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			// To parse features of other architectures refer to:
 			// https://sourceware.org/gdb/onlinedocs/gdb/Standard-Target-Features.html#Standard-Target-Features
             // - x86
-			if ((tmp1 = strstr (regstr, "core")) != NULL && tmp1 < feature_end) {
+			if ((tmp1 = strstr (regstr, "core")) && tmp1 < feature_end) {
 				typegroup = "gpr";
-			} else if ((tmp1 = strstr (regstr, "segments")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "segments")) && tmp1 < feature_end) {
 				typegroup = "seg";
-			} else if ((tmp1 = strstr (regstr, "linux")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "linux")) && tmp1 < feature_end) {
 				typegroup = "gpr";
 			// Includes avx.512
-			} else if ((tmp1 = strstr (regstr, "avx")) != NULL && tmp1 < feature_end) {
-				typegroup = "ymm";
-			} else if ((tmp1 = strstr (regstr, "mpx")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "avx")) && tmp1 < feature_end) {
+				typegroup = "vec256";
+			} else if ((tmp1 = strstr (regstr, "mpx")) && tmp1 < feature_end) {
 				typegroup = "seg";
 			// - arm
-			} else if ((tmp1 = strstr (regstr, "m-profile")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "m-profile")) && tmp1 < feature_end) {
 				typegroup = "gpr";
-			} else if ((tmp1 = strstr (regstr, "pfe")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "pfe")) && tmp1 < feature_end) {
 				typegroup = "fpu";
-			} else if ((tmp1 = strstr (regstr, "vfp")) != NULL && tmp1 < feature_end) {
+			} else if ((tmp1 = strstr (regstr, "vfp")) && tmp1 < feature_end) {
 				typegroup = "fpu";
-			} else if ((tmp1 = strstr (regstr, "iwmmxt")) != NULL && tmp1 < feature_end) {
-				typegroup = "xmm";
+			} else if ((tmp1 = strstr (regstr, "iwmmxt")) && tmp1 < feature_end) {
+				typegroup = "vec128";
 			// -- Aarch64
-			} else if ((tmp1 = strstr (regstr, "sve")) != NULL && tmp1 < feature_end) {
-				typegroup = "ymm";
+			} else if ((tmp1 = strstr (regstr, "sve")) && tmp1 < feature_end) {
+				typegroup = "vec256";
 			} else {
 				typegroup = "gpr";
 			}
@@ -819,11 +819,11 @@ static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			if (r_str_startswith (tmp1, "float")) {
 				regtype = "fpu";
 			} else if (r_str_startswith (tmp1, "mmx")) {
-				regtype = "mmx";
+				regtype = "vec64";
 			} else if (r_str_startswith (tmp1, "sse")) {
-				regtype = "xmm";
+				regtype = "vec128";
 			} else if (r_str_startswith (tmp1, "vector")) {
-				regtype = "ymm";
+				regtype = "vec256";
 			} else if (r_str_startswith (tmp1, "system")) {
 				regtype = "seg";
 			}
@@ -855,22 +855,22 @@ static RList *_extract_regs(char *regstr, RList *flags, char *pc_alias) {
 			}
 			// We need type information in r2 register profiles
 		}
-		// Move unidentified vector/large registers from gpr to xmm since r2 set/get
+		// Move unidentified vector/large registers from gpr to vec128 since r2 set/get
 		// registers doesn't support >64bit registers atm(but it's still possible to
 		// read them using gdbr's implementation through dr/drt)
 		if (regsize > 64 && !strcmp (regtype, "gpr")) {
-			regtype = "xmm";
+			regtype = "vec128";
 		}
-		// Move appropriately sized unidentified xmm registers from fpu to xmm
+		// Move appropriately sized unidentified xmm registers from fpu to vec128
 		if (regsize == 128 && !strcmp (regtype, "fpu")) {
-			regtype = "xmm";
+			regtype = "vec128";
 		}
 		if (!(tmpreg = calloc (1, sizeof (gdbr_xml_reg_t)))) {
 			goto exit_err;
 		}
 		regname[regname_len] = '\0';
 		if (regname_len > sizeof (tmpreg->name) - 1) {
-			eprintf ("Register name too long: %s\n", regname);
+			R_LOG_WARN ("Register name too long: %s", regname);
 		}
 		strncpy (tmpreg->name, regname, sizeof (tmpreg->name) - 1);
 		tmpreg->name[sizeof (tmpreg->name) - 1] = '\0';

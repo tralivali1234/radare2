@@ -1,9 +1,9 @@
-/* radare - LGPL3 - Copyright 2016-2020 - c0riolis, x0urc3 */
+/* radare - LGPL3 - Copyright 2016-2022 - c0riolis, x0urc3 */
 
 #include "pyc_magic.h"
 #include <stdlib.h>
 
-static struct pyc_version versions[] = {
+static const struct pyc_version versions[] = {
 	{ 0x00949494, "0.9.4 beta", "77b80a91d357c1d95d8e7cd4cbbe799e5deb777e" },
 	{ 0x0099be2a, "0.9.9", "1cabc2b6c9701aea29bb506b593946e67bf7593a" },
 	{ 0x0099be3a, "0.9.9", "f820e6917f07e5012bdd103ef97389318d5a10f8" },
@@ -236,7 +236,7 @@ bool magic_int_within(ut32 target_magic, ut32 lower, ut32 upper, bool *error) {
 	}
 	if (ti == size) {
 		*error = true;
-		eprintf ("target_magic not found in versions[]");
+		eprintf ("target_magic not found in versions[]\n");
 		return false;
 	}
 
@@ -245,7 +245,7 @@ bool magic_int_within(ut32 target_magic, ut32 lower, ut32 upper, bool *error) {
 	}
 	if (li == size) {
 		*error = true;
-		eprintf ("lower magic_int not found in versions[]");
+		eprintf ("lower magic_int not found in versions[]\n");
 		return false;
 	}
 
@@ -254,7 +254,7 @@ bool magic_int_within(ut32 target_magic, ut32 lower, ut32 upper, bool *error) {
 	}
 	if (ui == size) {
 		*error = true;
-		eprintf ("upper magic_int not found in versions[]");
+		eprintf ("upper magic_int not found in versions[]\n");
 		return false;
 	}
 

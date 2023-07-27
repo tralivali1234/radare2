@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2015-2019 - pancake */
+/* radare - LGPL - Copyright 2015-2021 - pancake */
 
 #include "r_io.h"
 #include "r_lib.h"
@@ -32,12 +32,12 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 		"{\"op\":\"write\",\"address\":%" PFMT64d ",\"data\":[%s]}",
 		io->off, bufnum);
 	if (len >= sizeof (fmt)) {
-		eprintf ("r2pipe_write: error, fmt string has been truncated\n");
+		R_LOG_ERROR ("fmt string has been truncated");
 		return -1;
 	}
 	rv = r2pipe_write (R2P (fd), fmt);
 	if (rv < 1) {
-		eprintf ("r2pipe_write: error\n");
+		R_LOG_ERROR ("r2pipe_write failed");
 		return -1;
 	}
 	res = r2pipe_read (R2P (fd));
@@ -67,7 +67,7 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 		io->off, count);
 	rv = r2pipe_write (R2P (fd), fmt);
 	if (rv < 1) {
-		eprintf ("r2pipe_write: error\n");
+		R_LOG_ERROR ("r2pipe_write failed");
 		return -1;
 	}
 	res = r2pipe_read (R2P (fd));
@@ -122,13 +122,13 @@ beach:
 	return rescount;
 }
 
-static int __close(RIODesc *fd) {
+static bool __close(RIODesc *fd) {
 	if (!fd || !fd->data) {
-		return -1;
+		return false;
 	}
 	r2pipe_close (fd->data);
 	fd->data = NULL;
-	return 0;
+	return true;
 }
 
 static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
@@ -141,7 +141,7 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 }
 
 static bool __check(RIO *io, const char *pathname, bool many) {
-	return (!strncmp (pathname, "r2pipe://", 9));
+	return r_str_startswith (pathname, "r2pipe://");
 }
 
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
@@ -164,7 +164,7 @@ static char *__system(RIO *io, RIODesc *fd, const char *msg) {
 	int rv = r2pipe_write (R2P (fd), fmt);
 	pj_free (pj);
 	if (rv < 1) {
-		eprintf ("r2pipe_write: error\n");
+		R_LOG_ERROR ("r2pipe_write failed");
 		return NULL;
 	}
 	char *res = r2pipe_read (R2P (fd));
@@ -173,7 +173,7 @@ static char *__system(RIO *io, RIODesc *fd, const char *msg) {
 	char *r = strstr (res, "result");
 	if (r) {
 		int rescount = atoi (r + 6 + 1);
-		eprintf ("RESULT %d\n", rescount);
+		R_LOG_INFO ("RESULT %d", rescount);
 	}
 	free (res);
 	return NULL;
@@ -188,7 +188,7 @@ RIOPlugin r_io_plugin_r2pipe = {
 	.close = __close,
 	.read = __read,
 	.check = __check,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.system = __system
 };

@@ -1,13 +1,11 @@
 include ../config.mk
 
 NAME=r_debug
-R2DEPS=r_reg r_anal r_bp r_io r_parse r_cons r_syscall r_hash r_flag r_util r_egg r_crypto
-R2DEPS+=r_socket
+R2DEPS=r_reg r_anal r_bp r_io r_cons r_syscall r_arch
+R2DEPS+=r_socket r_flag r_util r_egg r_crypto r_esil r_bin
 CFLAGS+=-DR2_PLUGIN_INCORE
 
-ifeq ($(OSTYPE),bsd)
-LDFLAGS+=-lkvm
-endif
+include ../util/deps.mk
 
 foo:
 	@${MAKE} libs
@@ -32,6 +30,10 @@ OBJS+= p/${NATIVE_OBJS}
 endif
 endif
 
+
+ifeq ($(OSTYPE),windows)
+OBJS+=$(addprefix p/,$(NATIVE_OBJS))
+endif
 ifeq ($(OSTYPE),$(filter $(OSTYPE),gnulinux android))
 CFLAGS+=-I../bin/format/elf
 OBJS+=$(addprefix p/,$(NATIVE_OBJS))

@@ -1,17 +1,27 @@
+N=shm
 OBJ_SHM=io_shm.o
+CSRC_SHM=$(subst .o,.c,$(OBJ_SHM))
 
 STATIC_OBJ+=${OBJ_SHM}
 TARGET_SHM=io_shm.${EXT_SO}
-ALL_TARGETS+=${TARGET_SHM}
+#ALL_TARGETS+=${TARGET_SHM}
 
-ifeq (${WITHPIC},0)
-LINKFLAGS+=../../util/libr_util.a
-LINKFLAGS+=../../io/libr_io.a
-else
-LINKFLAGS+=-L../../util -lr_util
-LINKFLAGS+=-L.. -lr_io
+ifeq (${OSTYPE},gnulinux)
+LDFLAGS+=-lrt
 endif
 
-${TARGET_SHM}: ${OBJ_SHM}
-	${CC_LIB} $(call libname,io_shm) ${CFLAGS} $(LDFLAGS) \
-		-o ${TARGET_SHM} ${OBJ_SHM} ${LINKFLAGS}
+ifeq (${WITHPIC},0)
+R_IO_SHM_LINKFLAGS+=../../util/libr_util.a
+R_IO_SHM_LINKFLAGS+=../../io/libr_io.a
+R_IO_SHM_LINKFLAGS+=../../cons/libr_cons.a
+R_IO_SHM_LINKFLAGS+=../../cons/libr_socket.a
+else
+R_IO_SHM_LINKFLAGS+=-L../../cons -lr_cons
+R_IO_SHM_LINKFLAGS+=-L../../util -lr_util
+R_IO_SHM_LINKFLAGS+=-L../../socket -lr_socket
+R_IO_SHM_LINKFLAGS+=-L../../crypto -lr_crypto
+R_IO_SHM_LINKFLAGS+=-L.. -lr_io
+endif
+
+$(N) p/${TARGET_SHM}: p/${OBJ_SHM}
+	cd p && $(CC) $(CFLAGS) -shared -L.. $(CSRC_SHM) -fPIC -o $(TARGET_SHM) -I../../include -I../../../shlr/sdb/src $(R_IO_SHM_LINKFLAGS)

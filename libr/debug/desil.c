@@ -16,7 +16,6 @@
 
 	# expression can be a number or a range (if .. is found)
 	# The <=, >=, ==, <, > comparisons are also supported
-
 #endif
 
 typedef struct {
@@ -26,11 +25,11 @@ typedef struct {
 } EsilBreak;
 
 // TODO: Kill those globals
-RDebug *dbg = NULL;
-static int has_match = 0;
-static int prestep = 1; // TODO: make it configurable
-static ut64 opc = 0;
-RList *esil_watchpoints = NULL;
+static R_TH_LOCAL RDebug *dbg = NULL;
+static R_TH_LOCAL bool has_match = false;
+static R_TH_LOCAL int prestep = 1; // TODO: make it configurable
+static R_TH_LOCAL ut64 opc = 0;
+static R_TH_LOCAL RList *esil_watchpoints = NULL;
 #define EWPS esil_watchpoints
 #define ESIL dbg->anal->esil
 
@@ -67,7 +66,7 @@ static int exprmatch(RDebug *dbg, ut64 addr, const char *expr) {
 	return ret;
 }
 
-static bool esilbreak_check_pc (RDebug *dbg, ut64 pc) {
+static bool esilbreak_check_pc(RDebug *dbg, ut64 pc) {
 	EsilBreak *ew;
 	RListIter *iter;
 	if (!pc) {
@@ -76,36 +75,36 @@ static bool esilbreak_check_pc (RDebug *dbg, ut64 pc) {
 	r_list_foreach (EWPS, iter, ew) {
 		if (ew->rwx & R_PERM_X) {
 			if (exprmatch (dbg, pc, ew->expr)) {
-				return 1;
+				return true;
 			}
 		}
 	}
 	return false;
 }
 
-static bool esilbreak_mem_read(RAnalEsil *esil, ut64 addr, ut8 *buf, int len) {
+static bool esilbreak_mem_read(REsil *esil, ut64 addr, ut8 *buf, int len) {
 	EsilBreak *ew;
 	RListIter *iter;
 	eprintf (Color_GREEN"MEM READ 0x%"PFMT64x"\n"Color_RESET, addr);
 	r_list_foreach (EWPS, iter, ew) {
 		if (ew->rwx & R_PERM_R && ew->dev == 'm') {
 			if (exprmatch (dbg, addr, ew->expr)) {
-				has_match = 1;
-				return 1;
+				has_match = true;
+				return true;
 			}
 		}
 	}
 	return false;
 }
 
-static bool esilbreak_mem_write(RAnalEsil *esil, ut64 addr, const ut8 *buf, int len) {
+static bool esilbreak_mem_write(REsil *esil, ut64 addr, const ut8 *buf, int len) {
 	EsilBreak *ew;
 	RListIter *iter;
 	eprintf (Color_RED"MEM WRTE 0x%"PFMT64x"\n"Color_RESET, addr);
 	r_list_foreach (EWPS, iter, ew) {
 		if (ew->rwx & R_PERM_W && ew->dev == 'm') {
 			if (exprmatch (dbg, addr, ew->expr)) {
-				has_match = 1;
+				has_match = true;
 				return true;
 			}
 		}
@@ -113,7 +112,7 @@ static bool esilbreak_mem_write(RAnalEsil *esil, ut64 addr, const ut8 *buf, int 
 	return false; // fallback
 }
 
-static bool esilbreak_reg_read(RAnalEsil *esil, const char *regname, ut64 *num, int *size) {
+static bool esilbreak_reg_read(REsil *esil, const char *regname, ut64 *num, int *size) {
 	EsilBreak *ew;
 	RListIter *iter;
 	if (regname[0]>='0' && regname[0]<='9') {
@@ -125,7 +124,7 @@ static bool esilbreak_reg_read(RAnalEsil *esil, const char *regname, ut64 *num, 
 		if (ew->rwx & R_PERM_R && ew->dev == 'r') {
 			// XXX: support array of regs in expr
 			if (!strcmp (regname, ew->expr)) {
-				has_match = 1;
+				has_match = true;
 				return true;
 			}
 		}
@@ -155,7 +154,7 @@ static int exprmatchreg(RDebug *dbg, const char *regname, const char *expr) {
 	if (!strcmp (regname, s)) {
 		ret = 1;
 	} else {
-#define CURVAL 0){}r_str_trim (s);if (!strcmp(regname,s) && regval
+#define CURVAL 0){}r_str_trim (s);if (!strcmp (regname,s) && regval
 		ut64 regval = r_debug_reg_get_err (dbg, regname, NULL, NULL);
 		if (exprtoken (dbg, s, ">=", &p)) {
 			if (CURVAL >= r_num_math (dbg->num, p))
@@ -188,7 +187,7 @@ static int exprmatchreg(RDebug *dbg, const char *regname, const char *expr) {
 	return ret;
 }
 
-static bool esilbreak_reg_write(RAnalEsil *esil, const char *regname, ut64 *num) {
+static bool esilbreak_reg_write(REsil *esil, const char *regname, ut64 *num) {
 	EsilBreak *ew;
 	RListIter *iter;
 	if (regname[0] >= '0' && regname[0] <= '9') {
@@ -201,7 +200,7 @@ static bool esilbreak_reg_write(RAnalEsil *esil, const char *regname, ut64 *num)
 		if ((ew->rwx & R_PERM_W) && (ew->dev == 'r')) {
 			// XXX: support array of regs in expr
 			if (exprmatchreg (dbg, regname, ew->expr)) {
-				has_match = 1;
+				has_match = true;
 				return true;
 			}
 		}
@@ -210,6 +209,7 @@ static bool esilbreak_reg_write(RAnalEsil *esil, const char *regname, ut64 *num)
 }
 
 R_API void r_debug_esil_prestep(RDebug *d, int p) {
+	r_return_if_fail (d);
 	prestep = p;
 }
 
@@ -220,10 +220,10 @@ R_API bool r_debug_esil_stepi(RDebug *d) {
 	int ret = 1;
 	dbg = d;
 	if (!ESIL) {
-		ESIL = r_anal_esil_new (32, true, 64);
+		ESIL = r_esil_new (32, true, 64);
 		// TODO setup something?
 		if (!ESIL) {
-			return 0;
+			return false;
 		}
 	}
 
@@ -243,49 +243,50 @@ R_API bool r_debug_esil_stepi(RDebug *d) {
 		// required when a exxpression is like <= == ..
 		// otherwise it will stop at the next instruction
 		if (r_debug_step (dbg, 1)<1) {
-			eprintf ("Step failed\n");
-			return 0;
+			R_LOG_WARN ("Step failed");
+			return false;
 		}
 		r_debug_reg_sync (dbg, R_REG_TYPE_GPR, false);
 		//	npc = r_debug_reg_get (dbg, dbg->reg->name[R_REG_NAME_PC]);
 	}
 
-	if (r_anal_op (dbg->anal, &op, opc, obuf, sizeof (obuf), R_ANAL_OP_MASK_ESIL)) {
+	if (r_anal_op (dbg->anal, &op, opc, obuf, sizeof (obuf), R_ARCH_OP_MASK_ESIL)) {
 		if (esilbreak_check_pc (dbg, opc)) {
-			eprintf ("STOP AT 0x%08"PFMT64x"\n", opc);
+			R_LOG_WARN ("STOP AT 0x%08"PFMT64x, opc);
 			ret = 0;
 		} else {
-			r_anal_esil_set_pc (ESIL, opc);
+			r_esil_set_pc (ESIL, opc);
 			eprintf ("0x%08"PFMT64x"  %s\n", opc, R_STRBUF_SAFEGET (&op.esil));
-			(void)r_anal_esil_parse (ESIL, R_STRBUF_SAFEGET (&op.esil));
-			//r_anal_esil_dumpstack (ESIL);
-			r_anal_esil_stack_free (ESIL);
+			(void)r_esil_parse (ESIL, R_STRBUF_SAFEGET (&op.esil));
+			//r_esil_dumpstack (ESIL);
+			r_esil_stack_free (ESIL);
 			ret = 1;
 		}
 	}
 	if (!prestep) {
 		if (ret && !has_match) {
-			if (r_debug_step (dbg, 1)<1) {
-				eprintf ("Step failed\n");
+			if (r_debug_step (dbg, 1) < 1) {
+				R_LOG_WARN ("Step has failed");
 				return 0;
 			}
 			r_debug_reg_sync (dbg, R_REG_TYPE_GPR, false);
-			//	npc = r_debug_reg_get (dbg, dbg->reg->name[R_REG_NAME_PC]);
+			// npc = r_debug_reg_get (dbg, dbg->reg->name[R_REG_NAME_PC]);
 		}
 	}
 	return ret;
 }
 
 R_API ut64 r_debug_esil_step(RDebug *dbg, ut32 count) {
+	r_return_val_if_fail (dbg, UT64_MAX);
 	count++;
-	has_match = 0;
+	has_match = false;
 	r_cons_break_push (NULL, NULL);
 	do {
 		if (r_cons_is_breaked ()) {
 			break;
 		}
 		if (has_match) {
-			eprintf ("EsilBreak match at 0x%08"PFMT64x"\n", opc);
+			R_LOG_INFO ("EsilBreak match at 0x%08"PFMT64x, opc);
 			break;
 		}
 		if (count > 0) {
@@ -300,7 +301,7 @@ R_API ut64 r_debug_esil_step(RDebug *dbg, ut32 count) {
 	return opc;
 }
 
-R_API ut64 r_debug_esil_continue (RDebug *dbg) {
+R_API ut64 r_debug_esil_continue(RDebug *dbg) {
 	return r_debug_esil_step (dbg, UT32_MAX);
 }
 

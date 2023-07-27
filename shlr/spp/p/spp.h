@@ -3,8 +3,26 @@
 #ifndef INCLUDE_P_SPP_H
 #define INCLUDE_P_SPP_H
 
-#if __UNIX__
+#if R2__UNIX__
 #include <unistd.h>
+#endif
+
+#if __WIN32__
+#undef SPP_HAVE_SYSTEM
+#define SPP_HAVE_SYSTEM 0
+#undef R2__WINDOWS__
+#define R2__WINDOWS__ 1
+#endif
+#ifdef _MSC_VER
+#undef SPP_HAVE_SYSTEM
+#define SPP_HAVE_SYSTEM 0
+#undef R2__WINDOWS__
+#define R2__WINDOWS__ 1
+#endif
+
+#if HAVE_SYSTEM == 0
+#undef SPP_HAVE_SYSTEM
+#define SPP_HAVE_SYSTEM 0
 #endif
 
 static char *spp_var_get(char *var) {
@@ -15,7 +33,7 @@ static int spp_var_set(const char *var, const char *val) {
 	return r_sys_setenv (var, val);
 }
 
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 /* Should be dynamic buffer */
 static char *cmd_to_str(const char *cmd) {
 	char *out = (char *)calloc (4096, 1);
@@ -90,7 +108,11 @@ static TAG_CALLBACK(spp_getrandom) {
 		return 0;
 	}
 	// XXX srsly? this is pretty bad random
+#if R2__WINDOWS__
+	srand (r_sys_getpid ());
+#else
 	srandom (r_sys_getpid ()); // TODO: change this to be portable
+#endif
 	max = atoi (buf);
 	if (max > 0) {
 		max = (int)(rand () % max);
@@ -176,10 +198,10 @@ static TAG_CALLBACK(spp_system) {
 	if (!state->echo[state->ifl]) {
 		return 0;
 	}
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 	char *str = cmd_to_str (buf);
 	out_printf (out, "%s", str);
-	free(str);
+	free (str);
 #endif
 	return 0;
 }
@@ -319,12 +341,12 @@ static TAG_CALLBACK(spp_default) {
 	return 0;
 }
 
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 static FILE *spp_pipe_fd = NULL;
 #endif
 
 static TAG_CALLBACK(spp_pipe) {
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 	spp_pipe_fd = popen (buf, "w");
 #endif
 	return 0;
@@ -354,7 +376,7 @@ static TAG_CALLBACK(spp_endswitch) {
 }
 
 static TAG_CALLBACK(spp_endpipe) {
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 	/* TODO: Get output here */
 	int ret = 0, len = 0;
 	int outlen = 4096;
@@ -385,7 +407,7 @@ static TAG_CALLBACK(spp_endpipe) {
 }
 
 static PUT_CALLBACK(spp_fputs) {
-#if HAVE_SYSTEM
+#if SPP_HAVE_SYSTEM
 	if (spp_pipe_fd) {
 		fprintf (spp_pipe_fd, "%s", buf);
 	} else

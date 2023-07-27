@@ -1,3 +1,17 @@
+NAME=arm coff
+FILE=bins/coff/arm.obj
+CMDS=<<EOF
+i~^format
+e asm.arch
+e asm.bits
+EOF
+EXPECT=<<EOF
+format   coff
+arm
+32
+EOF
+RUN
+
 NAME=tifdir imports and sections
 FILE=bins/coff/tif_dir.obj
 CMDS=<<EOF
@@ -37,19 +51,19 @@ nth vaddr      bind type lib name
 
 [Sections]
 
-nth paddr         size vaddr        vsize perm name
----------------------------------------------------
-0   0x000001cc    0x2f 0x00000000    0x2f ---- .drectve-0
-1   0x000001fb  0x8670 0x00000030  0x8670 -r-- .debug$S-1
-2   0x0000ad73    0x70 0x000086a0    0x70 -r-- .debug$T-2
-3   0x0000ade3   0x625 0x00008710   0x625 -rw- .data-3
-4   0x0000b408    0x54 0x00008d40    0x54 -r-- .rdata-4
-5   0x00000000     0x8 0x00008da0     0x8 -rw- .bss-5
-6   0x0000b45c  0x2895 0x00008db0  0x2895 -r-x .text$mn-6
-7   0x0000e967     0x8 0x0000b650     0x8 -r-- .rdata-7
-8   0x0000e96f     0x4 0x0000b660     0x4 -r-- .rdata-8
-9   0x0000e973     0x8 0x0000b670     0x8 -r-- .rdata-9
-10  0x0000e97b     0x4 0x0000b680     0x4 -r-- .rdata-10
+nth paddr         size vaddr        vsize perm type name
+--------------------------------------------------------
+0   0x000001cc    0x2f 0x00000000    0x2f ---- MAP  .drectve-0
+1   0x000001fb  0x8670 0x00000030  0x8670 -r-- DATA .debug$S-1
+2   0x0000ad73    0x70 0x000086a0    0x70 -r-- DATA .debug$T-2
+3   0x0000ade3   0x625 0x00008710   0x625 -rw- DATA .data-3
+4   0x0000b408    0x54 0x00008d40    0x54 -r-- DATA .rdata-4
+5   0x00000000     0x8 0x00008da0     0x8 -rw- MAP  .bss-5
+6   0x0000b45c  0x2895 0x00008db0  0x2895 -r-x TEXT .text$mn-6
+7   0x0000e967     0x8 0x0000b650     0x8 -r-- DATA .rdata-7
+8   0x0000e96f     0x4 0x0000b660     0x4 -r-- DATA .rdata-8
+9   0x0000e973     0x8 0x0000b670     0x8 -r-- DATA .rdata-9
+10  0x0000e97b     0x4 0x0000b680     0x4 -r-- DATA .rdata-10
 
 EOF
 RUN
@@ -58,12 +72,11 @@ NAME=tiny coff
 FILE=bins/coff/coff.obj
 CMDS=om;is;ir
 EXPECT=<<EOF
- 2 fd: 3 +0x00000064 0x00000000 - 0x00000026 r-x fmap..text_0
- 1 fd: 3 +0x0000008b 0x00000030 - 0x0000004b r-- fmap..data_1
+* 2 fd: 3 +0x00000064 0x00000000 - 0x00000026 r-x fmap..text_0
+- 1 fd: 3 +0x0000008b 0x00000030 - 0x0000004b r-- fmap..data_1
 [Symbols]
-
-nth paddr      vaddr      bind   type size lib name
----------------------------------------------------
+nth paddr      vaddr      bind   type size lib name            demangled
+------------------------------------------------------------------------
 0   ---------- ---------- NONE   UNK  4        imp.MessageBoxA
 0   ---------- ---------- NONE   UNK  4        imp.ExitProcess
 0   0x00000064 0x00000000 LOCAL  SECT 4        .text
@@ -92,15 +105,15 @@ s sym.__1FooBar__QAE_XZ
 pd 2
 EOF
 EXPECT=<<EOF
- 9 fd: 3 +0x0000017c 0x00000000 - 0x000000ee --- fmap..drectve_0
- 8 fd: 3 +0x0000026b 0x000000f0 - 0x00000b9f r-- fmap..debug_S_1
- 7 fd: 3 +0x00000d1b 0x00000ba0 - 0x00000c13 r-- fmap..debug_T_2
- 6 fd: 3 +0x00000d8f 0x00000c20 - 0x00000c4c r-x fmap..text_mn_3
- 5 fd: 3 +0x00000dbc 0x00000c50 - 0x00000d23 r-- fmap..debug_S_4
- 4 fd: 3 +0x00000ec2 0x00000d30 - 0x00000d59 r-x fmap..text_mn_5
- 3 fd: 3 +0x00000eec 0x00000d60 - 0x00000e33 r-- fmap..debug_S_6
- 2 fd: 3 +0x00000ff2 0x00000e40 - 0x00000e43 r-- fmap..rtc_IMZ_7
- 1 fd: 3 +0x00001000 0x00000e50 - 0x00000e53 r-- fmap..rtc_TMZ_8
+- 9 fd: 3 +0x0000017c 0x00000000 - 0x000000ee --- fmap..drectve_0
+- 8 fd: 3 +0x0000026b 0x000000f0 - 0x00000b9f r-- fmap..debug_S_1
+- 7 fd: 3 +0x00000d1b 0x00000ba0 - 0x00000c13 r-- fmap..debug_T_2
+* 6 fd: 3 +0x00000d8f 0x00000c20 - 0x00000c4c r-x fmap..text_mn_3
+- 5 fd: 3 +0x00000dbc 0x00000c50 - 0x00000d23 r-- fmap..debug_S_4
+- 4 fd: 3 +0x00000ec2 0x00000d30 - 0x00000d59 r-x fmap..text_mn_5
+- 3 fd: 3 +0x00000eec 0x00000d60 - 0x00000e33 r-- fmap..debug_S_6
+- 2 fd: 3 +0x00000ff2 0x00000e40 - 0x00000e43 r-- fmap..rtc_IMZ_7
+- 1 fd: 3 +0x00001000 0x00000e50 - 0x00000e53 r-- fmap..rtc_TMZ_8
 0   0x00000d8f 0x00000c20 LOCAL  SECT 4        .text$mn
 0   0x00000ec2 0x00000d30 LOCAL  SECT 4        .text$mn
             ;-- section..text_mn_5:
@@ -112,7 +125,7 @@ EOF
 RUN
 
 NAME=patched reloc x86
-ARGS=-e io.cache=1
+ARGS=-e bin.relocs.apply=1
 FILE=bins/coff/tif_dir.obj
 CMDS=<<EOF
 af @ sym._TIFFGetField
@@ -123,21 +136,19 @@ pd 1 @ sym.imp._TIFFFindField
 EOF
 EXPECT=<<EOF
 |           0x00008dbd      e80e000000     call sym._TIFFVGetField     ; RELOC 32 _TIFFVGetField @ 0x00008dd0
-sym._TIFFGetField 0x8dbd [CALL] call sym._TIFFVGetField
+sym._TIFFGetField 0x8dbd [CALL:--x] call sym._TIFFVGetField
 |           0x00008dde      e8ad280000     call _TIFFFindField
-            ; CALL XREF from sym._TIFFVGetField @ 0x8dde
             ;-- reloc._TIFFFindField:
             ;-- _TIFFFindField:
+            ; CALL XREF from sym._TIFFVGetField @ 0x8dde(x)
             0x0000b690      .dword 0x00000000                          ; RELOC 32 _TIFFFindField
 EOF
 RUN
 
 NAME=patching REL32 amd64
-ARGS=-e io.cache=1
+ARGS=-e bin.relocs.apply=1
 FILE=bins/coff/coff.obj
-CMDS=<<EOF
-pd 2 @ sym.main+6
-EOF
+CMDS=pd 2 @ sym.main+6
 EXPECT=<<EOF
             0x00000006      4c8d05230000.  lea r8, [0x00000030]        ; sym..data ; "Win64 assembly"; RELOC 32 .data @ 0x00000030
             0x0000000d      488d152b0000.  lea rdx, [0x0000003f]       ; str.Coffee_time_ ; "Coffee time!"; RELOC 32 .data @ 0x00000030 + 0xf

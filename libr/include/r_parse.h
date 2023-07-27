@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2022 - pancake, nibble */
 
 #ifndef R2_PARSE_H
 #define R2_PARSE_H
@@ -11,7 +11,7 @@
 extern "C" {
 #endif
 
-R_LIB_VERSION_HEADER(r_parse);
+R_LIB_VERSION_HEADER (r_parse);
 
 typedef RList* (*RAnalVarList)(RAnalFunction *fcn, int kind);
 
@@ -38,86 +38,41 @@ typedef struct r_parse_t {
 	RAnalBind analb;
 	RFlagGetAtAddr flag_get; // XXX
 	RAnalLabelAt label_get;
-} RParse;
+} RParse; // TODO rename to RAsmParseState
 
 typedef struct r_parse_plugin_t {
 	char *name;
 	char *desc;
-	bool (*init)(RParse *p, void *user);
-	int (*fini)(RParse *p, void *user);
+	bool (*init)(RParse *p, void *user); // returns an RAsmParseState*
+	int (*fini)(RParse *p, void *user); // receives the asmparsestate
+
 	int (*parse)(RParse *p, const char *data, char *str);
-	bool (*assemble)(RParse *p, char *data, char *str);
+	// UNUSED bool (*assemble)(RParse *p, char *data, char *str);
 	int (*filter)(RParse *p, ut64 addr, RFlag *f, char *data, char *str, int len, bool big_endian);
 	bool (*subvar)(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len);
-	int (*replace)(int argc, const char *argv[], char *newstr);
+	// int (*replace)(int argc, const char *argv[], char *newstr); // rename to pseudo!
+	// int (*pseudo)(int argc, const char *argv[], char *newstr); // rename to pseudo!
 } RParsePlugin;
 
 #ifdef R_API
 
 /* lifecycle */
-R_API struct r_parse_t *r_parse_new(void);
+R_API RParse *r_parse_new(void);
 R_API void r_parse_free(RParse *p);
 
 /* plugins */
 R_API void r_parse_set_user_ptr(RParse *p, void *user);
-R_API bool r_parse_add(RParse *p, RParsePlugin *foo);
+R_API bool r_parse_plugin_add(RParse *p, RParsePlugin *plugin);
+R_API bool r_parse_plugin_remove(RParse *p, RParsePlugin *plugin);
 R_API bool r_parse_use(RParse *p, const char *name);
 
 /* action */
 R_API bool r_parse_parse(RParse *p, const char *data, char *str);
+R_API char *r_parse_instruction(RParse *p, const char *data);
 R_API bool r_parse_assemble(RParse *p, char *data, char *str); // XXX deprecate, unused and probably useless, related to write-hack
 R_API bool r_parse_filter(RParse *p, ut64 addr, RFlag *f, RAnalHint *hint, char *data, char *str, int len, bool big_endian);
 R_API bool r_parse_subvar(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len);
 R_API char *r_parse_immtrim(char *opstr);
-
-/* c */
-// why we have anal scoped things in rparse
-R_API char *r_parse_c_string(RAnal *anal, const char *code, char **error_msg);
-R_API char *r_parse_c_file(RAnal *anal, const char *path, const char *dir, char **error_msg);
-R_API void r_parse_c_reset(RParse *p);
-
-/* ctype */
-// Parses strings like "const char * [0x42] const * [23]" to RParseCTypeType
-
-typedef struct r_parse_ctype_t RParseCType;
-
-typedef enum {
-	R_PARSE_CTYPE_TYPE_KIND_IDENTIFIER,
-	R_PARSE_CTYPE_TYPE_KIND_POINTER,
-	R_PARSE_CTYPE_TYPE_KIND_ARRAY
-} RParseCTypeTypeKind;
-
-typedef enum {
-	R_PARSE_CTYPE_IDENTIFIER_KIND_UNSPECIFIED,
-	R_PARSE_CTYPE_IDENTIFIER_KIND_STRUCT,
-	R_PARSE_CTYPE_IDENTIFIER_KIND_UNION,
-	R_PARSE_CTYPE_IDENTIFIER_KIND_ENUM
-} RParseCTypeTypeIdentifierKind;
-
-typedef struct r_parse_ctype_type_t RParseCTypeType;
-struct r_parse_ctype_type_t {
-	RParseCTypeTypeKind kind;
-	union {
-		struct {
-			RParseCTypeTypeIdentifierKind kind;
-			char *name;
-			bool is_const;
-		} identifier;
-		struct {
-			RParseCTypeType *type;
-			bool is_const;
-		} pointer;
-		struct {
-			RParseCTypeType *type;
-			size_t count;
-		} array;
-	};
-};
-
-R_API RParseCType *r_parse_ctype_new(void);
-R_API void r_parse_ctype_free(RParseCType *ctype);
-R_API RParseCTypeType *r_parse_ctype_parse(RParseCType *ctype, const char *str, char **error);
-R_API void r_parse_ctype_type_free(RParseCTypeType *type);
 
 /* plugin pointers */
 extern RParsePlugin r_parse_plugin_6502_pseudo;
@@ -137,6 +92,8 @@ extern RParsePlugin r_parse_plugin_x86_pseudo;
 extern RParsePlugin r_parse_plugin_z80_pseudo;
 extern RParsePlugin r_parse_plugin_tms320_pseudo;
 extern RParsePlugin r_parse_plugin_v850_pseudo;
+extern RParsePlugin r_parse_plugin_bpf_pseudo;
+extern RParsePlugin r_parse_plugin_evm_pseudo;
 #endif
 
 #ifdef __cplusplus

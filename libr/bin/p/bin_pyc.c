@@ -1,17 +1,14 @@
-/* radare - LGPL3 - Copyright 2016-2020 - c0riolis, x0urc3 */
+/* radare - LGPL3 - Copyright 2016-2022 - c0riolis, x0urc3 */
 
 #include <r_bin.h>
 #include "../format/pyc/pyc.h"
 
-// XXX: to not use globals
+static R_TH_LOCAL ut64 code_start_offset = 0;
+static R_TH_LOCAL struct pyc_version version;
+static R_TH_LOCAL RList *sections_cache = NULL;
+RList R_TH_LOCAL *interned_table = NULL; // used from marshall.c
 
-static ut64 code_start_offset = 0;
-static struct pyc_version version;
-/* used from marshall.c */
-RList *interned_table = NULL;
-static RList *sections_cache = NULL;
-
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) > 4) {
 		ut32 buf;
 		r_buf_read_at (b, 0, (ut8 *)&buf, sizeof (buf));
@@ -22,7 +19,7 @@ static bool check_buffer(RBuffer *b) {
 }
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (buf);
+	return check_buffer (bf, buf);
 }
 
 static ut64 get_entrypoint(RBuffer *buf) {
@@ -56,7 +53,7 @@ static RBinInfo *info(RBinFile *arch) {
 	ret->machine = r_str_newf ("Python %s VM (rev %s)", version.version,
 		version.revision);
 	ret->os = strdup ("any");
-	ret->bits = version2double (version.version) < 3.6? 16: 8;
+	ret->bits = 32; // version2double (version.version) < 3.6? 16: 8;
 	ret->cpu = strdup (version.version); // pass version info in cpu, Asm plugin will get it
 	return ret;
 }
@@ -106,7 +103,7 @@ static RList *symbols(RBinFile *arch) {
 	r_list_append (shared, cobjs);
 	r_list_append (shared, interned_table);
 	arch->o->bin_obj = shared;
-	RList *sections = r_list_newf ((RListFree)free);
+	RList *sections = r_list_newf (NULL); // (RListFree)free);
 	if (!sections) {
 		r_list_free (shared);
 		arch->o->bin_obj = NULL;

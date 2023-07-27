@@ -1,3 +1,33 @@
+NAME=sm5xx pc/sp regs
+FILE=-
+CMDS=<<EOF
+-a sm5xx
+dr=
+dr*
+-b 4
+dr*
+EOF
+EXPECT=<<EOF
+    sp 0x00000000            pc 0x00000000        
+fs+registers
+f sp 8 0x00000000
+f pc 8 0x00000000
+fs-
+fs+registers
+f acc 0 0x00000000
+f bl 0 0x00000000
+f bm 0 0x00000000
+f bmask 0 0x00000000
+f c 0 0x00000000
+f skip 0 0x00000000
+f w 0 0x00000000
+f r 0 0x00000000
+f sp 8 0x00000000
+f pc 8 0x00000000
+fs-
+EOF
+RUN
+
 NAME=arpg
 FILE=-
 CMDS=<<EOF
@@ -38,13 +68,13 @@ arp~?
 EOF
 EXPECT=<<EOF
 160
-147
+149
 64
-86
+88
 68
-127
+128
 808
-311
+451
 EOF
 RUN
 
@@ -59,29 +89,35 @@ EXPECT=<<EOF
 Aliases (Reg->name)
 0 PC rip
 1 SP rsp
-2 SR ?
-3 BP rbp
-4 LR ?
-5 RS ?
-6 A0 rdi
-7 A1 rsi
-8 A2 rdx
-9 A3 rcx
-10 A4 r8
-11 A5 r9
-12 A6 r10
-13 A7 r11
-14 A8 ?
-15 A9 ?
-16 R0 ?
-17 R1 ?
-18 R2 ?
-19 R3 ?
-20 ZF ?
-21 SF ?
-22 CF ?
-23 OF ?
-24 SN rax
+2 GP ?
+3 RA ?
+4 SR ?
+5 BP rbp
+6 LR ?
+7 RS ?
+8 A0 rdi
+9 A1 rsi
+10 A2 rdx
+11 A3 rcx
+12 A4 r8
+13 A5 r9
+14 A6 r10
+15 A7 r11
+16 A8 ?
+17 A9 ?
+18 R0 rax
+19 R1 ?
+20 R2 ?
+21 R3 ?
+22 F0 ?
+23 F1 ?
+24 F2 ?
+25 F3 ?
+26 ZF ?
+27 SF ?
+28 CF ?
+29 OF ?
+30 SN rax
 regset 0 (gpr)
 * arena gpr size 160
    rax gpr @ gpr (offset: 80  size: 8)
@@ -160,6 +196,7 @@ regset 0 (gpr)
    if flg @ gpr (offset: 145  size: 0)
    df flg @ gpr (offset: 145  size: 0)
    of flg @ gpr (offset: 145  size: 0)
+   riz gpr @ gpr (offset: 0  size: 8)
    rsp gpr @ gpr (offset: 152  size: 8)
    esp gpr @ gpr (offset: 152  size: 4)
    sp gpr @ gpr (offset: 152  size: 2)
@@ -190,40 +227,42 @@ regset 2 (fpu)
    st5 fpu @ fpu (offset: 112  size: 8)
    st6 fpu @ fpu (offset: 128  size: 8)
    st7 fpu @ fpu (offset: 144  size: 8)
-   xmm0 xmm @ fpu (offset: 160  size: 16)
+   xmm0 vec128 @ fpu (offset: 160  size: 16)
    xmm0l fpu @ fpu (offset: 160  size: 8)
    xmm0h fpu @ fpu (offset: 168  size: 8)
-   xmm1 xmm @ fpu (offset: 176  size: 16)
+   xmm1 vec128 @ fpu (offset: 176  size: 16)
    xmm1l fpu @ fpu (offset: 176  size: 8)
    xmm1h fpu @ fpu (offset: 184  size: 8)
-   xmm2 xmm @ fpu (offset: 192  size: 16)
+   xmm2 vec128 @ fpu (offset: 192  size: 16)
    xmm2l fpu @ fpu (offset: 192  size: 8)
    xmm2h fpu @ fpu (offset: 200  size: 8)
-   xmm3 xmm @ fpu (offset: 208  size: 16)
+   xmm3 vec128 @ fpu (offset: 208  size: 16)
    xmm3l fpu @ fpu (offset: 208  size: 8)
    xmm3h fpu @ fpu (offset: 216  size: 8)
-   xmm4 xmm @ fpu (offset: 224  size: 16)
+   xmm4 vec128 @ fpu (offset: 224  size: 16)
    xmm4l fpu @ fpu (offset: 224  size: 8)
    xmm4h fpu @ fpu (offset: 232  size: 8)
-   xmm5 xmm @ fpu (offset: 240  size: 16)
+   xmm5 vec128 @ fpu (offset: 240  size: 16)
    xmm5l fpu @ fpu (offset: 240  size: 8)
    xmm5h fpu @ fpu (offset: 248  size: 8)
-   xmm6 xmm @ fpu (offset: 256  size: 16)
+   xmm6 vec128 @ fpu (offset: 256  size: 16)
    xmm6l fpu @ fpu (offset: 256  size: 8)
    xmm6h fpu @ fpu (offset: 264  size: 8)
-   xmm7 xmm @ fpu (offset: 272  size: 16)
+   xmm7 vec128 @ fpu (offset: 272  size: 16)
    xmm7l fpu @ fpu (offset: 272  size: 8)
    xmm7h fpu @ fpu (offset: 280  size: 8)
    x64 fpu @ fpu (offset: 288  size: 8)
-regset 3 (mmx)
-* arena mmx size 1
-regset 4 (xmm)
-* arena xmm size 1
-regset 5 (ymm)
-* arena ymm size 1
-regset 6 (flg)
+regset 3 (vec64)
+* arena vec64 size 1
+regset 4 (vec128)
+* arena vec128 size 1
+regset 5 (vec256)
+* arena vec256 size 1
+regset 6 (vec512)
+* arena vec512 size 1
+regset 7 (flg)
 * arena flg size 1
-regset 7 (seg)
+regset 8 (seg)
 * arena seg size 216
    cs seg @ seg (offset: 136  size: 8)
    ss seg @ seg (offset: 160  size: 8)
@@ -233,9 +272,33 @@ regset 7 (seg)
    es seg @ seg (offset: 192  size: 8)
    fs seg @ seg (offset: 200  size: 8)
    gs seg @ seg (offset: 208  size: 8)
+regset 9 (pri)
+* arena pri size 1
 EOF
 RUN
 
+NAME=bad regprofile log test
+FILE=-
+CMDS=<<EOF
+e log.origin=true
+e asm.arch=x86
+e asm.bits=64
+arps
+arp scripts/badrp.r2
+arps
+ar=
+ar rax
+EOF
+EXPECT=<<EOF
+160
+88
+   rax 0x00000000        
+0x00000000
+EOF
+EXPECT_ERR=<<EOF
+ERROR: [r_reg_set_profile_string] =A0 is not defined
+EOF
+RUN
 
 NAME=bad regprofile
 FILE=-
@@ -251,11 +314,11 @@ EOF
 EXPECT=<<EOF
 160
 88
-    rax 0x00000000       
+   rax 0x00000000        
 0x00000000
 EOF
 EXPECT_ERR=<<EOF
-Warning: =A0 not defined
+ERROR: =A0 is not defined
 EOF
 RUN
 
@@ -267,21 +330,114 @@ e asm.bits=64
 arps
 arp scripts/badrp2.r2
 arps
+?e --
+arp
+?e --regs
+ar=
+?e --
+-a x86
+-b 32
+arps
 ar=
 ar rax
 EOF
 EXPECT=<<EOF
 160
 1
+--
+--regs
+--
+64
+   oeax 0x00000000      eax 0x00000000      ebx 0x00000000      ecx 0x00000000
+    edx 0x00000000      esi 0x00000000      edi 0x00000000      esp 0x00000000
+    ebp 0x00000000      eip 0x00000000   eflags 0x00000000  
+bl = 0x00000000
+bx = 0x00000000
+ebx = 0x00000000
+dr0 = 0x00000000
+bh = 0x00000000
+cl = 0x00000000
+cx = 0x00000000
+ecx = 0x00000000
+dr1 = 0x00000000
+ch = 0x00000000
+dl = 0x00000000
+dx = 0x00000000
+edx = 0x00000000
+dr2 = 0x00000000
+dh = 0x00000000
+si = 0x00000000
+esi = 0x00000000
+dr3 = 0x00000000
+di = 0x00000000
+edi = 0x00000000
+bp = 0x00000000
+ebp = 0x00000000
+al = 0x00000000
+ax = 0x00000000
+eax = 0x00000000
+dr6 = 0x00000000
+ah = 0x00000000
+dr7 = 0x00000000
+xfs = 0x00000000
+xgs = 0x00000000
+oeax = 0x00000000
+ip = 0x00000000
+eip = 0x00000000
+cs = 0x00000000
+xcs = 0x00000000
+xss = 0x00000000
+cf = 0x00000000
+flags = 0x00000000
+eflags = 0x00000000
+pf = 0x00000000
+af = 0x00000000
+zf = 0x00000000
+sf = 0x00000000
+tf = 0x00000000
+if = 0x00000000
+df = 0x00000000
+of = 0x00000000
+nt = 0x00000000
+rf = 0x00000000
+vm = 0x00000000
+sp = 0x00000000
+esp = 0x00000000
+xmm0l = 0x00000000
+xmm0 = 0x00000000000000000000000000000000
+xmm0h = 0x00000000
+xmm1l = 0x00000000
+xmm1 = 0x00000000000000000000000000000000
+xmm1h = 0x00000000
+xmm2l = 0x00000000
+xmm2 = 0x00000000000000000000000000000000
+xmm2h = 0x00000000
+xmm3l = 0x00000000
+xmm3 = 0x00000000000000000000000000000000
+xmm3h = 0x00000000
+xmm4l = 0x00000000
+xmm4 = 0x00000000000000000000000000000000
+xmm4h = 0x00000000
+vec1285l = 0x00000000
+xmm5 = 0x00000000000000000000000000000000
+vec1285h = 0x00000000
+vec1286l = 0x00000000
+xmm6 = 0x00000000000000000000000000000000
+vec1286h = 0x00000000
+xmm7l = 0x00000000
+xmm7 = 0x00000000000000000000000000000000
+xmm7h = 0x00000000
 EOF
 EXPECT_ERR=<<EOF
-r_reg_set_profile_string: Parse error @ line 3 (Invalid syntax: Wrong number of columns)
+ERROR: Parse error @ line 3 (Invalid syntax: Wrong number of columns)
+ERROR: No register profile defined. Try 'dr.'
 EOF
 RUN
 
 NAME=bad regprofile 2
 FILE=-
 CMDS=<<EOF
+e log.origin=true
 e asm.arch=x86
 e asm.bits=64
 arps
@@ -298,6 +454,6 @@ EXPECT=<<EOF
 160
 EOF
 EXPECT_ERR=<<EOF
-r_reg_set_profile_string: Parse error @ line 3 (Invalid syntax: Wrong number of columns)
+ERROR: [r_reg_set_profile_string] Parse error @ line 3 (Invalid syntax: Wrong number of columns)
 EOF
 RUN

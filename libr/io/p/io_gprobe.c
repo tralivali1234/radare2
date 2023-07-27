@@ -2,13 +2,7 @@
 
 #include <r_io.h>
 #include <r_lib.h>
-#include <r_util.h>
 #include <r_util/r_print.h>
-
-#if __UNIX__
-#include <errno.h>
-#include <fcntl.h>
-#endif
 
 #define USE_OWNTIMER 1
 #if USE_OWNTIMER
@@ -19,17 +13,22 @@
 #define Timercmp timercmp
 #endif
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #include <cfgmgr32.h>
 #include <setupapi.h>
 #include <tchar.h>
 #include <windows.h>
 #else
 
-#if __linux__ ||  __APPLE__ || __OpenBSD__ || __FreeBSD__ || __NetBSD__ || __DragonFly__ || __HAIKU__
+#if R2__UNIX__
+#include <errno.h>
+#include <fcntl.h>
+#endif
+
+#if HAVE_PTY
 #include <sys/ioctl.h>
 #include <termios.h>
-#else
+#elif __linux__
 #include <stropts.h>
 #endif
 
@@ -37,13 +36,16 @@
 
 #define GPROBE_SIZE (1LL << 32)
 #define GPROBE_I2C_ADDR 0x6e
+#ifndef B115200
+#define B115200 0010002
+#endif
 
 #define I2C_SLAVE 0x0703
 
 /* serial port code adapted from git://sigrok.org/libserialport */
 struct gport {
 	const char *name;
-#if __WINDOWS__
+#if R2__WINDOWS__
 	HANDLE hdl;
 	COMMTIMEOUTS timeouts;
 	OVERLAPPED write_ovl;
@@ -81,8 +83,8 @@ enum {
 	GPROBE_RUN_CODE_2 = 0x54,
 };
 
-#if __UNIX__
-static ut8 gprobe_checksum_i2c (const ut8 *p, unsigned int size, ut8 initial) {
+#if R2__UNIX__
+static ut8 gprobe_checksum_i2c(const ut8 *p, unsigned int size, ut8 initial) {
 	ut8 res = initial;
 	unsigned int k;
 
@@ -109,15 +111,12 @@ static void gprobe_frame_i2c(RBuffer *frame) {
 
 static int gprobe_get_reply_i2c(struct gport *port, ut8 cmd, RBuffer *reply) {
 	ut8 buf[131];
-	int count;
 	int ddc2bi3_len;
 	ut8 addr = 0x50;
-	ut8 checksum;
 
 	r_sys_usleep (40000);
 
-	count = read (port->fd, buf, sizeof (buf));
-
+	int count = read (port->fd, buf, sizeof (buf));
 	if (count != sizeof (buf)) {
 		return -1;
 	}
@@ -135,12 +134,10 @@ static int gprobe_get_reply_i2c(struct gport *port, ut8 cmd, RBuffer *reply) {
 		return -1;
 	}
 
-	checksum = gprobe_checksum_i2c (&addr, 1, 0);
-
+	ut8 checksum = gprobe_checksum_i2c (&addr, 1, 0);
 	if (gprobe_checksum_i2c (buf, ddc2bi3_len + 2, checksum) != buf[ddc2bi3_len + 2]) {
-		eprintf ("gprobe rx checksum error\n");
+		R_LOG_ERROR ("gprobe rx checksum error");
 	}
-
 	r_buf_append_bytes (reply, buf + 7, buf[5] - 3);
 
 	return 0;
@@ -156,10 +153,9 @@ static int gprobe_send_request_i2c(struct gport *port, RBuffer *request) {
 }
 
 static int i2c_open(struct gport *port) {
-	char *end, filename[32];
+	char *end = NULL, filename[32];
 	int i2cbus = strtol (port->name + 4, &end, 0);
-
-	if (*end) {
+	if (R_STR_ISNOTEMPTY (end)) {
 		return -1;
 	}
 
@@ -168,7 +164,7 @@ static int i2c_open(struct gport *port) {
 	int file = r_sandbox_open (filename, O_RDWR, 0);
 
 	if (file < 0 && (errno == ENOENT || errno == ENOTDIR)) {
-		sprintf (filename, "/dev/i2c-%d", i2cbus);
+		snprintf (filename, sizeof (filename), "/dev/i2c-%d", i2cbus);
 		file = r_sandbox_open (filename, O_RDWR, 0);
 	}
 	if (file < 0) {
@@ -185,9 +181,9 @@ static int i2c_open(struct gport *port) {
 #endif
 
 static int sp_close(struct gport *port) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	/* Returns non-zero upon success, 0 upon failure. */
-	if (CloseHandle (port->hdl) == 0){
+	if (CloseHandle (port->hdl) == 0) {
 		return -1;
 	}
 	port->hdl = INVALID_HANDLE_VALUE;
@@ -212,9 +208,9 @@ static int sp_close(struct gport *port) {
 	return 0;
 }
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 /* To be called after port receive buffer is emptied. */
-static int restart_wait (struct gport *port) {
+static int restart_wait(struct gport *port) {
 	DWORD wait_result;
 
 	if (port->wait_running) {
@@ -240,26 +236,19 @@ static int restart_wait (struct gport *port) {
 }
 #endif
 
-static int sp_open (struct gport *port) {
-#if __WINDOWS__
+static int sp_open(struct gport *port) {
+#if R2__WINDOWS__
 	int ret;
 	DWORD errors;
-	char *escaped_port_name;
 	COMSTAT status;
 	DCB dcb;
-	LPTSTR filename_;
 
 	/* Prefix port name with '\\.\' to work with ports above COM9. */
-	if (!(escaped_port_name = malloc (strlen (port->name) + 5))) {
-		return -1;
-	}
-	sprintf (escaped_port_name, "\\\\.\\%s", port->name);
-
-	filename_ = r_sys_conv_utf8_to_win (escaped_port_name);
+	char *escaped_port_name = r_str_newf ("\\\\.\\%s", port->name);
+	LPTSTR filename_ = r_sys_conv_utf8_to_win (escaped_port_name);
 
 	port->hdl = CreateFile (filename_, GENERIC_READ | GENERIC_WRITE, 0, 0,
-				OPEN_EXISTING,
-				FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, 0);
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, 0);
 
 	free (escaped_port_name);
 
@@ -377,9 +366,9 @@ static int sp_open (struct gport *port) {
 #endif
 }
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 /* Restart wait operation if buffer was emptied. */
-static int restart_wait_if_needed (struct gport *port, unsigned int bytes_read) {
+static int restart_wait_if_needed(struct gport *port, unsigned int bytes_read) {
 	DWORD errors;
 	COMSTAT comstat;
 
@@ -401,9 +390,9 @@ static int restart_wait_if_needed (struct gport *port, unsigned int bytes_read) 
 }
 #endif
 
-static int sp_blocking_read (struct gport *port, void *buf,
+static int sp_blocking_read(struct gport *port, void *buf,
 			     size_t count, unsigned int timeout_ms) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	DWORD bytes_read = 0;
 
 	/* Set timeout. */
@@ -506,8 +495,8 @@ static int sp_blocking_read (struct gport *port, void *buf,
 #endif
 }
 
-static int sp_flush (struct gport *port) {
-#if __WINDOWS__
+static int sp_flush(struct gport *port) {
+#if R2__WINDOWS__
 	/* Returns non-zero upon success, 0 upon failure. */
 	if (PurgeComm (port->hdl, PURGE_RXCLEAR) == 0) {
 		return -1;
@@ -525,8 +514,8 @@ static int sp_flush (struct gport *port) {
 	return 0;
 }
 
-#if __WINDOWS__
-static int await_write_completion (struct gport *port) {
+#if R2__WINDOWS__
+static int await_write_completion(struct gport *port) {
 	DWORD bytes_written;
 	BOOL result;
 
@@ -543,9 +532,9 @@ static int await_write_completion (struct gport *port) {
 }
 #endif
 
-static int sp_blocking_write (struct gport *port, const void *buf,
+static int sp_blocking_write(struct gport *port, const void *buf,
 			      size_t count, unsigned int timeout_ms) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	DWORD bytes_written = 0;
 
 	if (await_write_completion (port)) {
@@ -644,7 +633,7 @@ static int sp_blocking_write (struct gport *port, const void *buf,
 #endif
 }
 
-static ut8 gprobe_checksum (const ut8 *p, unsigned int size) {
+static ut8 gprobe_checksum(const ut8 *p, unsigned int size) {
 	ut8 res = 0;
 	unsigned int k;
 
@@ -761,7 +750,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_write (struct gport *port, ut32 addr, const ut8 *buf, ut32 count) {
+static int gprobe_write(struct gport *port, ut32 addr, const ut8 *buf, ut32 count) {
 	RBuffer *request = r_buf_new ();
 	RBuffer *reply = r_buf_new ();
 	const ut8 cmd = GPROBE_RAM_WRITE_2;
@@ -804,7 +793,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_reset (struct gport *port, ut8 code) {
+static int gprobe_reset(struct gport *port, ut8 code) {
 	if (!port) {
 		return -1;
 	}
@@ -842,7 +831,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_debugon (struct gport *port) {
+static int gprobe_debugon(struct gport *port) {
 	if (!port) {
 		return -1;
 	}
@@ -876,7 +865,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_debugoff (struct gport *port) {
+static int gprobe_debugoff(struct gport *port) {
 	RBuffer *request = r_buf_new ();
 	RBuffer *reply = r_buf_new ();
 	const ut8 cmd = GPROBE_DEBUGOFF;
@@ -901,7 +890,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_runcode (struct gport *port, ut32 addr) {
+static int gprobe_runcode(struct gport *port, ut32 addr) {
 	if (!port) {
 		return -1;
 	}
@@ -940,7 +929,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_getdeviceid (struct gport *port, ut8 index) {
+static int gprobe_getdeviceid(struct gport *port, ut8 index) {
 	if (!port) {
 		return -1;
 	}
@@ -965,7 +954,7 @@ static int gprobe_getdeviceid (struct gport *port, ut8 index) {
 		goto fail;
 	}
 
-	char *s = r_buf_to_string (reply);
+	char *s = r_buf_tostring (reply);
 	if (s) {
 		printf ("%s\n", s);
 		free (s);
@@ -982,7 +971,7 @@ fail:
 	return -1;
 }
 
-static int gprobe_getinformation (struct gport *port) {
+static int gprobe_getinformation(struct gport *port) {
 	if (!port) {
 		return -1;
 	}
@@ -1050,7 +1039,7 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	return count;
 }
 
-static int __read (RIO *io, RIODesc *fd, ut8 *buf, int count) {
+static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	int res;
 	RIOGprobe *gprobe;
 	int has_read = 0;
@@ -1077,21 +1066,17 @@ static int __read (RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	return has_read;
 }
 
-static int __close (RIODesc *fd) {
-	RIOGprobe *gprobe;
-
+static bool __close(RIODesc *fd) {
 	if (!fd || !fd->data) {
-		return -1;
+		return false;
 	}
-	gprobe = (RIOGprobe *)fd->data;
-
+	RIOGprobe *gprobe = (RIOGprobe *)fd->data;
 	sp_close (&gprobe->gport);
 	R_FREE (fd->data);
-
-	return 0;
+	return true;
 }
 
-static ut64 __lseek (RIO *io, RIODesc *fd, ut64 offset, int whence) {
+static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	RIOGprobe *gprobe;
 	if (!fd || !fd->data) {
 		return offset;
@@ -1114,11 +1099,11 @@ static ut64 __lseek (RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	return offset;
 }
 
-static bool __plugin_open (RIO *io, const char *pathname, bool many) {
+static bool __plugin_open(RIO *io, const char *pathname, bool many) {
 	return pathname && r_str_startswith (pathname, "gprobe://") && strlen (pathname + strlen ("gprobe://"));
 }
 
-static RIODesc *__open (RIO *io, const char *pathname, int rw, int mode) {
+static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	if (__plugin_open (io, pathname, 0)) {
 		RIOGprobe *gprobe = R_NEW0 (RIOGprobe);
 
@@ -1126,7 +1111,7 @@ static RIODesc *__open (RIO *io, const char *pathname, int rw, int mode) {
 		gprobe->gport.name = pathname + strlen ("gprobe://");
 
 		if (r_str_startswith (gprobe->gport.name, "i2c-")) {
-#if __UNIX__
+#if R2__UNIX__
 			gprobe->gport.send_request = gprobe_send_request_i2c;
 			gprobe->gport.get_reply = gprobe_get_reply_i2c;
 			gprobe->gport.frame = gprobe_frame_i2c;
@@ -1160,22 +1145,20 @@ static RIODesc *__open (RIO *io, const char *pathname, int rw, int mode) {
 	return NULL;
 }
 
-static char *__system (RIO *io, RIODesc *fd, const char *cmd) {
-	RIOGprobe *gprobe;
-
+static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 	if (!fd || !fd->data) {
 		return NULL;
 	}
-	gprobe = (RIOGprobe *)fd->data;
+	RIOGprobe *gprobe = (RIOGprobe *)fd->data;
 
 	if (!cmd[0] || cmd[0] == '?' || !strcmp (cmd, "help")) {
-		printf ("Usage: =!cmd args\n"
-			" =!reset code\n"
-			" =!debugon\n"
-			" =!debugoff\n"
-			" =!runcode address\n"
-			" =!getdeviceid\n"
-			" =!getinformation\n");
+		printf ("Usage: :cmd args\n"
+			" :reset code\n"
+			" :debugon\n"
+			" :debugoff\n"
+			" :runcode address\n"
+			" :getdeviceid\n"
+			" :getinformation\n");
 		return NULL;
 	}
 
@@ -1209,10 +1192,9 @@ static char *__system (RIO *io, RIODesc *fd, const char *cmd) {
 
 	if (r_str_startswith (cmd, "getdeviceid")) {
 		ut8 index = 0;
-
 		while (!gprobe_getdeviceid (&gprobe->gport, index++)) {
+			// do nothing
 		};
-
 		return NULL;
 	}
 
@@ -1222,7 +1204,7 @@ static char *__system (RIO *io, RIODesc *fd, const char *cmd) {
 		return NULL;
 	}
 
-	printf ("Try: '=!?'\n");
+	printf ("Try: ':?'\n");
 
 	return NULL;
 }
@@ -1236,7 +1218,7 @@ RIOPlugin r_io_plugin_gprobe = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.system = __system,
 };

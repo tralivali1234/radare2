@@ -53,13 +53,11 @@ static inline RBIter bound_iter(RBNode *x, void *data, RBComparator cmp, bool up
 	it.len = 0;
 	memset (it.path, 0, sizeof (RBNode *) * R_RBTREE_MAX_HEIGHT);
 	while (x) {
-		int d = cmp (data, x, user);
-
+		const int d = cmp (data, x, user);
 		if (d == 0) {
 			it.path[it.len++] = x;
 			return it;
 		}
-
 		if (d < 0) {
 			if (!upper) {
 				it.path[it.len++] = x;
@@ -75,28 +73,6 @@ static inline RBIter bound_iter(RBNode *x, void *data, RBComparator cmp, bool up
 
 	return it;
 }
-
-/*
-static void _check1(RBNode *x, int depth, int black, bool leftmost) {
-	static int black_;
-	if (x) {
-		black += !x->red;
-		if (x->red && ((x->child[0] && x->child[0]->red) || (x->child[1] && x->child[1]->red))) {
-			printf ("error: red violation\n");
-		}
-		_check1 (x->child[0], depth + 1, black, leftmost);
-		_check1 (x->child[1], depth + 1, black, false);
-	} else if (leftmost) {
-		black_ = black;
-	} else if (black_ != black) {
-		printf ("error: different black height\n");
-	}
-}
-
-static void _check(RBNode *x) {
-	_check1 (x, 0, 0, true);
-}
-*/
 
 // Returns true if a node with an equal key is deleted
 R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, void *cmp_user, RBNodeFree freefn, void *free_user, RBNodeSum sum) {
@@ -169,12 +145,16 @@ R_API bool r_rbtree_aug_delete(RBNode **root, void *data, RBComparator cmp, void
 				t->child[0]->red = t->child[1]->red = false;
 				g->child[direction3] = t;
 				t->parent = g;
+				if (depth >= R_RBTREE_MAX_HEIGHT) {
+					eprintf ("Too deep tree\n");
+					break;
+				}
 				path[depth - 1] = t;
 				path[depth++] = p;
 			}
 		}
 	}
-	if (del_link) {
+	if (del_link && *del_link) {
 		del = *del_link;
 		if (q->child[q->child[0] == NULL]) {
 			q->child[q->child[0] == NULL]->parent = p;
@@ -298,10 +278,9 @@ R_API bool r_rbtree_aug_update_sum(RBNode *root, void *data, RBNode *node, RBCom
 		if (cur == node) {
 			break;
 		}
-		int direction = cmp (data, cur, cmp_user);
+		const int direction = cmp (data, cur, cmp_user);
 		cur = cur->child[(direction < 0)? 0: 1];
 	}
-
 	for (; depth > 0; depth--) {
 		sum (path[depth - 1]);
 	}
@@ -313,8 +292,9 @@ R_API bool r_rbtree_delete(RBNode **root, void *data, RBComparator cmp, void *cm
 }
 
 R_API RBNode *r_rbtree_find(RBNode *x, void *data, RBComparator cmp, void *user) {
+	// r_return_val_if_fail (x && data, NULL);
 	while (x) {
-		int direction = cmp (data, x, user);
+		const int direction = cmp (data, x, user);
 		if (direction < 0) {
 			x = x->child[0];
 		} else if (direction > 0) {
@@ -404,205 +384,4 @@ R_API void r_rbtree_iter_next(RBIter *it) {
 
 R_API void r_rbtree_iter_prev(RBIter *it) {
 	_next (it, 1);
-}
-
-R_API RContRBTree *r_rbtree_cont_new(void) {
-	return R_NEW0 (RContRBTree);
-}
-
-R_API RContRBTree *r_rbtree_cont_newf(RContRBFree f) {
-	RContRBTree *tree = r_rbtree_cont_new ();
-	if (tree) {
-		tree->free = f;
-	}
-	return tree;
-}
-
-typedef struct rcrb_cmp_wrap_t {
-	RContRBCmp cmp;
-	RContRBFree free;
-	void *user;
-} RCRBCmpWrap;
-
-static int cont_rbtree_cmp_wrapper(const void *incoming, const RBNode *in_tree, void *user) {
-	RCRBCmpWrap *cmp_wrap = (RCRBCmpWrap *)user;
-	RContRBNode *incoming_node = (RContRBNode *)incoming;
-	RContRBNode *in_tree_node = container_of ((RBNode*)in_tree, RContRBNode, node);
-	return cmp_wrap->cmp (incoming_node->data, in_tree_node->data, cmp_wrap->user);
-}
-
-static int cont_rbtree_search_cmp_wrapper(const void *incoming, const RBNode *in_tree, void *user) {
-	RCRBCmpWrap *cmp_wrap = (RCRBCmpWrap *)user;
-	RContRBNode *in_tree_node = container_of ((RBNode*)in_tree, RContRBNode, node);
-	return cmp_wrap->cmp ((void *)incoming, in_tree_node->data, cmp_wrap->user);
-}
-
-static int cont_rbtree_free_cmp_wrapper(const void *data, const RBNode *in_tree, void *user) {
-	RCRBCmpWrap *cmp_wrap = (RCRBCmpWrap *)user;
-	const int ret = cont_rbtree_cmp_wrapper ((void*)data, in_tree, user);
-	if (!ret && cmp_wrap->free) { //this is for deleting
-		RContRBNode *in_tree_node = container_of ((void*)in_tree, RContRBNode, node);
-		cmp_wrap->free (in_tree_node->data);
-	}
-	return ret;
-}
-
-R_API bool r_rbtree_cont_insert(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	r_return_val_if_fail (tree && cmp, false);
-	if (!tree->root) {
-		tree->root = R_NEW0 (RContRBNode);
-		if (tree->root) {
-			tree->root->data = data;
-			//			tree->root->node.red = false;	// not needed since R_NEW0 initializes with false anyway
-			return true;
-		}
-		eprintf ("Allocation failed\n");
-		return false;
-	}
-	RContRBNode *incoming_node = R_NEW0 (RContRBNode);
-	if (!incoming_node) {
-		eprintf ("Allocation failed\n");
-		return false;
-	}
-	incoming_node->data = data;
-	RCRBCmpWrap cmp_wrap = { cmp, NULL, user };
-	RBNode *root_node = &tree->root->node;
-	const bool ret = r_rbtree_aug_insert (&root_node, incoming_node,
-		&incoming_node->node, cont_rbtree_cmp_wrapper, &cmp_wrap, NULL);
-	if (root_node != (&tree->root->node)) {
-		tree->root = container_of (root_node, RContRBNode, node); //cursed augmentation garbage
-	}
-	if (!ret) {
-		eprintf ("Insertion failed\n");
-		free (incoming_node);
-	}
-	return ret;
-}
-
-static void cont_node_free(RBNode *node, void *user) {
-	RContRBNode *contnode = container_of (node, RContRBNode, node);
-	if (user) {
-		((RContRBFree)user) (contnode->data);
-	}
-	free (contnode);
-}
-
-R_API bool r_rbtree_cont_delete(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	if (!(tree && cmp && tree->root)) {
-		return false;
-	}
-	RCRBCmpWrap cmp_wrap = { cmp, tree->free, user };
-	RContRBNode data_wrap = { { NULL, { NULL, NULL }, false }, data };
-	RBNode *root_node = &tree->root->node;
-	const bool ret = r_rbtree_aug_delete (&root_node, &data_wrap, cont_rbtree_free_cmp_wrapper, &cmp_wrap, cont_node_free, NULL, NULL);
-	if (root_node != (&tree->root->node)) {	//can this crash?
-		tree->root = container_of (root_node, RContRBNode, node); //cursed augmentation garbage
-	}
-	return ret;
-}
-
-R_API RContRBNode *r_rbtree_cont_find_node(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	r_return_val_if_fail (tree && cmp, NULL);
-	if (!tree->root) {
-		return NULL;
-	}
-	RCRBCmpWrap cmp_wrap = { cmp, NULL, user };
-	// RBNode search_node = tree->root->node;
-	RBNode *result_node = r_rbtree_find (&tree->root->node, data, cont_rbtree_search_cmp_wrapper, &cmp_wrap);
-	return result_node ? (container_of (result_node, RContRBNode, node)) : NULL;
-}
-
-R_API void *r_rbtree_cont_find(RContRBTree *tree, void *data, RContRBCmp cmp, void *user) {
-	r_return_val_if_fail (tree && cmp, NULL);
-	RContRBNode *result_node = r_rbtree_cont_find_node (tree, data, cmp, user);
-	return result_node ? result_node->data : NULL;
-}
-
-R_API RContRBNode *r_rbtree_cont_node_next(RContRBNode *node) {
-	r_return_val_if_fail (node, NULL);
-	RBNode *_node = &node->node;
-	if (_node->child[1]) {
-		_node = _node->child[1];
-// next node is the most left child-node of the right subtree
-// leftsided walk down that subtree until there is no more left child
-		while (_node->child[0]) {
-			_node = _node->child[0];
-		}
-		return (container_of (_node, RContRBNode, node));
-	}
-	RBNode *parent = _node->parent;
-	if (!parent) {
-		return NULL;
-	}
-// walk up the tree, until _node is no longer right child of it's parent
-	while (parent->child[1] == _node) {
-		_node = parent;
-		parent = _node->parent;
-		if (!parent) {
-			return NULL;
-		}
-	}
-	return (container_of (parent, RContRBNode, node));
-}
-
-R_API RContRBNode *r_rbtree_cont_node_prev(RContRBNode *node) {
-	r_return_val_if_fail (node, NULL);
-	RBNode *_node = &node->node;
-	if (_node->child[0]) {
-		_node = _node->child[0];
-// next node is the most right child-node of the left subtree
-// rightsided walk down that subtree until there is no more right child
-		while (_node->child[1]) {
-			_node = _node->child[1];
-		}
-		return (container_of (_node, RContRBNode, node));
-	}
-	RBNode *parent = _node->parent;
-	if (!parent) {
-		return NULL;
-	}
-// walk up the tree, until _node is no longer left child of it's parent
-	while (parent->child[0] == _node) {
-		_node = parent;
-		parent = _node->parent;
-		if (!parent) {
-			return NULL;
-		}
-	}
-	return (container_of (parent, RContRBNode, node));
-}
-
-// not a direct pendant to r_rbtree_first, but similar
-// returns first element in the tree, not an iter or a node
-R_API void *r_rbtree_cont_first(RContRBTree *tree) {
-	r_return_val_if_fail (tree, NULL);
-	if (!tree->root) {
-		// empty tree
-		return NULL;
-	}
-	RBNode *node = &tree->root->node;
-	while (node->child[0]) {
-		node = node->child[0];
-	}
-	return (container_of (node, RContRBNode, node))->data;
-}
-
-R_API void *r_rbtree_cont_last(RContRBTree *tree) {
-	r_return_val_if_fail (tree, NULL);
-	if (!tree->root) {
-		// empty tree
-		return NULL;
-	}
-	RBNode *node = &tree->root->node;
-	while (node->child[1]) {
-		node = node->child[1];
-	}
-	return (container_of (node, RContRBNode, node))->data;
-}
-
-R_API void r_rbtree_cont_free(RContRBTree *tree) {
-	if (tree && tree->root) {
-		r_rbtree_free (&tree->root->node, cont_node_free, tree->free);
-	}
-	free (tree);
 }

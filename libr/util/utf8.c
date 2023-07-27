@@ -483,7 +483,7 @@ R_API const char *r_utf_block_name(int idx) {
 	return r_utf_blocks[idx].name;
 }
 
-#define r_utf_blocks_count (sizeof (r_utf_blocks) / sizeof (r_utf_blocks[0]))
+#define R_UTF_BLOCKS_COUNT (sizeof (r_utf_blocks) / sizeof (r_utf_blocks[0]))
 
 /* Convert an UTF-8 buf into a unicode RRune */
 R_API int r_utf8_decode(const ut8 *ptr, int ptrlen, RRune *ch) {
@@ -584,6 +584,9 @@ R_API int r_utf8_strlen(const ut8 *str) {
 	return len;
 }
 
+// XXX this function name is really bad, rename to r_utf8_is_printable()
+// XXX but a single char rune is useless without processing the next chars
+// XXX not to mention int != bool
 R_API int r_isprint(const RRune c) {
 	// RRunes are most commonly single byte... We can early out with this common case.
 	if (c < 0x34F) {
@@ -616,16 +619,23 @@ R_API int r_isprint(const RRune c) {
 	return true;
 }
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 R_API char *r_utf16_to_utf8_l(const wchar_t *wc, int len) {
-	if (!wc || !len || len < -1) {
+	if (!wc) {
 		return NULL;
 	}
-	char *rutf8 = NULL;
-	int csize;
-
+	if (len < 0) {
+		len = wcslen (wc);
+	}
+	int csize = 2 + ((len > 0)? len * 2: 0);
+	char *rutf8 = calloc (csize, 2);
+	if (!rutf8) {
+		return NULL;
+	}
+	WideCharToMultiByte (CP_UTF8, 0, wc, len, rutf8, csize, NULL, NULL);
+#if 0
 	if ((csize = WideCharToMultiByte (CP_UTF8, 0, wc, len, NULL, 0, NULL, NULL))) {
-		++csize;
+		csize++;
 		if ((rutf8 = malloc (csize))) {
 			WideCharToMultiByte (CP_UTF8, 0, wc, len, rutf8, csize, NULL, NULL);
 			if (len != -1) {
@@ -633,19 +643,25 @@ R_API char *r_utf16_to_utf8_l(const wchar_t *wc, int len) {
 			}
 		}
 	}
+#endif
 	return rutf8;
 }
 
 R_API wchar_t *r_utf8_to_utf16_l(const char *cstring, int len) {
-	if (!cstring || !len || len < -1) {
+	if (!cstring || len < -1) {
 		return NULL;
+	}
+	// r_return_val_if_fail (cstring && len >= -1, NULL);
+
+	if (len == -1) {
+		len = strlen (cstring);
 	}
 	wchar_t *rutf16 = NULL;
 	int wcsize;
 
 	if ((wcsize = MultiByteToWideChar (CP_UTF8, 0, cstring, len, NULL, 0))) {
-		++wcsize;
-		if ((rutf16 = (wchar_t *) calloc (wcsize, sizeof (wchar_t)))) {
+		wcsize ++;
+		if ((rutf16 = (wchar_t *) calloc (wcsize + 2, sizeof (wchar_t)))) {
 			MultiByteToWideChar (CP_UTF8, 0, cstring, len, rutf16, wcsize);
 			if (len != -1) {
 				rutf16[wcsize - 1] = L'\0';
@@ -656,22 +672,23 @@ R_API wchar_t *r_utf8_to_utf16_l(const char *cstring, int len) {
 }
 
 R_API char *r_utf8_to_acp_l(const char *str, int len) {
-	if (!str || !len || len < -1) {
+	if (!str || len < -1) {
 		return NULL;
 	}
 	char *acp = NULL;
 	int wcsize, csize;
 	if ((wcsize = MultiByteToWideChar (CP_UTF8, 0, str, len, NULL, 0))) {
 		wchar_t *rutf16;
-		++wcsize;
+		wcsize++;
 		if ((rutf16 = (wchar_t *)calloc (wcsize, sizeof (wchar_t)))) {
 			MultiByteToWideChar (CP_UTF8, 0, str, len, rutf16, wcsize);
 			if (len != -1) {
 				rutf16[wcsize - 1] = L'\0';
 			}
 			if ((csize = WideCharToMultiByte (CP_ACP, 0, rutf16, wcsize, NULL, 0, NULL, NULL))) {
-				++csize;
-				if ((acp = malloc (csize))) {
+				csize ++;
+				acp = malloc (csize);
+				if (acp) {
 					WideCharToMultiByte (CP_ACP, 0, rutf16, wcsize, acp, csize, NULL, NULL);
 					if (len != -1) {
 						acp[csize - 1] = '\0';
@@ -685,18 +702,21 @@ R_API char *r_utf8_to_acp_l(const char *str, int len) {
 }
 
 R_API char *r_acp_to_utf8_l(const char *str, int len) {
-	if (!str || !len || len < -1) {
+	// there are some asserts that are boring to debug, make the precondition at runtime
+	// r_return_val_if_fail (str && len >= -1, NULL);
+	if (!str || len < -1) {
 		return NULL;
+	}
+	if (len == -1) {
+		len = strlen (str);
 	}
 	int wcsize;
 	if ((wcsize = MultiByteToWideChar (CP_ACP, 0, str, len, NULL, 0))) {
 		wchar_t *rutf16;
-		++wcsize;
-		if ((rutf16 = (wchar_t *) calloc (wcsize, sizeof (wchar_t)))) {
+		wcsize++;
+		if ((rutf16 = (wchar_t *) calloc (wcsize + 1, sizeof (wchar_t)))) {
 			MultiByteToWideChar (CP_ACP, 0, str, len, rutf16, wcsize);
-			if (len != -1) {
-				rutf16[wcsize - 1] = L'\0';
-			}
+			rutf16[wcsize - 1] = L'\0';
 			char *ret = r_utf16_to_utf8_l (rutf16, wcsize);
 			free (rutf16);
 			return ret;
@@ -705,10 +725,10 @@ R_API char *r_acp_to_utf8_l(const char *str, int len) {
 	return NULL;
 }
 
-#endif // __WINDOWS__
+#endif // R2__WINDOWS__
 
 R_API int r_utf_block_idx(RRune ch) {
-	const int last = r_utf_blocks_count;
+	const int last = R_UTF_BLOCKS_COUNT;
 	int low, hi, mid;
 
 	low = 0;
@@ -727,7 +747,7 @@ R_API int r_utf_block_idx(RRune ch) {
 		}
 	} while (low <= hi);
 
-	return r_utf_blocks_count - 1; /* index for "No_Block" */
+	return R_UTF_BLOCKS_COUNT - 1; /* index for "No_Block" */
 }
 
 /* str must be UTF8-encoded */
@@ -738,7 +758,7 @@ R_API int *r_utf_block_list(const ut8 *str, int len, int **freq_list) {
 	if (len < 0) {
 		len = strlen ((const char *)str);
 	}
-	static int block_freq[r_utf_blocks_count] = {0};
+	int block_freq[R_UTF_BLOCKS_COUNT] = {0};
 	int *list = R_NEWS (int, len + 1);
 	if (!list) {
 		return NULL;
@@ -760,7 +780,7 @@ R_API int *r_utf_block_list(const ut8 *str, int len, int **freq_list) {
 		int block_idx;
 		int ch_bytes = r_utf8_decode (str_ptr, str_end - str_ptr, &ch);
 		if (!ch_bytes) {
-			block_idx = r_utf_blocks_count - 1;
+			block_idx = R_UTF_BLOCKS_COUNT - 1;
 			ch_bytes = 1;
 		} else {
 			block_idx = r_utf_block_idx (ch);

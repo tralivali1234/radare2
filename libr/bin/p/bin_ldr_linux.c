@@ -1,8 +1,5 @@
-/* radare - LGPL - Copyright 2018 pancake */
+/* radare - LGPL - Copyright 2018-2023 pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 
 static bool load(RBin *bin) {
@@ -12,7 +9,7 @@ static bool load(RBin *bin) {
 	if (!bin->file) {
 	   	bin->file = bin->cur->file;
 	}
-	return bin->cur->xtr_obj? true : false;
+	return bin->cur->xtr_obj != NULL;
 }
 
 

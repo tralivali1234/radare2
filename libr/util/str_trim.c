@@ -1,20 +1,13 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2022 - pancake */
 
-#include "r_types.h"
-#include "r_util.h"
-#include "r_cons.h"
-#include "r_bin.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
-#include <stdarg.h>
+#include <r_util.h>
 
 // TODO: simplify this horrible loop
 R_API void r_str_trim_path(char *s) {
+	r_return_if_fail (s);
 	char *src, *dst, *p;
 	int i = 0;
-	if (!s || !*s) {
+	if (R_STR_ISEMPTY (s)) {
 		return;
 	}
 	dst = src = s + 1;
@@ -74,6 +67,31 @@ R_API char* r_str_trim_lines(char *str) {
 	return r_strbuf_drain (sb);
 }
 
+R_API void r_str_trim_emptylines(char *str) {
+	r_str_trim_tail (str);
+	char *r = str;
+	while (*r) {
+		if (*r == '\n') {
+			r++;
+			// skip empty lines
+			char *nl = r;
+			while (*r && *r != '\n') {
+				if (!isspace (*r)) {
+					break;
+				}
+				r++;
+			}
+			if (*r == '\n') {
+				r_str_cpy (nl, r + 1);
+			}
+		}
+		if (!*r) {
+			break;
+		}
+		r++;
+	}
+}
+
 R_API char *r_str_trim_dup(const char *str) {
 	char *a = strdup (str);
 	r_str_trim (a);
@@ -99,72 +117,77 @@ R_API const char *r_str_trim_head_wp(const char *str) {
 	return str;
 }
 
-/* remove spaces from the head of the string.
- * the string is changed in place */
+// remove in-place spaces from the head of the string.
 R_API void r_str_trim_head(char *str) {
+	r_return_if_fail (str);
 	char *p = (char *)r_str_trim_head_ro (str);
-	if (p) {
+	if (p && p != str) {
 		memmove (str, p, strlen (p) + 1);
 	}
 }
 
-/* remove spaces between args of the string except if args are surrounding
- * by quotes.
- * the string is changed in place */
-R_API void r_str_trim_args(char *str) {
-	const char *quotes = "\"'";
-	const char *isquote;
-	int idx, _b = 0, q = 0;
-	ut8 *b = (ut8*)&_b;
-	char *ws, *ch = str;
-	size_t len;
+static bool is_escapable(char ch) {
+	switch (ch) {
+	case '@':
+	case '"':
+	case '\'':
+	case '|':
+	case ';':
+	case '`':
+		return true;
+	}
+	return false;
+}
 
-	ws = (char *)r_str_trim_head_wp (ch);
-	len = strlen (ws);
-	while (*ws) {
-		ch = (char *)r_str_trim_head_ro (ws);
-		if (!*ch) {
-			break;
-		}
-		isquote = strchr (quotes, *ch);
-		if (isquote) {
-			idx = (int)(size_t)(isquote - quotes);
-			_b = R_BIT_TOGGLE (b, idx);
-			q = 1;
-		}
-		len -= ch - ws;
-		memmove (ws + 1, ch + q, len - q + 1);
-		if (q == 1) {
-			q = 0;
-			int i = 0;
-			for (; *ch; ch++) {
-				if (*ch == '\\') {
-					ch++;
+R_API void r_str_trim_args(char *str) {
+	r_return_if_fail (str);
+	char q = 0;
+	bool e = false;
+	char *s = str;
+	char *d = str;
+	while (*s) {
+		switch (*s) {
+		case '\'':
+		case '"':
+			if (e) {
+				e = false;
+			} else {
+				if (q) {
+					// needs to be escaped
+					if (q == *s) {
+						q = 0;
+						e = false;
+						s++;
+						continue;
+					}
+				} else {
+					q = *s;
+					s++;
+					e = false;
 					continue;
 				}
-				isquote = strchr (quotes, *ch);
-				if (isquote) {
-					idx = (int)(size_t)(isquote - quotes);
-					_b = R_BIT_TOGGLE (b, idx);
-					if (!_b) {
-						break;
-					} else {
-						_b = R_BIT_TOGGLE (b, idx);
-					}
+			}
+			break;
+		case '\\':
+			if (e) {
+				e = false;
+			} else {
+				if (is_escapable (s[1])) {
+					e = true;
+					s++;
+					continue;
 				}
-				i++;
 			}
-			if (!*ch) {
-				break;
-			}
-			len -= i;
-			r_str_ncpy (ch, ch + 1, len);
-			ws = ch + 1;
-		} else {
-			ws = (char *)r_str_trim_head_wp (ch);
-			len -= ws - ch;
+			break;
+		default:
+			e = false;
+			break;
 		}
+		*d = *s;
+		s++;
+		d++;
 	}
+	*d = 0;
 }
 
 // Remove whitespace chars from the tail of the string, replacing them with
@@ -184,8 +207,32 @@ R_API void r_str_trim_tail(char *str) {
 // Removes spaces from the head of the string, and zeros out whitespaces from
 // the tail of the string. The string is changed in place.
 R_API void r_str_trim(char *str) {
-	r_str_trim_head (str);
-	r_str_trim_tail (str);
+	r_return_if_fail (str);
+	r_str_ntrim (str, strlen (str));
+}
+
+R_API int r_str_ntrim(char *str, int length) {
+	r_return_val_if_fail (str && length >= 0, -1);
+	// r_str_trim_head (str);
+	char *p = str;
+	for (; *p && IS_WHITECHAR (*p) && length > 0; p++) {
+		length--;
+	}
+	if (p != str && length > 0) {
+		memmove (str, p, length + 1);
+	}
+	// r_str_trim_tail (str);
+	while (length > 0) {
+		const int newlength = length - 1;
+		if (IS_WHITECHAR (str[newlength])) {
+			str[newlength] = '\0';
+		} else {
+			break;
+		}
+		length = newlength;
+	}
+	str[length] = 0;
+	return length;
 }
 
 // no copy, like trim_head+tail but with trim_head_ro, beware heap issues
@@ -220,7 +267,7 @@ R_API int r_str_ansi_trim(char *str, int str_len, int n) {
 					i += 18;
 				}
 			} else if (ch2 == '[') {
-				for (++i; (i < str_len) && str[i] && str[i] != 'J' && str[i] != 'm' && str[i] != 'H';
+				for (i++; (i < str_len) && str[i] && str[i] != 'J' && str[i] != 'm' && str[i] != 'H';
 					i++) {
 					;
 				}

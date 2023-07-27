@@ -7,11 +7,24 @@ extern "C" {
 
 #include <r_util/r_mem.h>
 
+#ifndef SHELL_PATH
+#if TERMUX_BUILD
+#define SHELL_PATH "/data/data/com.termux/files/usr/bin/sh"
+#else
+#define SHELL_PATH "/bin/sh"
+#endif
+#endif
+
+#ifndef TERMUX_PREFIX
+#define TERMUX_PREFIX "/data/data/com.termux/files/usr"
+#endif
+
 /* is */
 R_API bool r_file_is_abspath(const char *file);
 R_API bool r_file_is_c(const char *file);
 R_API bool r_file_is_directory(const char *str);
 R_API bool r_file_is_regular(const char *str);
+R_API bool r_file_is_executable(const char *file);
 
 R_API bool r_file_truncate(const char *filename, ut64 newsize);
 R_API char *r_file_new(const char *root, ...);
@@ -30,31 +43,45 @@ R_API char *r_file_dirname(const char *path);
 R_API char *r_file_abspath_rel(const char *cwd, const char *file);
 R_API char *r_file_abspath(const char *file);
 R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen);
+R_API ut8 *r_inflate_raw(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen);
+R_API ut8 *r_inflate_lz4(const ut8 *src, int srcLen, int *consumed, int *dstLen);
 R_API ut8 *r_file_gzslurp(const char *str, int *outlen, int origonfail);
 R_API char *r_stdin_slurp(int *sz);
 R_API char *r_file_slurp(const char *str, R_NULLABLE size_t *usz);
-//R_API char *r_file_slurp_range(const char *str, ut64 off, ut64 sz);
 R_API char *r_file_slurp_range(const char *str, ut64 off, int sz, int *osz);
 R_API char *r_file_slurp_random_line(const char *file);
 R_API char *r_file_slurp_random_line_count(const char *file, int *linecount);
 R_API ut8 *r_file_slurp_hexpairs(const char *str, int *usz);
 R_API bool r_file_dump(const char *file, const ut8 *buf, int len, bool append);
+R_API bool r_file_dump_line(const char *file, int line, const char *msg, bool replace);
 R_API bool r_file_touch(const char *file);
 R_API bool r_file_hexdump(const char *file, const ut8 *buf, int len, int append);
 R_API bool r_file_rm(const char *file);
 R_API bool r_file_exists(const char *str);
+R_API const char *r_file_extension(const char *str);
 R_API bool r_file_fexists(const char *fmt, ...) R_PRINTF_CHECK(1, 2);
 R_API char *r_file_slurp_line(const char *file, int line, int context);
 R_API char *r_file_slurp_lines(const char *file, int line, int count);
 R_API char *r_file_slurp_lines_from_bottom(const char *file, int line);
+R_API char *r_file_temp_ex(R_NULLABLE const char *prefix, R_NULLABLE const char *ex);
 R_API int r_file_mkstemp(const char *prefix, char **oname);
 R_API char *r_file_tmpdir(void);
 R_API char *r_file_readlink(const char *path);
 R_API bool r_file_copy(const char *src, const char *dst);
 R_API bool r_file_move(const char *src, const char *dst);
-R_API RList* r_file_globsearch(const char *globbed_path, int maxdepth);
+R_API RList* r_file_glob(const char *globbed_path, int maxdepth);
 R_API RMmap *r_file_mmap_arch(RMmap *map, const char *filename, int fd);
 R_API RList *r_file_lsrf(const char *dir);
+R_API bool r_file_is_newer(const char *f1, const char *f2);
+R_API bool r_file_rm_rf(const char *dir);
+R_API R_MUSTUSE char *r_file_home(const char *str);
+// R2_590: implement r_file_homef() for format string purposes
+
+// XDG
+R_API char *r_xdg_configdir(const char *s);
+R_API char *r_xdg_datadir(const char *s);
+R_API char *r_xdg_cachedir(const char *s);
+
 #ifdef __cplusplus
 }
 #endif

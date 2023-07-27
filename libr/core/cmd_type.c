@@ -1,129 +1,124 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, oddcoder, Anton Kochkov, Jody Frankowski */
+/* radare - LGPL - Copyright 2009-2023 - pancake, oddcoder, Anton Kochkov, Jody Frankowski */
 
-#include <string.h>
-#include "r_anal.h"
-#include "r_cons.h"
-#include "r_core.h"
-#include <sdb.h>
+#include <r_core.h>
 
-static const char *help_msg_t[] = {
-	"Usage: t", "", "# cparse types commands",
-	"t", "", "List all loaded types",
-	"tj", "", "List all loaded types as json",
-	"t", " <type>", "Show type in 'pf' syntax",
-	"t*", "", "List types info in r2 commands",
-	"t-", " <name>", "Delete types by its name",
-	"t-*", "", "Remove all types",
-	"tail", " [filename]", "Output the last part of files",
-	"tc", " [type.name]", "List all/given types in C output format",
-	"te", "[?]", "List all loaded enums",
-	"td", "[?] <string>", "Load types from string",
-	"tf", "", "List all loaded functions signatures",
-	"tk", " <sdb-query>", "Perform sdb query",
-	"tl", "[?]", "Show/Link type to an address",
+static RCoreHelpMessage help_msg_t = {
+	"Usage: t", "", "Parse, manage, and print C types",
+	"t", "", "list all loaded types",
+	"tj", "", "list all loaded types as json",
+	"t", " <type>", "show type in 'pf' syntax",
+	"t*", "", "list types info in r2 commands",
+	"t-", " <name>", "delete type by name",
+	"t-*", "", "remove all types",
+	"tail", "([n]) [file]", "output the last n lines of a file (default n=5)",
+	"tac", " [file]", "the infamous reverse cat command",
+	"tc", "[?] [type.name]", "list all/given types in C output format",
+	"td", " <string>", "load types from string (quote the whole command: \"td ...\")",
+	"te", "[?]", "list all loaded enums",
+	"tf", "[?]", "list all loaded functions signatures",
+	"tk", " <sdb-query>", "perform sdb query",
+	"tl", "[?]", "show/Link type to an address",
 	"tn", "[?] [-][addr]", "manage noreturn function attributes and marks",
-	"to", " -", "Open cfg.editor to load types",
-	"to", " <path>", "Load types from C header file",
-	"toe", " [type.name]", "Open cfg.editor to edit types",
-	"tos", " <path>", "Load types from parsed Sdb database",
-	"touch", " <file>", "Create or update timestamp in file",
-	"tp", "  <type> [addr|varname]", "cast data at <address> to <type> and print it (XXX: type can contain spaces)",
-	"tpv", " <type> @ [value]", "Show offset formatted for given type",
-	"tpx", " <type> <hexpairs>", "Show value for type with specified byte sequence (XXX: type can contain spaces)",
-	"ts", "[?]", "Print loaded struct types",
-	"tu", "[?]", "Print loaded union types",
-	"tx", "[f?]", "Type xrefs",
-	"tt", "[?]", "List all loaded typedefs",
+	"to", "[?] <path>", "load types from C header file",
+	"tp", "[?]  <type> [addr|varname]", "cast data at <address> to <type> and print it (XXX: type can contain spaces)",
+	"ts", "[?]", "print loaded struct types",
+	"tt", "[?]", "list all loaded typedefs",
+	"tu", "[?]", "print loaded union types",
+	"tx", "[?]", "type xrefs",
 	NULL
 };
 
-static const char *help_msg_tcc[] = {
-	"Usage: tcc", "[-name]", "# type function calling conventions (see also afc? and arcc)",
-	"tcc", "", "List all calling convcentions",
-	"tcc", " r0 pascal(r0,r1,r2)", "Define signature for pascall cc (see also arcc)",
-	"tcc", "-pascal", "Remove the pascal cc",
-	"tcc-*", "", "Unregister all the calling conventions",
-	"tcck", "", "List calling conventions in k=v",
-	"tccl", "", "List cc signatures (return ccname (arg0, arg1, ..) err;)",
-	"tccj", "", "List them in JSON",
-	"tcc*", "", "List them as r2 commands",
+static RCoreHelpMessage help_msg_tx = {
+	"Usage: tx[.tflg]", "[...]", "Function types",
+	"tx", "", "list functions and the types they use",
+	"tx.", "", "same as txf",
+	"tx", " int32_t", "list functions names using this type",
+	"txt", " int32_t", "same as 'tx type'",
+	"txf", " ([addr])", "list all types used in the current or given function (same as tx.)",
+	"txl","","list all types used by any function",
+	"txg", "", "render the type xrefs graph (usage .txg;aggv)",
 	NULL
 };
 
-static const char *help_msg_t_minus[] = {
-	"Usage: t-", " <type>", "Delete type by its name",
+static RCoreHelpMessage help_msg_tcc = {
+	"Usage: tcc", "[-name]", "Type function calling conventions (see also afc? and arcc)",
+	"tcc", "", "list all calling conventions",
+	"tcc*", "", "list calling conventions as r2 commands",
+	"tcck", "", "list calling conventions in k=v format",
+	"tccl", "", "list cc signatures (return ccname (arg0, arg1, ..) err;)",
+	"tccj", "", "list them in JSON",
+	"tcc ", "<ret> ([args]) ([err])", "define function cc",
+	"tcc ", "r0 pascal(r0,r1,r2)", "define signature for pascal cc (see also arcc)",
+	"tcc-", "<name>", "unregister calling convention by name",
+	"tcc-*", "", "unregister all calling conventions",
 	NULL
 };
 
-static const char *help_msg_tf[] = {
+static RCoreHelpMessage help_msg_tf = {
 	"Usage: tf[...]", "", "",
-	"tf", "", "List all function definitions loaded",
-	"tf", " <name>", "Show function signature",
-	"tfc", " <name>", "Show function signature in C syntax",
-	"tfcj", " <name>", "Same as above but in JSON",
-	"tfj", "", "List all function definitions in JSON",
-	"tfj", " <name>", "Show function signature in JSON",
+	"tf", "", "list all function definitions loaded",
+	"tf", " <name>", "show function signature",
+	"tfc", " <name>", "show function signature in C syntax",
+	"tfcj", " <name>", "same as above but in JSON",
+	"tfj", "", "list all function definitions in JSON",
+	"tfj", " <name>", "show function signature in JSON",
 	NULL
 };
 
-static const char *help_msg_to[] = {
+static RCoreHelpMessage help_msg_to = {
 	"Usage: to[...]", "", "",
-	"to", " -", "Open cfg.editor to load types",
-	"to", " <path>", "Load types from C header file",
-	"tos", " <path>", "Load types from parsed Sdb database",
-	"touch", " <file>", "Create or update timestamp in file",
+	"to", " -", "open cfg.editor to load types",
+	"to", " <path>", "load types from C header file",
+	"tos", " <path>", "load types from parsed Sdb database",
+	"toe", " [type.name]", "open cfg.editor to edit types",
+	"tos", " <path>", "load types from parsed Sdb database",
+	"touch", " <file>", "create or update timestamp in file",
 	NULL
 };
 
-static const char *help_msg_tp[] = {
-	"Usage: tp[...]", "", "",
+static RCoreHelpMessage help_msg_tp = {
+	"Usage: tp[vx]", " <type> [...]", "Print type",
 	"tp", "  <type> [addr|varname]", "cast data at <address> to <type> and print it (XXX: type can contain spaces)",
-	"tpv", " <type> @ [value]", "Show offset formatted for given type",
-	"tpx", " <type> <hexpairs>", "Show value for type with specified byte sequence (XXX: type can contain spaces)",
+	"tpv", " <type> [@addr]", "show offset formatted for given type",
+	"tpx", " <type> <hexpairs>", "show value for type with specified byte sequence (XXX: type can contain spaces)",
 	NULL
 };
 
-static const char *help_msg_tc[] = {
-	"Usage: tc[...]", " [cctype]", "",
-	"tc", " [type.name]", "List all/given loaded types in C output format with newlines",
-	"tcd", "", "List all loaded types in C output format without newlines",
-	"tcc", "?", "Manage calling conventions types",
-	"tc?", "", "show this help",
+static RCoreHelpMessage help_msg_tc = {
+	"Usage: tc[...]", " [type]", "Print loaded types",
+	"tc", "", "list all loaded types in C output format with newlines",
+	"tc", " [type.name]", "list given loaded type in C output format with newlines",
+	"tcd", "", "list all loaded types in C output format without newlines",
+	"tcc", "[?]", "manage calling convention types",
 	NULL
 };
 
-static const char *help_msg_td[] = {
-	"Usage:", "\"td [...]\"", "",
-	"td", "[string]", "Load types from string",
+static RCoreHelpMessage help_msg_te = {
+	"Usage: te[...]", "", "Type enum commands",
+	"te", "", "list all loaded enums",
+	"te", " <enum>", "print all values of enum for given name",
+	"te", " <enum> <value>", "show name for given enum number",
+	"te-", "<enum>", "delete enum type definition",
+	"tej", "", "list all loaded enums in json",
+	"tej", " <enum>", "show enum in json",
+	"teb", " <enum> <name>", "show matching enum bitfield for given name",
+	"tec", "", "list all loaded enums in C output format with newlines",
+	"tec", " <name>", "list given loaded enums in C output format with newlines",
+	"ted", "", "list all loaded enums in C output format without newlines",
 	NULL
 };
 
-static const char *help_msg_te[] = {
-	"Usage: te[...]", "", "",
-	"te", "", "List all loaded enums",
-	"te", " <enum>", "Print all values of enum for given name",
-	"tej", "", "List all loaded enums in json",
-	"tej", " <enum>", "Show enum in json",
-	"te", " <enum> <value>", "Show name for given enum number",
-	"teb", " <enum> <name>", "Show matching enum bitfield for given name",
-	"tec", "<name>", "List all/given loaded enums in C output format with newlines",
-	"ted", "", "List all loaded enums in C output format without newlines",
-	"te?", "", "show this help",
+static RCoreHelpMessage help_msg_tt = {
+	"Usage: tt[...]", "", "Type typedef commands",
+	"tt", "", "list all loaded typedefs",
+	"tt", " <typename>", "show name for given type alias",
+	"ttj", "", "show typename and type alias in json",
+	"ttc", "<name>", "show typename and type alias in C output format",
 	NULL
 };
 
-static const char *help_msg_tt[] = {
-	"Usage: tt[...]", "", "",
-	"tt", "", "List all loaded typedefs",
-	"tt", " <typename>", "Show name for given type alias",
-	"ttj", "", "Show typename and type alias in json",
-	"ttc", "<name>", "Show typename and type alias in C output format",
-	"tt?", "", "show this help",
-	NULL
-};
-
-static const char *help_msg_tl[] = {
-	"Usage: tl[...]", "[typename] [[=] address]", "# Type link commands",
+static RCoreHelpMessage help_msg_tl = {
+	"Usage: tl[...]", "[typename] [[=] address]", "Type link commands",
 	"tl", "", "list all links.",
 	"tll", "", "list all links in readable format.",
 	"tllj", "", "list all links in readable JSON format.",
@@ -137,61 +132,44 @@ static const char *help_msg_tl[] = {
 	NULL
 };
 
-static const char *help_msg_tn[] = {
+static RCoreHelpMessage help_msg_tn = {
 	"Usage:", "tn [-][0xaddr|symname]", " manage no-return marks",
 	"tn[a]", " 0x3000", "stop function analysis if call/jmp to this address",
 	"tn[n]", " sym.imp.exit", "same as above but for flag/fcn names",
+	"tnf", "", "same as `afl,noret/eq/1`",
 	"tn-", " 0x3000 sym.imp.exit ...", "remove some no-return references",
 	"tn-*", "", "remove all no-return references",
 	"tn", "", "list them all",
 	NULL
 };
 
-static const char *help_msg_ts[] = {
+static RCoreHelpMessage help_msg_ts = {
 	"Usage: ts[...]", " [type]", "",
-	"ts", "", "List all loaded structs",
-	"ts", " [type]", "Show pf format string for given struct",
-	"tsj", "", "List all loaded structs in json",
-	"tsj", " [type]", "Show pf format string for given struct in json",
-	"ts*", "", "Show pf.<name> format string for all loaded structs",
-	"ts*", " [type]", "Show pf.<name> format string for given struct",
-	"tsc", "<name>", "List all/given loaded structs in C output format with newlines",
-	"tsd", "", "List all loaded structs in C output format without newlines",
-	"tss", " [type]", "Display size of struct",
-	"ts?", "", "show this help",
+	"ts", "", "list all loaded structs",
+	"ts", " [type]", "show pf format string for given struct",
+	"ts-", "[type]", "delete struct type definition",
+	"tsj", "", "list all loaded structs in json",
+	"tsj", " [type]", "show pf format string for given struct in json",
+	"ts*", "", "show pf.<name> format string for all loaded structs",
+	"ts*", " [type]", "show pf.<name> format string for given struct",
+	"tsc", "<name>", "list all/given loaded structs in C output format with newlines",
+	"tsd", "", "list all loaded structs in C output format without newlines",
+	"tss", " [type]", "display size of struct",
 	NULL
 };
 
-static const char *help_msg_tu[] = {
+static RCoreHelpMessage help_msg_tu = {
 	"Usage: tu[...]", "", "",
-	"tu", "", "List all loaded unions",
-	"tu", " [type]", "Show pf format string for given union",
-	"tuj", "", "List all loaded unions in json",
-	"tuj", " [type]", "Show pf format string for given union in json",
-	"tu*", "", "Show pf.<name> format string for all loaded unions",
-	"tu*", " [type]", "Show pf.<name> format string for given union",
-	"tuc", "<name>", "List all/given loaded unions in C output format with newlines",
-	"tud", "", "List all loaded unions in C output format without newlines",
-	"tu?", "", "show this help",
+	"tu", "", "list all loaded unions",
+	"tu", " [type]", "show pf format string for given union",
+	"tuj", "", "list all loaded unions in json",
+	"tuj", " [type]", "show pf format string for given union in json",
+	"tu*", "", "show pf.<name> format string for all loaded unions",
+	"tu*", " [type]", "show pf.<name> format string for given union",
+	"tuc", "<name>", "list all/given loaded unions in C output format with newlines",
+	"tud", "", "list all loaded unions in C output format without newlines",
 	NULL
 };
-
-static void cmd_type_init(RCore *core, RCmdDesc *parent) {
-	DEFINE_CMD_DESCRIPTOR (core, t);
-	DEFINE_CMD_DESCRIPTOR_SPECIAL (core, t-, t_minus);
-	DEFINE_CMD_DESCRIPTOR (core, tc);
-	DEFINE_CMD_DESCRIPTOR (core, td);
-	DEFINE_CMD_DESCRIPTOR (core, te);
-	DEFINE_CMD_DESCRIPTOR (core, tl);
-	DEFINE_CMD_DESCRIPTOR (core, tn);
-	DEFINE_CMD_DESCRIPTOR (core, ts);
-	DEFINE_CMD_DESCRIPTOR (core, tu);
-	DEFINE_CMD_DESCRIPTOR (core, tt);
-}
-
-static void show_help(RCore *core) {
-	r_core_cmd_help (core, help_msg_t);
-}
 
 static bool cc_cb(void *p, const char *k, const char *v) {
 	if (!strcmp (v, "cc")) {
@@ -258,31 +236,38 @@ static void cmd_tcc(RCore *core, const char *input) {
 		break;
 	case '-':
 		if (input[1] == '*') {
-			sdb_reset (core->anal->sdb_cc);
+			if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_tcc, "tcc-*", true);
+			} else {
+				sdb_reset (core->anal->sdb_cc);
+			}
+		} else if (input[1] == '?') {
+			r_core_cmd_help_match (core, help_msg_tcc, "tcc-", false);
 		} else {
 			r_anal_cc_del (core->anal, r_str_trim_head_ro (input + 1));
 		}
 		break;
-	case 0:
-		cmd_afcl (core, "");
-		break;
+	case '\0':
 	case 'l':
-		cmd_afcl (core, "l");
-		break;
 	case 'j':
-		cmd_afcl (core, "j");
-		break;
-		break;
 	case '*':
-		cmd_afcl (core, "*");
+		if (*input && input[1] == '?') {
+			r_core_cmd_help_match_spec (core, help_msg_tcc, "tcc", *input, true);
+		} else {
+			cmd_afcl (core, input);
+		}
 		break;
 	case 'k':
-		cmd_afck (core, NULL);
+		if (input[1] == '?') {
+			r_core_cmd_help_match (core, help_msg_tcc, "tcck", true);
+		} else {
+			cmd_afck (core, NULL);
+		}
 		break;
 	case ' ':
 		if (strchr (input, '(')) {
 			if (!r_anal_cc_set (core->anal, input + 1)) {
-				eprintf ("Invalid syntax in cc signature.");
+				R_LOG_ERROR ("Invalid syntax in cc signature");
 			}
 		} else {
 			const char *ccname = r_str_trim_head_ro (input + 1);
@@ -299,7 +284,7 @@ static void cmd_tcc(RCore *core, const char *input) {
 static void showFormat(RCore *core, const char *name, int mode) {
 	const char *isenum = sdb_const_get (core->anal->sdb_types, name, 0);
 	if (isenum && !strcmp (isenum, "enum")) {
-		eprintf ("IS ENUM\n");
+		R_LOG_INFO ("Type is an enum");
 	} else {
 		char *fmt = r_type_format (core->anal->sdb_types, name);
 		if (fmt) {
@@ -316,28 +301,63 @@ static void showFormat(RCore *core, const char *name, int mode) {
 				r_cons_printf ("%s", pj_string (pj));
 				pj_free (pj);
 			} else {
-				if (mode) {
-					r_cons_printf ("pf.%s %s\n", name, fmt);
+				if (R_STR_ISNOTEMPTY (fmt)) {
+					if (mode) {
+						r_cons_printf ("pf.%s %s\n", name, fmt);
+					} else {
+						r_cons_printf ("pf %s\n", fmt);
+					}
 				} else {
-					r_cons_printf ("pf %s\n", fmt);
+					// This happens when the type hasnt been fully removed
+					R_LOG_DEBUG ("Type wasnt properly deleted");
 				}
 			}
 			free (fmt);
 		} else {
-			eprintf ("Cannot find '%s' type\n", name);
+			R_LOG_ERROR ("Cannot find '%s' type", name);
 		}
 	}
+}
+
+static int cmd_tac(void *data, const char *_input) { // "tac"
+	RCore *core = (RCore *) data;
+	char *input = strdup (_input);
+	char *arg = strchr (input, ' ');
+	if (arg) {
+		arg = (char *)r_str_trim_head_ro (arg + 1);
+	}
+	switch (*input) {
+	case '?': // "tac?"
+		r_core_cmd_help_match (core, help_msg_t, "tac", true);
+		break;
+	default: // "tac"
+		if (R_STR_ISNOTEMPTY (arg)) {
+			char *filedata = r_file_slurp (arg, NULL);
+			RList *lines = r_str_split_list (filedata, "\n", 0);
+			RListIter *iter;
+			char *line;
+			r_list_foreach_prev (lines, iter, line) {
+				r_cons_printf ("%s\n", line);
+			}
+			r_list_free (lines);
+			free (filedata);
+		} else {
+			r_core_cmd_help_match (core, help_msg_t, "tac", true);
+		}
+		break;
+	}
+	free (input);
+	return 0;
 }
 
 static int cmd_tail(void *data, const char *_input) { // "tail"
 	char *input = strdup (_input);
 	RCore *core = (RCore *)data;
 	int lines = 5;
-	char *arg = strchr (input, ' ');
-	char *tmp, *count;
+	char *tmp, *arg = strchr (input, ' ');
 	if (arg) {
 		arg = (char *)r_str_trim_head_ro (arg + 1); 	// contains "count filename"
-		count = strchr (arg, ' ');
+		char *count = strchr (arg, ' ');
 		if (count) {
 			*count = 0;	// split the count and file name
 			tmp = (char *)r_str_trim_head_ro (count + 1);
@@ -347,7 +367,7 @@ static int cmd_tail(void *data, const char *_input) { // "tail"
 	}
 	switch (*input) {
 	case '?': // "tail?"
-		eprintf ("Usage: tail [file] # to list last n lines in file\n");
+		r_core_cmd_help_match (core, help_msg_t, "tail", true);
 		break;
 	default: // "tail"
 		if (!arg) {
@@ -396,6 +416,9 @@ static void cmd_type_noreturn(RCore *core, const char *input) {
 			}
 		}
 		break;
+	case 'f': // "tnf"
+		r_core_cmd_call (core, "afl,noret/eq/1");
+		break;
 	case 'a': // "tna"
 		if (input[1] == ' ') {
 			r_anal_noreturn_add (core->anal, NULL,
@@ -434,8 +457,9 @@ static bool stdifstruct(void *user, const char *k, const char *v) {
 		return true;
 	}
 	if (!strcmp (v, "typedef")) {
-		const char *typedef_key = sdb_fmt ("typedef.%s", k);
+		char *typedef_key = r_str_newf ("typedef.%s", k);
 		const char *type = sdb_const_get (TDB_, typedef_key, NULL);
+		free (typedef_key);
 		if (type && r_str_startswith (type, "struct")) {
 			return true;
 		}
@@ -476,6 +500,7 @@ static int print_struct_union_list_json(Sdb *TDB, SdbForeachCallback filter) {
 	return 1;
 }
 
+// Rename to char *RAnal.type_to_c() {}
 static void print_struct_union_in_c_format(Sdb *TDB, SdbForeachCallback filter, const char *arg, bool multiline) {
 	char *name = NULL;
 	SdbKv *kv;
@@ -509,7 +534,7 @@ static void print_struct_union_in_c_format(Sdb *TDB, SdbForeachCallback filter, 
 					int arrnum = atoi (arr);
 					free (arr);
 					if (multiline) {
-						r_cons_printf ("\t%s", val);
+						r_cons_printf ("  %s", val);
 						if (p && p[0] != '\0') {
 							r_cons_printf ("%s%s", strstr (val, " *")? "": " ", p);
 							if (arrnum) {
@@ -594,10 +619,11 @@ static bool printkey_cb(void *user, const char *k, const char *v) {
 // maybe dupe?. should return char *instead of print for reusability
 static void printFunctionTypeC(RCore *core, const char *input) {
 	Sdb *TDB = core->anal->sdb_types;
-	char *res = sdb_querys (TDB, NULL, -1, sdb_fmt ("func.%s.args", input));
+	r_strf_buffer (256);
+	char *res = sdb_querys (TDB, NULL, -1, r_strf ("func.%s.args", input));
 	const char *name = r_str_trim_head_ro (input);
-	int i, args = sdb_num_get (TDB, sdb_fmt ("func.%s.args", name), 0);
-	const char *ret = sdb_const_get (TDB, sdb_fmt ("func.%s.ret", name), 0);
+	int i, args = sdb_num_get (TDB, r_strf ("func.%s.args", name), 0);
+	const char *ret = sdb_const_get (TDB, r_strf ("func.%s.ret", name), 0);
 	if (!ret) {
 		ret = "void";
 	}
@@ -608,12 +634,12 @@ static void printFunctionTypeC(RCore *core, const char *input) {
 
 	r_cons_printf ("%s %s (", ret, name);
 	for (i = 0; i < args; i++) {
-		char *type = sdb_get (TDB, sdb_fmt ("func.%s.arg.%d", name, i), 0);
+		char *type = sdb_get (TDB, r_strf ("func.%s.arg.%d", name, i), 0);
 		char *name = strchr (type, ',');
 		if (name) {
 			*name++ = 0;
 		}
-		r_cons_printf ("%s%s %s", i==0? "": ", ", type, name);
+		r_cons_printf ("%s%s %s", (i == 0)? "": ", ", type, name);
 	}
 	r_cons_printf (");\n");
 	free (res);
@@ -626,16 +652,17 @@ static void printFunctionType(RCore *core, const char *input) {
 		return;
 	}
 	pj_o (pj);
-	char *res = sdb_querys (TDB, NULL, -1, sdb_fmt ("func.%s.args", input));
+	r_strf_buffer (64);
+	char *res = sdb_get (TDB, r_strf ("func.%s.args", input), NULL);
 	const char *name = r_str_trim_head_ro (input);
-	int i, args = sdb_num_get (TDB, sdb_fmt ("func.%s.args", name), 0);
+	int i, args = sdb_num_get (TDB, r_strf ("func.%s.args", name), 0);
 	pj_ks (pj, "name", name);
-	const char *ret_type = sdb_const_get (TDB, sdb_fmt ("func.%s.ret", name), 0);
+	const char *ret_type = sdb_const_get (TDB, r_strf ("func.%s.ret", name), 0);
 	pj_ks (pj, "ret", r_str_get_fail (ret_type, "void"));
 	pj_k (pj, "args");
 	pj_a (pj);
 	for (i = 0; i < args; i++) {
-		char *type = sdb_get (TDB, sdb_fmt ("func.%s.arg.%d", name, i), 0);
+		char *type = sdb_get (TDB, r_strf ("func.%s.arg.%d", name, i), 0);
 		if (!type) {
 			continue;
 		}
@@ -651,11 +678,17 @@ static void printFunctionType(RCore *core, const char *input) {
 			pj_ks (pj, "name", "(null)");
 		}
 		pj_end (pj);
+		free (type);
 	}
 	pj_end (pj);
 	pj_end (pj);
-	r_cons_printf ("%s", pj_string (pj));
-	pj_free (pj);
+	char *s = pj_drain (pj);
+	if (R_STR_ISEMPTY (s)) {
+		r_cons_printf ("{}");
+	} else {
+		r_cons_printf ("%s,", s);
+	}
+	free (s);
 	free (res);
 }
 
@@ -704,11 +737,11 @@ static bool print_link_readable_cb(void *p, const char *k, const char *v) {
 	RCore *core = (RCore *)p;
 	char *fmt = r_type_format (core->anal->sdb_types, v);
 	if (!fmt) {
-		eprintf ("Can't fint type %s", v);
+		eprintf ("Can't find type %s\n", v);
 		return 1;
 	}
 	r_cons_printf ("(%s)\n", v);
-	r_core_cmdf (core, "pf %s @ 0x%s\n", fmt, k + strlen ("link."));
+	r_core_cmdf (core, "pf %s @ 0x%s", fmt, k + strlen ("link."));
 	return true;
 }
 
@@ -717,11 +750,11 @@ static bool print_link_readable_json_cb(void *p, const char *k, const char *v) {
 	RCore *core = (RCore *)p;
 	char *fmt = r_type_format (core->anal->sdb_types, v);
 	if (!fmt) {
-		eprintf ("Can't fint type %s", v);
+		R_LOG_ERROR ("Can't find type %s", v);
 		return true;
 	}
 	r_cons_printf ("{\"%s\":", v);
-	r_core_cmdf (core, "pfj %s @ 0x%s\n", fmt, k + strlen ("link."));
+	r_core_cmdf (core, "pfj %s @ 0x%s", fmt, k + strlen ("link."));
 	r_cons_printf ("}");
 	return true;
 }
@@ -731,29 +764,37 @@ static bool stdiftype(void *p, const char *k, const char *v) {
 }
 
 static bool print_typelist_r_cb(void *p, const char *k, const char *v) {
-	r_cons_printf ("tk %s=%s\n", k, v);
+	r_cons_printf ("\"tk %s=%s\"\n", k, v);
 	return true;
 }
 
 static bool print_typelist_json_cb(void *p, const char *k, const char *v) {
+	r_return_val_if_fail (p && k, false);
 	RCore *core = (RCore *)p;
+	if (!v) {
+		v = "";
+	}
 	PJ *pj = pj_new ();
 	pj_o (pj);
 	Sdb *sdb = core->anal->sdb_types;
 	char *sizecmd = r_str_newf ("type.%s.size", k);
-	char *size_s = sdb_querys (sdb, NULL, -1, sizecmd);
+	char *size_s = sdb_get (sdb, sizecmd, NULL);
 	char *formatcmd = r_str_newf ("type.%s", k);
-	char *format_s = sdb_querys (sdb, NULL, -1, formatcmd);
-	r_str_trim (format_s);
-	pj_ks (pj, "type", k);
-	pj_ki (pj, "size", size_s ? atoi (size_s) : -1);
-	pj_ks (pj, "format", format_s);
-	pj_end (pj);
-	r_cons_printf ("%s", pj_string (pj));
+	char *format_s = sdb_get (sdb, formatcmd, NULL);
+	if (size_s && format_s) {
+		r_str_trim (format_s);
+		pj_ks (pj, "type", k);
+		pj_ki (pj, "size", size_s ? atoi (size_s) : -1);
+		pj_ks (pj, "format", format_s);
+		pj_end (pj);
+		r_cons_printf ("%s,", pj_string (pj));
+	} else {
+		R_LOG_DEBUG ("Internal sdb inconsistency for %s", sizecmd);
+	}
 	pj_free (pj);
 	free (size_s);
-	free (format_s);
 	free (sizecmd);
+	free (format_s);
 	free (formatcmd);
 	return true;
 }
@@ -762,24 +803,22 @@ static void print_keys(Sdb *TDB, RCore *core, SdbForeachCallback filter, SdbFore
 	SdbList *l = sdb_foreach_list_filter (TDB, filter, true);
 	SdbListIter *it;
 	SdbKv *kv;
-	const char *comma = "";
 
 	if (json) {
-		r_cons_printf ("[");
+		r_cons_print ("{\"types\":[");
 	}
 	ls_foreach (l, it, kv) {
 		const char *k = sdbkv_key (kv);
-		if (!k || !*k) {
+		const char *v = sdbkv_value (kv);
+		if (R_STR_ISEMPTY (k)) {
 			continue;
 		}
-		if (json) {
-			r_cons_printf ("%s", comma);
-			comma = ",";
+		if (v) {
+			printfn_cb (core, k, v);
 		}
-		printfn_cb (core, sdbkv_key (kv), sdbkv_value (kv));
 	}
 	if (json) {
-		r_cons_printf ("]\n");
+		r_cons_println ("{}]}\n");
 	}
 	ls_free (l);
 }
@@ -804,10 +843,11 @@ static void set_offset_hint(RCore *core, RAnalOp *op, const char *type, ut64 lad
 	const char *cmt = ((offimm == 0) && res)? res: type;
 	if (offimm > 0) {
 		// set hint only if link is present
-		char* query = sdb_fmt ("link.%08"PFMT64x, laddr);
+		char* query = r_str_newf ("link.%08"PFMT64x, laddr);
 		if (res && sdb_const_get (core->anal->sdb_types, query, 0)) {
 			r_anal_hint_set_offset (core->anal, at, res);
 		}
+		free (query);
 	} else if (cmt && r_anal_op_ismemref (op->type)) {
 		r_meta_set_string (core->anal, R_META_TYPE_VARTYPE, at, cmt);
 	}
@@ -823,9 +863,10 @@ R_API int r_core_get_stacksz(RCore *core, ut64 from, ut64 to) {
 	const int mininstrsz = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_MIN_OP_SIZE);
 	const int minopcode = R_MAX (1, mininstrsz);
 	while (at < to) {
-		RAnalOp *op = r_core_anal_op (core, at, R_ANAL_OP_MASK_BASIC);
+		RAnalOp *op = r_core_anal_op (core, at, R_ARCH_OP_MASK_BASIC);
 		if (!op || op->size <= 0) {
 			at += minopcode;
+			r_anal_op_free (op);
 			continue;
 		}
 		if ((op->stackop == R_ANAL_STACK_INC) && R_ABS (op->stackptr) < 8096) {
@@ -868,13 +909,13 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 	RAnalBlock *bb;
 	RListIter *it;
 	RAnalOp aop = {0};
-	bool ioCache = r_config_get_i (core->config, "io.cache");
+	bool ioCache = r_config_get_b (core->config, "io.cache");
 	bool stack_set = false;
 	bool resolved = false;
 	const char *varpfx;
 	int dbg_follow = r_config_get_i (core->config, "dbg.follow");
 	Sdb *TDB = core->anal->sdb_types;
-	RAnalEsil *esil;
+	REsil *esil;
 	int iotrap = r_config_get_i (core->config, "esil.iotrap");
 	int stacksize = r_config_get_i (core->config, "esil.stack.depth");
 	unsigned int addrsize = r_config_get_i (core->config, "esil.addr.size");
@@ -885,10 +926,10 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 	if (!fcn) {
 		return;
 	}
-	if (!(esil = r_anal_esil_new (stacksize, iotrap, addrsize))) {
+	if (!(esil = r_esil_new (stacksize, iotrap, addrsize))) {
 		return;
 	}
-	r_anal_esil_setup (esil, core->anal, 0, 0, 0);
+	r_esil_setup (esil, core->anal, 0, 0, 0);
 	int i, ret, bsize = R_MAX (64, core->blocksize);
 	const int mininstrsz = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_MIN_OP_SIZE);
 	const int maxinstrsz = r_anal_archinfo (core->anal, R_ANAL_ARCHINFO_MAX_OP_SIZE);
@@ -896,7 +937,7 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 	ut8 *buf = malloc (bsize);
 	if (!buf) {
 		free (buf);
-		r_anal_esil_free (esil);
+		r_esil_free (esil);
 		return;
 	}
 	r_reg_arena_push (core->anal->reg);
@@ -913,10 +954,10 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 		}
 	} else {
 		// initialize stack
-		r_core_cmd0 (core, "aeim");
+		r_core_cmd_call (core, "aeim");
 		stack_set = true;
 	}
-	r_config_set_i (core->config, "io.cache", 1);
+	r_config_set_b (core->config, "io.cache", true);
 	r_config_set_i (core->config, "dbg.follow", 0);
 	ut64 oldoff = core->offset;
 	r_cons_break_push (NULL, NULL);
@@ -939,7 +980,7 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 			if (!i) {
 				r_io_read_at (core->io, at, buf, bsize);
 			}
-			ret = r_anal_op (core->anal, &aop, at, buf + i, bsize - i, R_ANAL_OP_MASK_VAL);
+			ret = r_anal_op (core->anal, &aop, at, buf + i, bsize - i, R_ARCH_OP_MASK_VAL);
 			if (ret <= 0) {
 				i += minopcode;
 				at += minopcode;
@@ -952,18 +993,20 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 			if (aop.ireg) {
 				index = r_reg_getv (esil->anal->reg, aop.ireg) * aop.scale;
 			}
-			int j, src_imm = -1, dst_imm = -1;
+			int src_imm = -1, dst_imm = -1;
 			ut64 src_addr = UT64_MAX;
 			ut64 dst_addr = UT64_MAX;
-			for (j = 0; j < 3; j++) {
-				if (aop.src[j] && aop.src[j]->reg && aop.src[j]->reg->name) {
-					src_addr = r_reg_getv (esil->anal->reg, aop.src[j]->reg->name) + index;
-					src_imm = aop.src[j]->delta;
+			RAnalValue *src = NULL;
+			r_vector_foreach (&aop.srcs, src) {
+				if (src && src->reg) {
+					src_addr = r_reg_getv (esil->anal->reg, src->reg) + index;
+					src_imm = src->delta;
 				}
 			}
-			if (aop.dst && aop.dst->reg && aop.dst->reg->name) {
-				dst_addr = r_reg_getv (esil->anal->reg, aop.dst->reg->name) + index;
-				dst_imm = aop.dst->delta;
+			RAnalValue *dst = r_vector_at (&aop.dsts, 0);
+			if (dst && dst->reg) {
+				dst_addr = r_reg_getv (esil->anal->reg, dst->reg) + index;
+				dst_imm = dst->delta;
 			}
 			RAnalVar *var = r_anal_get_used_function_var (core->anal, aop.addr);
 			if (false) { // src_addr != UT64_MAX || dst_addr != UT64_MAX) {
@@ -1006,14 +1049,14 @@ R_API void r_core_link_stroff(RCore *core, RAnalFunction *fcn) {
 		}
 	}
 beach:
-	r_core_cmd0 (core, "wc-*"); // drop cache writes
-	r_config_set_i (core->config, "io.cache", ioCache);
+	r_core_cmd_call (core, "wc-*"); // drop cache writes
+	r_config_set_b (core->config, "io.cache", ioCache);
 	r_config_set_i (core->config, "dbg.follow", dbg_follow);
 	if (stack_set) {
-		r_core_cmd0 (core, "aeim-");
+		r_core_cmd_call (core, "aeim-");
 	}
 	r_core_seek (core, oldoff, true);
-	r_anal_esil_free (esil);
+	r_esil_free (esil);
 	r_reg_arena_pop (core->anal->reg);
 	r_core_cmd0 (core, ".ar*");
 	r_cons_break_pop ();
@@ -1073,12 +1116,16 @@ static int cmd_type(void *data, const char *input) {
 		break;
 	}
 	case 'k': // "tk"
-		res = (input[1] == ' ')
-			? sdb_querys (TDB, NULL, -1, input + 2)
-			: sdb_querys (TDB, NULL, -1, "*");
-		if (res) {
-			r_cons_print (res);
-			free (res);
+		if (input[1] == '?') {
+			r_core_cmd_help_match (core, help_msg_t, "tk", true);
+		} else {
+			res = (input[1] == ' ')
+				? sdb_querys (TDB, NULL, -1, input + 2)
+				: sdb_querys (TDB, NULL, -1, "*");
+			if (res) {
+				r_cons_print (res);
+				free (res);
+			}
 		}
 		break;
 	case 'c': // "tc"
@@ -1111,13 +1158,17 @@ static int cmd_type(void *data, const char *input) {
 			break;
 		}
 		case '*': // "tc*"
-			r_core_cmd0 (core, "ts*");
+			r_core_cmd_call (core, "ts*");
 			break;
 		case 0: // "tc"
 			r_core_cmd0 (core, "tfc;tuc;tsc;ttc;tec");
 			break;
 		case 'd': // "tcd"
-			r_core_cmd0 (core, "tud;tsd;ttc;ted");
+			if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_tc, "tcd", true);
+			} else {
+				r_core_cmd0 (core, "tud;tsd;ttc;ted");
+			}
 			break;
 		default:
 			r_core_cmd_help (core, help_msg_tc);
@@ -1126,27 +1177,29 @@ static int cmd_type(void *data, const char *input) {
 		break;
 	case 's': { // "ts"
 		switch (input[1]) {
-		case '?':
+		case '?': // "ts?"
 			r_core_cmd_help (core, help_msg_ts);
 			break;
-		case '*':
+		case '*': // "ts*"
 			if (input[2] == ' ') {
 				showFormat (core, r_str_trim_head_ro (input + 2), 1);
 			} else {
 				SdbList *l = sdb_foreach_list_filter (TDB, stdifstruct, true);
 				SdbListIter *it;
 				SdbKv *kv;
-
 				ls_foreach (l, it, kv) {
 					showFormat (core, sdbkv_key (kv), 1);
 				}
 				ls_free (l);
 			}
 			break;
+		case '-': // "ts-"
+			r_core_cmdf (core, "t-%s", r_str_trim_head_ro (input + 2));
+			break;
 		case ' ':
 			showFormat (core, r_str_trim_head_ro (input + 1), 0);
 			break;
-		case 's':
+		case 's': // "tss"
 			if (input[2] == ' ') {
 				r_cons_printf ("%" PFMT64u "\n", (r_type_get_bitsize (TDB, input + 3) / 8));
 			} else {
@@ -1183,17 +1236,17 @@ static int cmd_type(void *data, const char *input) {
 		if (member_name) {
 			*member_name++ = 0;
 		}
-		if (name && (r_type_kind (TDB, name) != R_TYPE_ENUM)) {
-			eprintf ("%s is not an enum\n", name);
+		if (R_STR_ISNOTEMPTY (name) && (r_type_kind (TDB, name) != R_TYPE_ENUM)) {
+			R_LOG_ERROR ("%s is not an enum", name);
 			free (name);
 			break;
 		}
 		switch (input[1]) {
-		case '?':
-			r_core_cmd_help (core, help_msg_te);
+		case '-':
+			r_core_cmdf (core, "t-%s", r_str_trim_head_ro (input + 2));
 			break;
 		case 'j': // "tej"
-			if (input[2] == 0) { // "tej"
+			if (input[2] == '\0') { // "tej"
 				char *name = NULL;
 				SdbKv *kv;
 				SdbListIter *iter;
@@ -1201,25 +1254,24 @@ static int cmd_type(void *data, const char *input) {
 				PJ *pj = pj_new ();
 				pj_o (pj);
 				ls_foreach (l, iter, kv) {
-					if (!strcmp (sdbkv_value (kv), "enum")) {
-						if (!name || strcmp (sdbkv_value (kv), name)) {
-							free (name);
-							name = strdup (sdbkv_key (kv));
-							pj_k (pj, name);
-							{
-								RList *list = r_type_get_enum (TDB, name);
-								if (list && !r_list_empty (list)) {
-									pj_o (pj);
-									RListIter *iter;
-									RTypeEnum *member;
-									r_list_foreach (list, iter, member) {
-										pj_kn (pj, member->name, r_num_math (NULL, member->val));
-									}
-									pj_end (pj);
-								}
-								r_list_free (list);
+					if (!strcmp (sdbkv_value (kv), "enum")
+							&& (!name || strcmp (sdbkv_value (kv), name))) {
+						RList *list;
+						free (name);
+						name = strdup (sdbkv_key (kv));
+						pj_k (pj, name);
+						list = r_type_get_enum (TDB, name);
+						if (!r_list_empty (list)) {
+							RListIter *iter;
+							RTypeEnum *member;
+							pj_o (pj);
+							r_list_foreach (list, iter, member) {
+								pj_kn (pj, member->name,
+										r_num_math (NULL, member->val));
 							}
+							pj_end (pj);
 						}
+						r_list_free (list);
 					}
 				}
 				pj_end (pj);
@@ -1227,6 +1279,8 @@ static int cmd_type(void *data, const char *input) {
 				pj_free (pj);
 				free (name);
 				ls_free (l);
+			} else if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_te, "tej", false);
 			} else { // "tej ENUM"
 				RListIter *iter;
 				PJ *pj = pj_new ();
@@ -1237,7 +1291,7 @@ static int cmd_type(void *data, const char *input) {
 					// NEVER REACHED
 				} else {
 					RList *list = r_type_get_enum (TDB, name);
-					if (list && !r_list_empty (list)) {
+					if (!r_list_empty (list)) {
 						pj_ks (pj, "name", name);
 						pj_k (pj, "values");
 						pj_o (pj);
@@ -1254,15 +1308,27 @@ static int cmd_type(void *data, const char *input) {
 			}
 			break;
 		case 'b': // "teb"
-			res = r_type_enum_member (TDB, name, member_name, 0);
+			if (R_STR_ISEMPTY (name) || input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_te, "teb", true);
+			} else {
+				res = r_type_enum_member (TDB, name, member_name, 0);
+			}
 			break;
 		case 'c': // "tec"
-			print_enum_in_c_format(TDB, r_str_trim_head_ro (input + 2), true);
+			if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_te, "tec", true);
+			} else {
+				print_enum_in_c_format (TDB, r_str_trim_head_ro (input + 2), true);
+			}
 			break;
-		case 'd':
-			print_enum_in_c_format(TDB, r_str_trim_head_ro (input + 2), false);
+		case 'd': // "ted"
+			if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_te, "ted", true);
+			} else {
+				print_enum_in_c_format (TDB, r_str_trim_head_ro (input + 2), false);
+			}
 			break;
-		case ' ':
+		case ' ': // "te "
 			if (member_name) {
 				res = r_type_enum_member (TDB, name, NULL, r_num_math (core->num, member_name));
 			} else {
@@ -1293,6 +1359,10 @@ static int cmd_type(void *data, const char *input) {
 			ls_free (l);
 			break;
 		}
+		case '?':
+		default:
+			r_core_cmd_help (core, help_msg_te);
+			break;
 		} // end of switch (input[1])
 		free (name);
 		if (res) {
@@ -1302,14 +1372,30 @@ static int cmd_type(void *data, const char *input) {
 		}
 		break;
 	}
-	case ' ':
-		showFormat (core, input + 1, 0);
+	case ' ': // "t "
+		  {
+			  const char *token = r_str_trim_head_ro (input + 1);
+			  const char *typdef = sdb_const_get (core->anal->sdb_types, token, 0);
+			  // Tresolve typedef if any
+			  if (typdef && !strcmp (typdef, "typedef")) {
+				  r_strf_var (a, 128, "typedef.%s", token);
+				  const char *tokendef = sdb_const_get (core->anal->sdb_types, a, 0);
+				  if (tokendef) {
+					  token = tokendef;
+				  }
+			  }
+			  showFormat (core, token, 0);
+		  }
 		break;
 	// t* - list all types in 'pf' syntax
 	case 'j': // "tj"
 	case '*': // "t*"
-	case 0: // "t"
-		typesList (core, input[0]);
+	case '\0': // "t"
+		if (input[0] && input[1] == '?') {
+			r_core_cmd_help_match_spec (core, help_msg_t, "t", input[0], true);
+		} else {
+			typesList (core, input[0]);
+		}
 		break;
 	case 'o': // "to"
 		if (input[1] == '?') {
@@ -1317,41 +1403,41 @@ static int cmd_type(void *data, const char *input) {
 		} else if (!r_sandbox_enable (0)) {
 			if (input[1] == ' ') {
 				const char *dir = r_config_get (core->config, "dir.types");
-				const char *filename = input + 2;
+				const char *filename = r_str_trim_head_ro (input + 2);
 				char *homefile = NULL;
 				if (*filename == '~') {
 					if (filename[1] && filename[2]) {
-						homefile = r_str_home (filename + 2);
+						homefile = r_file_home (filename + 2);
 						filename = homefile;
 					}
 				}
 				if (!strcmp (filename, "-")) {
 					char *tmp = r_core_editor (core, "*.h", "");
 					if (tmp) {
-						char *error_msg = NULL;
-						char *out = r_parse_c_string (core->anal, tmp, &error_msg);
+						char *errmsg = NULL;
+						char *out = r_anal_cparse (core->anal, tmp, &errmsg);
 						if (out) {
-							//		r_cons_strcat (out);
+							// r_cons_print (out);
 							r_anal_save_parsed_type (core->anal, out);
 							free (out);
 						}
-						if (error_msg) {
-							fprintf (stderr, "%s", error_msg);
-							free (error_msg);
+						if (errmsg) {
+							R_LOG_ERROR ("%s", errmsg);
+							free (errmsg);
 						}
 						free (tmp);
 					}
 				} else {
-					char *error_msg = NULL;
-					char *out = r_parse_c_file (core->anal, filename, dir, &error_msg);
+					char *errmsg = NULL;
+					char *out = r_anal_cparse_file (core->anal, filename, dir, &errmsg);
 					if (out) {
-						//r_cons_strcat (out);
+						//r_cons_print (out);
 						r_anal_save_parsed_type (core->anal, out);
 						free (out);
 					}
-					if (error_msg) {
-						fprintf (stderr, "%s", error_msg);
-						free (error_msg);
+					if (errmsg) {
+						R_LOG_ERROR ("%s", errmsg);
+						free (errmsg);
 					}
 				}
 				free (homefile);
@@ -1361,7 +1447,7 @@ static int cmd_type(void *data, const char *input) {
 				if (arg) {
 					r_file_touch (arg + 1);
 				} else {
-					eprintf ("Usage: touch [filename]");
+					r_core_cmd_help_match (core, help_msg_to, "touch", true);
 				}
 			} else if (input[1] == 's') {
 				const char *dbpath = input + 3;
@@ -1375,18 +1461,17 @@ static int cmd_type(void *data, const char *input) {
 				char *str = r_core_cmd_strf (core , "tc %s", input + 2);
 				char *tmp = r_core_editor (core, "*.h", str);
 				if (tmp) {
-					char *error_msg = NULL;
-					char *out = r_parse_c_string (core->anal, tmp, &error_msg);
+					char *errmsg = NULL;
+					char *out = r_anal_cparse (core->anal, tmp, &errmsg);
 					if (out) {
 						// remove previous types and save new edited types
 						sdb_reset (TDB);
-						r_parse_c_reset (core->parser);
 						r_anal_save_parsed_type (core->anal, out);
 						free (out);
 					}
-					if (error_msg) {
-						eprintf ("%s\n", error_msg);
-						free (error_msg);
+					if (errmsg) {
+						R_LOG_ERROR ("%s", errmsg);
+						free (errmsg);
 					}
 					free (tmp);
 				}
@@ -1400,29 +1485,25 @@ static int cmd_type(void *data, const char *input) {
 	case 'd': // "td"
 		if (input[1] == '?') {
 			// TODO #7967 help refactor: move to detail
-			r_core_cmd_help (core, help_msg_td);
-			r_cons_printf ("Note: The td command should be put between double quotes\n"
-				"Example: \"td struct foo {int bar;int cow;};\""
-				"\nt");
-
+			r_core_cmd_help_match (core, help_msg_t, "td", true);
 		} else if (input[1] == ' ') {
 			char *tmp = r_str_newf ("%s;", input + 2);
 			if (!tmp) {
 				break;
 			}
-			char *error_msg = NULL;
-			char *out = r_parse_c_string (core->anal, tmp, &error_msg);
+			char *errmsg = NULL;
+			char *out = r_anal_cparse (core->anal, tmp, &errmsg);
 			free (tmp);
 			if (out) {
 				r_anal_save_parsed_type (core->anal, out);
 				free (out);
 			}
-			if (error_msg) {
-				eprintf ("%s", error_msg);
-				free (error_msg);
+			if (errmsg) {
+				R_LOG_ERROR ("%s", errmsg);
+				free (errmsg);
 			}
 		} else {
-			eprintf ("Invalid use of td. See td? for help\n");
+			R_LOG_ERROR ("Invalid use of td. See td? for help");
 		}
 		break;
 	case 'x': {
@@ -1495,7 +1576,7 @@ static int cmd_type(void *data, const char *input) {
 				r_list_free (uniqList);
 			}
 			break;
-		case 't':
+		case 't': // "txt"
 		case ' ': // "tx " -- show which function use given type
 			type = (char *)r_str_trim_head_ro (input + 2);
 			r_list_foreach (core->anal->fcns, iter, fcn) {
@@ -1509,14 +1590,7 @@ static int cmd_type(void *data, const char *input) {
 			}
 			break;
 		default:
-			eprintf ("Usage: tx[flg] [...]\n");
-			eprintf (" txf | tx.      list all types used in this function\n");
-			eprintf (" txf 0xaddr     list all types used in function at 0xaddr\n");
-			eprintf (" txl            list all types used by any function\n");
-			eprintf (" txg            render the type xrefs graph (usage .txg;aggv)\n");
-			eprintf (" tx int32_t     list functions names using this type\n");
-			eprintf (" txt int32_t    same as 'tx type'\n");
-			eprintf (" tx             list functions and the types they use\n");
+			r_core_cmd_help (core, help_msg_tx);
 			break;
 		}
 		break;
@@ -1524,16 +1598,19 @@ static int cmd_type(void *data, const char *input) {
 	// ta: moved to anal hints (aht)- just for tail, at the moment
 	case 'a': // "ta"
 		switch (input[1]) {
-		case 'i': { // "tai"
+		case 'c': // "tac"
+			cmd_tac (core, input);
+			break;
+		case 'i': // "tai"
 			if (input[2] == 'l') {
 				cmd_tail (core, input);
 			} else {
-				eprintf ("Usage: tail [number] [file]\n");
+				r_core_cmd_help_match (core, help_msg_t, "tail", true);
 			}
 			break;
-		}
 		default:
-			eprintf ("[WARNING] \"ta\" is deprecated. Use \"aht\" instead.\n");
+			r_core_cmd_help_match (core, help_msg_t, "ta", false);
+			break;
 		}
 		break;
 	// tl - link a type to an address
@@ -1582,12 +1659,13 @@ static int cmd_type(void *data, const char *input) {
 		case 's': {
 			char *ptr = r_str_trim_dup (input + 2);
 			ut64 addr = r_num_math (NULL, ptr);
-			const char *query = sdb_fmt ("link.%08" PFMT64x, addr);
+			char *query = r_str_newf ("link.%08" PFMT64x, addr);
 			const char *link = sdb_const_get (TDB, query, 0);
 			if (link) {
 				print_link_readable_cb (core, query, link);
 			}
 			free (ptr);
+			free (query);
 			break;
 		}
 		case '-':
@@ -1632,9 +1710,9 @@ static int cmd_type(void *data, const char *input) {
 			char *fmt = r_type_format (TDB, type_name);
 			if (fmt && *fmt) {
 				ut64 val = core->offset;
-				r_core_cmdf (core, "pf %s @v:0x%08" PFMT64x "\n", fmt, val);
+				r_core_cmdf (core, "pf %s @v:0x%08" PFMT64x, fmt, val);
 			} else {
-				eprintf ("Usage: tpv [type] @ [value]\n");
+				r_core_cmd_help_match (core, help_msg_tp, "tpv", true);
 			}
 		} else if (input[1] == ' ' || input[1] == 'x' || !input[1]) {
 			char *tmp = strdup (input);
@@ -1661,7 +1739,6 @@ static int cmd_type(void *data, const char *input) {
 				}
 				if (input[1] == 'x' && arg) { // "tpx"
 					r_core_cmdf (core, "pf %s @x:%s", fmt, arg);
-					// eprintf ("pf %s @x:%s", fmt, arg);
 				} else {
 					ut64 addr = arg ? r_num_math (core->num, arg): core->offset;
 					ut64 original_addr = addr;
@@ -1674,28 +1751,39 @@ static int cmd_type(void *data, const char *input) {
 							}
 						}
 					}
+					int type_size = r_type_get_bitsize (core->anal->sdb_types, type) / 8;
+					int obs = core->blocksize;
+					if (type_size > obs) {
+						r_core_block_size (core, type_size);
+					}
 					if (addr != UT64_MAX) {
-						r_core_cmdf (core, "pf %s @ 0x%08" PFMT64x, fmt, addr);
+						r_core_cmdf (core, "pf %s @ 0x%08"PFMT64x, fmt, addr);
 					} else if (original_addr == 0) {
-						r_core_cmdf (core, "pf %s @ 0x%08" PFMT64x, fmt, original_addr);
+						r_core_cmdf (core, "pf %s @ 0x%08"PFMT64x, fmt, original_addr);
+					}
+					if (type_size > obs) {
+						r_core_block_size (core, obs);
 					}
 				}
 				free (fmt);
 				free (type);
 			} else {
-				eprintf ("Usage: tp?\n");
+				r_core_cmd_help (core, help_msg_tp);
 			}
 			free (tmp);
 		} else { // "tp"
-			eprintf ("Usage: tp?\n");
+			r_core_cmd_help (core, help_msg_tp);
 		}
 		break;
 	case '-': // "t-"
 		if (input[1] == '?') {
-			r_core_cmd_help (core, help_msg_t_minus);
+			r_core_cmd_help_match (core, help_msg_t, "t-", false);
 		} else if (input[1] == '*') {
-			sdb_reset (TDB);
-			r_parse_c_reset (core->parser);
+			if (input[2] == '?') {
+				r_core_cmd_help_match (core, help_msg_t, "t-*", true);
+			} else {
+				sdb_reset (TDB);
+			}
 		} else {
 			const char *name = r_str_trim_head_ro (input + 1);
 			if (*name) {
@@ -1725,7 +1813,9 @@ static int cmd_type(void *data, const char *input) {
 			}
 			break;
 		case ' ': {
-			char *res = sdb_querys (TDB, NULL, -1, sdb_fmt ("~~func.%s", input + 2));
+			char *k = r_str_newf ("~~func.%s", input + 2);
+			char *res = sdb_querys (TDB, NULL, -1, k);
+			free (k);
 			if (res) {
 				r_cons_printf ("%s", res);
 				free (res);
@@ -1737,7 +1827,7 @@ static int cmd_type(void *data, const char *input) {
 			break;
 		}
 		break;
-	case 't': {
+	case 't': { // "tt"
 		if (!input[1] || input[1] == 'j') {
 			PJ *pj = NULL;
 			if (input[1] == 'j') {
@@ -1756,9 +1846,13 @@ static int cmd_type(void *data, const char *input) {
 						if (!input[1]) {
 							r_cons_println (name);
 						} else {
-							const char *q = sdb_fmt ("typedef.%s", name);
+							char *q = r_str_newf ("typedef.%s", name);
 							const char *res = sdb_const_get (TDB, q, 0);
+							if (!res) {
+								res = "";
+							}
 							pj_ks (pj, name, res);
+							free (q);
 						}
 					}
 				}
@@ -1793,8 +1887,9 @@ static int cmd_type(void *data, const char *input) {
 								continue;
 							}
 						}
-						const char *q = sdb_fmt ("typedef.%s", name);
+						char *q = r_str_newf ("typedef.%s", name);
 						const char *res = sdb_const_get (TDB, q, 0);
+						free (q);
 						if (res) {
 							r_cons_printf ("%s %s %s;\n", sdbkv_value (kv), res, name);
 						}
@@ -1816,19 +1911,21 @@ static int cmd_type(void *data, const char *input) {
 		const char *istypedef;
 		istypedef = sdb_const_get (TDB, s, 0);
 		if (istypedef && !strncmp (istypedef, "typedef", 7)) {
-			const char *q = sdb_fmt ("typedef.%s", s);
+			char *q = r_str_newf ("typedef.%s", s);
 			const char *res = sdb_const_get (TDB, q, 0);
 			if (res) {
 				r_cons_println (res);
 			}
+			free (q);
 		} else {
-			eprintf ("This is not an typedef\n");
+			eprintf ("This is not a typedef\n");
 		}
 		free (s);
 		break;
 	}
+	default:
 	case '?':
-		show_help (core);
+		r_core_cmd_help (core, help_msg_t);
 		break;
 	}
 	return true;

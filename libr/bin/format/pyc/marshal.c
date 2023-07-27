@@ -1,4 +1,4 @@
-/* radare - LGPL3 - Copyright 2016-2020 - Matthieu (c0riolis) Tardy - l0stb1t*/
+/* radare - LGPL3 - Copyright 2016-2022 - Matthieu (c0riolis) Tardy - l0stb1t */
 
 #include <r_io.h>
 #include <r_bin.h>
@@ -6,15 +6,15 @@
 #include "pyc_magic.h"
 
 // avoiding using r2 internals asserts
-#define if_true_return(cond,ret) if(cond){return(ret);}
+#define if_true_return(cond,ret) if (cond) { return (ret); }
 
-static ut32 magic_int;
-static ut32 symbols_ordinal = 0;
-
-static RList *refs = NULL; // If you don't have a good reason, do not change this. And also checkout !refs in get_code_object()
+// TODO: kill globals
+static R_TH_LOCAL ut32 magic_int;
+static R_TH_LOCAL ut32 symbols_ordinal = 0;
+static R_TH_LOCAL RList *refs = NULL; // If you don't have a good reason, do not change this. And also checkout !refs in get_code_object()
 
 /* interned_table is used to handle TYPE_INTERNED object */
-extern RList *interned_table;
+extern R_TH_LOCAL RList *interned_table;
 
 static pyc_object *get_object(RBuffer *buffer);
 static pyc_object *copy_object(pyc_object *object);
@@ -30,57 +30,60 @@ static ut8 get_ut8(RBuffer *buffer, bool *error) {
 }
 
 static ut16 get_ut16(RBuffer *buffer, bool *error) {
-	ut16 ret = 0;
-
-	int size = r_buf_read (buffer, (ut8 *)&ret, sizeof (ret));
-	if (size != sizeof (ret)) {
+	ut8 data[2] = {0};
+	*error = false;
+	int size = r_buf_read (buffer, (ut8 *)&data, sizeof (data));
+	if (size != sizeof (data)) {
 		*error = true;
 	}
-	return ret;
+	return r_read_le16 (data);
 }
 
 static ut32 get_ut32(RBuffer *buffer, bool *error) {
-	ut32 ret = 0;
-	int size = r_buf_read (buffer, (ut8 *)&ret, sizeof (ret));
-	if (size != sizeof (ret)) {
+	ut8 data[4] = {0};
+	*error = false;
+	int size = r_buf_read (buffer, (ut8 *)&data, sizeof (data));
+	if (size != sizeof (data)) {
 		*error = true;
 	}
-	return ret;
+	return r_read_le32 (data);
 }
 
 static st32 get_st32(RBuffer *buffer, bool *error) {
-	st32 ret = 0;
-	int size = r_buf_read (buffer, (ut8 *)&ret, sizeof (ret));
-	if (size < sizeof (ret)) {
-		*error = true;
-	}
-	return ret;
+	return (st32)get_ut32 (buffer, error);
 }
 
 static st64 get_st64(RBuffer *buffer, bool *error) {
-	st64 ret = 0;
-	int size = r_buf_read (buffer, (ut8 *)&ret, sizeof (ret));
-	if (size < sizeof (ret)) {
+	ut8 data[8];
+	*error = false;
+	int size = r_buf_read (buffer, (ut8 *)&data, sizeof (data));
+	if (size != sizeof (data)) {
 		*error = true;
 	}
-	return ret;
+	return (st64)r_read_le64 (data);
 }
 
+typedef union {
+	double d;
+	ut64 n;
+	ut8 b[8];
+} du64;
+
+/// XXX this is probably wrong as native double representation depends on the cpu, not the target file format
 static double get_float64(RBuffer *buffer, bool *error) {
-	double ret = 0;
-	int size = r_buf_read (buffer, (ut8 *)&ret, sizeof (ret));
-	if (size < sizeof (ret)) {
+	du64 doubledata = {0};
+	*error = false;
+	int size = r_buf_read (buffer, doubledata.b, sizeof (doubledata));
+	if (size != sizeof (doubledata)) {
 		*error = true;
 	}
-	return ret;
+	doubledata.n = r_read_le64 (doubledata.b);
+	return doubledata.d;
 }
 
 static ut8 *get_bytes(RBuffer *buffer, ut32 size) {
 	ut8 *ret = R_NEWS0 (ut8, size + 1);
-	if (!ret) {
-		return NULL;
-	}
-	if (r_buf_read (buffer, ret, size) < size) {
+	if (ret && r_buf_read (buffer, ret, size) < size) {
 		free (ret);
 		return NULL;
 	}
@@ -88,16 +91,13 @@ static ut8 *get_bytes(RBuffer *buffer, ut32 size) {
 }
 
 static pyc_object *get_none_object(void) {
-	pyc_object *ret;
-
-	ret = R_NEW0 (pyc_object);
-	if (!ret) {
-		return NULL;
-	}
-	ret->type = TYPE_NONE;
-	ret->data = strdup ("None");
-	if (!ret->data) {
-		R_FREE (ret);
+	pyc_object *ret = R_NEW0 (pyc_object);
+	if (ret) {
+		ret->type = TYPE_NONE;
+		ret->data = strdup ("None");
+		if (!ret->data) {
+			R_FREE (ret);
+		}
 	}
 	return ret;
 }
@@ -130,13 +130,12 @@ static pyc_object *get_true_object(void) {
 
 static pyc_object *get_int_object(RBuffer *buffer) {
 	bool error = false;
-	pyc_object *ret = NULL;
 
 	st32 i = get_st32 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
-	ret = R_NEW0 (pyc_object);
+	pyc_object *ret = R_NEW0 (pyc_object);
 	if (!ret) {
 		return NULL;
 	}
@@ -149,30 +148,25 @@ static pyc_object *get_int_object(RBuffer *buffer) {
 }
 
 static pyc_object *get_int64_object(RBuffer *buffer) {
-	pyc_object *ret = NULL;
 	bool error = false;
-	st64 i;
-
-	i = get_st64 (buffer, &error);
+	st64 i = get_st64 (buffer, &error);
 
 	if (error) {
 		return NULL;
 	}
-	ret = R_NEW0 (pyc_object);
-	if (!ret) {
-		return NULL;
-	}
-	ret->type = TYPE_INT64;
-	ret->data = r_str_newf ("%lld", i);
-	if (!ret->data) {
-		R_FREE (ret);
+	pyc_object *ret = R_NEW0 (pyc_object);
+	if (ret) {
+		ret->type = TYPE_INT64;
+		ret->data = r_str_newf ("%"PFMT64d, (st64)i);
+		if (!ret->data) {
+			R_FREE (ret);
+		}
 	}
 	return ret;
 }
 
 /* long is used when the number is > MAX_INT64 */
 static pyc_object *get_long_object(RBuffer *buffer) {
-	pyc_object *ret = NULL;
 	bool error = false;
 	bool neg = false;
 	ut32 tmp = 0;
@@ -186,7 +180,7 @@ static pyc_object *get_long_object(RBuffer *buffer) {
 	if (error) {
 		return NULL;
 	}
-	ret = R_NEW0 (pyc_object);
+	pyc_object *ret = R_NEW0 (pyc_object);
 	if (!ret) {
 		return NULL;
 	}
@@ -198,22 +192,33 @@ static pyc_object *get_long_object(RBuffer *buffer) {
 	if (ndigits == 0) {
 		ret->data = strdup ("0x0");
 	} else {
+		if (ndigits > 10) {
+			free (ret);
+			return NULL;
+		}
 		size = ndigits * 15;
+		if (size < 0) {
+			return NULL;
+		}
 		size = (size - 1) / 4 + 1;
+		if (size < 1) {
+			free (ret);
+			return NULL;
+		}
 		size += 3 + (neg? 1: 0);
+		j = size - 1;
 		hexstr = calloc (size, sizeof (char));
 		if (!hexstr) {
 			free (ret);
 			return NULL;
 		}
-		j = size - 1;
 
 		for (i = 0; i < ndigits; i++) {
 			n = get_ut16 (buffer, &error);
 			tmp |= n << left;
 			left += 15;
 
-			while (left >= 4) {
+			while (left >= 4 && j >= 0) {
 				hexstr[--j] = digist2hex[tmp & 0xf];
 				tmp >>= 4;
 				left -= 4;
@@ -224,9 +229,13 @@ static pyc_object *get_long_object(RBuffer *buffer) {
 			hexstr[--j] = digist2hex[tmp & 0xf];
 		}
 
-		hexstr[--j] = 'x';
-		hexstr[--j] = '0';
-		if (neg) {
+		if (j > 0) {
+			hexstr[--j] = 'x';
+		}
+		if (j > 0) {
+			hexstr[--j] = '0';
+		}
+		if (neg && j > 0) {
 			hexstr[--j] = '-';
 		}
 
@@ -238,11 +247,9 @@ static pyc_object *get_long_object(RBuffer *buffer) {
 static pyc_object *get_stringref_object(RBuffer *buffer) {
 	pyc_object *ret = NULL;
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_st32 (buffer, &error);
+	ut32 n = get_st32 (buffer, &error);
 	if (n >= r_list_length (interned_table)) {
-		eprintf ("bad marshal data (string ref out of range)");
+		R_LOG_DEBUG ("bad marshal data (string ref out of range)");
 		return NULL;
 	}
 	if (error) {
@@ -264,9 +271,8 @@ static pyc_object *get_float_object(RBuffer *buffer) {
 	pyc_object *ret = NULL;
 	bool error = false;
 	ut32 size = 0;
-	ut8 n = 0;
 
-	n = get_ut8 (buffer, &error);
+	ut8 n = get_ut8 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
@@ -315,13 +321,12 @@ static pyc_object *get_binary_float_object(RBuffer *buffer) {
 }
 
 static pyc_object *get_complex_object(RBuffer *buffer) {
-	pyc_object *ret = NULL;
 	bool error = false;
 	ut32 size = 0;
-	ut32 n1 = 0;
-	ut32 n2 = 0;
+	st32 n1 = 0;
+	st32 n2 = 0;
 
-	ret = R_NEW0 (pyc_object);
+	pyc_object *ret = R_NEW0 (pyc_object);
 	if (!ret) {
 		return NULL;
 	}
@@ -331,7 +336,7 @@ static pyc_object *get_complex_object(RBuffer *buffer) {
 	} else {
 		n1 = get_st32 (buffer, &error);
 	}
-	if (error) {
+	if (error || n1 < 1) {
 		free (ret);
 		return NULL;
 	}
@@ -351,8 +356,9 @@ static pyc_object *get_complex_object(RBuffer *buffer) {
 
 	if ((magic_int & 0xffff) <= 62061) {
 		n2 = get_ut8 (buffer, &error);
-	} else
+	} else {
 		n2 = get_st32 (buffer, &error);
+	}
 	if (error) {
 		return NULL;
 	}
@@ -412,7 +418,7 @@ static pyc_object *get_string_object(RBuffer *buffer) {
 
 	n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (string size out of range)");
+		R_LOG_DEBUG ("bad marshal data (string size out of range)");
 		return NULL;
 	}
 	if (error) {
@@ -438,7 +444,7 @@ static pyc_object *get_unicode_object(RBuffer *buffer) {
 
 	n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (unicode size out of range)");
+		R_LOG_DEBUG ("bad marshal data (unicode size out of range)");
 		return NULL;
 	}
 	if (error) {
@@ -457,11 +463,9 @@ static pyc_object *get_unicode_object(RBuffer *buffer) {
 static pyc_object *get_interned_object(RBuffer *buffer) {
 	pyc_object *ret = NULL;
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (string size out of range)");
+		R_LOG_DEBUG ("bad marshal data (string size out of range)");
 		return NULL;
 	}
 	if (error) {
@@ -497,13 +501,9 @@ static pyc_object *get_array_object_generic(RBuffer *buffer, ut32 size) {
 	}
 	for (i = 0; i < size; i++) {
 		tmp = get_object (buffer);
-		if (!tmp) {
-			r_list_free (ret->data);
-			R_FREE (ret);
-			return NULL;
-		}
-		if (!r_list_append (ret->data, tmp)) {
+		if (!tmp || !r_list_append (ret->data, tmp)) {
 			free_object (tmp);
+			((RList*)ret->data)->free = NULL;
 			r_list_free (ret->data);
 			free (ret);
 			return NULL;
@@ -513,7 +513,6 @@ static pyc_object *get_array_object_generic(RBuffer *buffer, ut32 size) {
 }
 
 /* small TYPE_SMALL_TUPLE doesn't exist in python2 */
-/* */
 static pyc_object *get_small_tuple_object(RBuffer *buffer) {
 	pyc_object *ret = NULL;
 	bool error = false;
@@ -532,34 +531,28 @@ static pyc_object *get_small_tuple_object(RBuffer *buffer) {
 }
 
 static pyc_object *get_tuple_object(RBuffer *buffer) {
-	pyc_object *ret = NULL;
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (tuple size out of range)\n");
+		R_LOG_DEBUG ("bad marshal data (tuple size out of range)");
 		return NULL;
 	}
 	if (error) {
 		return NULL;
 	}
-	ret = get_array_object_generic (buffer, n);
+	pyc_object *ret = get_array_object_generic (buffer, n);
 	if (ret) {
 		ret->type = TYPE_TUPLE;
-		return ret;
 	}
-	return NULL;
+	return ret;
 }
 
 static pyc_object *get_list_object(RBuffer *buffer) {
 	pyc_object *ret = NULL;
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (list size out of range)\n");
+		R_LOG_DEBUG ("bad marshal data (list size out of range)");
 		return NULL;
 	}
 	if (error) {
@@ -574,11 +567,10 @@ static pyc_object *get_list_object(RBuffer *buffer) {
 }
 
 static pyc_object *get_dict_object(RBuffer *buffer) {
-	pyc_object *ret = NULL,
-		   *key = NULL,
+	pyc_object *key = NULL,
 		   *val = NULL;
 
-	ret = R_NEW0 (pyc_object);
+	pyc_object *ret = R_NEW0 (pyc_object);
 	if (!ret) {
 		return NULL;
 	}
@@ -614,30 +606,24 @@ static pyc_object *get_dict_object(RBuffer *buffer) {
 }
 
 static pyc_object *get_set_object(RBuffer *buffer) {
-	pyc_object *ret = NULL;
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (n > ST32_MAX) {
-		eprintf ("bad marshal data (set size out of range)\n");
+		R_LOG_DEBUG ("bad marshal data (set size out of range)");
 		return NULL;
 	}
 	if (error) {
 		return NULL;
 	}
-	ret = get_array_object_generic (buffer, n);
-	if (!ret) {
-		return NULL;
+	pyc_object *ret = get_array_object_generic (buffer, n);
+	if (ret) {
+		ret->type = TYPE_SET;
 	}
-	ret->type = TYPE_SET;
 	return ret;
 }
 
 static pyc_object *get_ascii_object_generic(RBuffer *buffer, ut32 size, bool interned) {
-	pyc_object *ret = NULL;
-
-	ret = R_NEW0 (pyc_object);
+	pyc_object *ret = R_NEW0 (pyc_object);
 	if (!ret) {
 		return NULL;
 	}
@@ -651,9 +637,7 @@ static pyc_object *get_ascii_object_generic(RBuffer *buffer, ut32 size, bool int
 
 static pyc_object *get_ascii_object(RBuffer *buffer) {
 	bool error = false;
-	ut32 n = 0;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
@@ -662,9 +646,7 @@ static pyc_object *get_ascii_object(RBuffer *buffer) {
 
 static pyc_object *get_ascii_interned_object(RBuffer *buffer) {
 	bool error = false;
-	ut32 n;
-
-	n = get_ut32 (buffer, &error);
+	ut32 n = get_ut32 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
@@ -673,9 +655,7 @@ static pyc_object *get_ascii_interned_object(RBuffer *buffer) {
 
 static pyc_object *get_short_ascii_object(RBuffer *buffer) {
 	bool error = false;
-	ut8 n;
-
-	n = get_ut8 (buffer, &error);
+	ut8 n = get_ut8 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
@@ -684,34 +664,21 @@ static pyc_object *get_short_ascii_object(RBuffer *buffer) {
 
 static pyc_object *get_short_ascii_interned_object(RBuffer *buffer) {
 	bool error = false;
-	ut8 n;
-
-	n = get_ut8 (buffer, &error);
-	if (error) {
-		return NULL;
-	}
-	return get_ascii_object_generic (buffer, n, true);
+	ut8 n = get_ut8 (buffer, &error);
+	return error? NULL: get_ascii_object_generic (buffer, n, true);
 }
 
 static pyc_object *get_ref_object(RBuffer *buffer) {
 	bool error = false;
-	pyc_object *ret;
-	pyc_object *obj;
-	ut32 index;
-
-	index = get_ut32 (buffer, &error);
+	ut32 index = get_ut32 (buffer, &error);
 	if (error) {
 		return NULL;
 	}
 	if (index >= r_list_length (refs)) {
 		return NULL;
 	}
-	obj = r_list_get_n (refs, index);
-	if (!obj) {
-		return NULL;
-	}
-	ret = copy_object (obj);
-	return ret;
+	pyc_object *obj = r_list_get_n (refs, index);
+	return obj? copy_object (obj): NULL;
 }
 
 static void free_object(pyc_object *object) {
@@ -772,10 +739,10 @@ static void free_object(pyc_object *object) {
 	case TYPE_LONG:
 	case TYPE_UNICODE:
 	case TYPE_UNKNOWN:
-		eprintf ("Free not implemented for type %x\n", object->type);
+		R_LOG_DEBUG ("Free not implemented for type %x", object->type);
 		break;
 	default:
-		eprintf ("Undefined type in free_object (%x)\n", object->type);
+		R_LOG_DEBUG ("Undefined type in free_object (%x)", object->type);
 		break;
 	}
 	free (object);
@@ -790,69 +757,70 @@ static pyc_object *copy_object(pyc_object *object) {
 	copy->type = object->type;
 	if ((int)object->type == 0) {
 		// do nothing
-	} else 
-	switch (object->type) {
-	case TYPE_NULL:
-		break;
-	case TYPE_TUPLE:
-	case TYPE_SMALL_TUPLE:
-		copy->data = r_list_clone (object->data);
-		break;
-	case TYPE_INT:
-	case TYPE_INT64:
-	case TYPE_NONE:
-	case TYPE_TRUE:
-	case TYPE_FALSE:
-	case TYPE_STRING:
-	case TYPE_ASCII:
-	case TYPE_SHORT_ASCII:
-	case TYPE_ASCII_INTERNED:
-	case TYPE_SHORT_ASCII_INTERNED:
-		copy->data = strdup (object->data);
-		break;
-	case TYPE_CODE_v0:
-	case TYPE_CODE_v1: {
-		pyc_code_object *src = object->data;
-		pyc_code_object *dst = R_NEW0 (pyc_code_object);
-		if (!dst) {
+	} else {
+		switch (object->type) {
+		case TYPE_NULL:
+			break;
+		case TYPE_TUPLE:
+		case TYPE_SMALL_TUPLE:
+			copy->data = r_list_clone (object->data, NULL);
+			break;
+		case TYPE_INT:
+		case TYPE_INT64:
+		case TYPE_NONE:
+		case TYPE_TRUE:
+		case TYPE_FALSE:
+		case TYPE_STRING:
+		case TYPE_ASCII:
+		case TYPE_SHORT_ASCII:
+		case TYPE_ASCII_INTERNED:
+		case TYPE_SHORT_ASCII_INTERNED:
+			copy->data = strdup (object->data);
+			break;
+		case TYPE_CODE_v0:
+		case TYPE_CODE_v1: {
+			pyc_code_object *src = object->data;
+			pyc_code_object *dst = R_NEW0 (pyc_code_object);
+			if (!dst) {
+				break;
+			}
+			memcpy (dst, src, sizeof (*dst));
+			dst->code = copy_object (src->code);
+			dst->consts = copy_object (src->consts);
+			dst->names = copy_object (src->names);
+			dst->varnames = copy_object (src->varnames);
+			dst->freevars = copy_object (src->freevars);
+			dst->cellvars = copy_object (src->cellvars);
+			dst->filename = copy_object (src->filename);
+			dst->name = copy_object (src->name);
+			dst->lnotab = copy_object (src->lnotab);
+			copy->data = dst;
 			break;
 		}
-		memcpy (dst, src, sizeof (*dst));
-		dst->code = copy_object (src->code);
-		dst->consts = copy_object (src->consts);
-		dst->names = copy_object (src->names);
-		dst->varnames = copy_object (src->varnames);
-		dst->freevars = copy_object (src->freevars);
-		dst->cellvars = copy_object (src->cellvars);
-		dst->filename = copy_object (src->filename);
-		dst->name = copy_object (src->name);
-		dst->lnotab = copy_object (src->lnotab);
-		copy->data = dst;
-		break;
-	}
-	case TYPE_REF:
-		copy->data = copy_object (object->data);
-		break;
-	case TYPE_ELLIPSIS:
-	case TYPE_STOPITER:
-	case TYPE_BINARY_COMPLEX:
-	case TYPE_BINARY_FLOAT:
-	case TYPE_COMPLEX:
-	case TYPE_STRINGREF:
-	case TYPE_DICT:
-	case TYPE_FLOAT:
-	case TYPE_FROZENSET:
-	case TYPE_INTERNED:
-	case TYPE_LIST:
-	case TYPE_LONG:
-	case TYPE_SET:
-	case TYPE_UNICODE:
-	case TYPE_UNKNOWN:
-		eprintf ("Copy not implemented for type %x\n", object->type);
-		break;
-	default:
-		eprintf ("Undefined type in copy_object (%x)\n", object->type);
-		break;
+		case TYPE_REF:
+			copy->data = copy_object (object->data);
+			break;
+		case TYPE_ELLIPSIS:
+		case TYPE_STOPITER:
+		case TYPE_BINARY_COMPLEX:
+		case TYPE_BINARY_FLOAT:
+		case TYPE_COMPLEX:
+		case TYPE_STRINGREF:
+		case TYPE_DICT:
+		case TYPE_FLOAT:
+		case TYPE_FROZENSET:
+		case TYPE_INTERNED:
+		case TYPE_LIST:
+		case TYPE_LONG:
+		case TYPE_SET:
+		case TYPE_UNICODE:
+		case TYPE_UNKNOWN:
+			R_LOG_DEBUG ("Copy not implemented for type %x", object->type);
+			break;
+		default:
+			R_LOG_DEBUG ("Undefined type in copy_object (%x)", object->type);
+			break;
+		}
 	}
 	if (!copy->data) {
 		R_FREE (copy);
@@ -1010,23 +978,18 @@ static pyc_object *get_object(RBuffer *buffer) {
 	bool error = false;
 	pyc_object *ret = NULL;
 	ut8 code = get_ut8 (buffer, &error);
-	ut8 flag = code & FLAG_REF;
+	bool flag = (code & FLAG_REF);
 	RListIter *ref_idx = NULL;
-	ut8 type = code & ~FLAG_REF;
+	ut8 type = (code & ~FLAG_REF);
 
 	if (error) {
 		return NULL;
 	}
 
 	if (flag) {
-		ret = get_none_object ();
-		if (!ret) {
-			return NULL;
-		}
-		ref_idx = r_list_append (refs, ret);
-		if (!ref_idx) {
-			free_object (ret);
-			return NULL;
+		pyc_object *noneret = get_none_object ();
+		if (noneret) {
+			ref_idx = r_list_append (refs, noneret);
 		}
 	}
 
@@ -1035,7 +998,6 @@ static pyc_object *get_object(RBuffer *buffer) {
 		free_object (ret);
 		return NULL;
 	case TYPE_TRUE:
-		free_object (ret);
 		return get_true_object ();
 	case TYPE_FALSE:
 		free_object (ret);
@@ -1124,22 +1086,33 @@ static pyc_object *get_object(RBuffer *buffer) {
 		ret = R_NEW0 (pyc_object);
 		break;
 	case TYPE_UNKNOWN:
-		eprintf ("Get not implemented for type 0x%x\n", type);
+		R_LOG_DEBUG ("Get not implemented for type 0x%x", type);
+		// r_list_pop (refs);
 		free_object (ret);
 		return NULL;
 	case 0:
 		// nop
 		break;
 	default:
-		eprintf ("Undefined type in get_object (0x%x)\n", type);
-		free_object (ret);
+		R_LOG_DEBUG ("Undefined type in get_object (0x%x)", type);
+		// r_list_pop (refs);
 		return NULL;
 	}
 
-	if (flag && ref_idx) {
-		free_object (ref_idx->data);
+	if (ret && flag && ref_idx) {
+		if (ref_idx->data != ret) {
+			free_object (ref_idx->data);
+		}
 		ref_idx->data = copy_object (ret);
 	}
+	if (ret) {
+		return ret;
+	}
+	ret = get_none_object ();
+	if (!ret) {
+		return NULL;
+	}
+	r_list_append (refs, ret);
 	return ret;
 }
 
@@ -1190,10 +1163,10 @@ static bool extract_sections_symbols(pyc_object *obj, RList *sections, RList *sy
 	symbol->paddr = cobj->start_offset;
 	symbol->ordinal = symbols_ordinal++;
 	if (cobj->consts->type != TYPE_TUPLE && cobj->consts->type != TYPE_SMALL_TUPLE) {
-		goto fail;
+		goto fail2;
 	}
 	if (!r_list_append (symbols, symbol)) {
-		goto fail;
+		goto fail2;
 	}
 	r_list_foreach (((RList *)(cobj->consts->data)), i, obj) {
 		extract_sections_symbols (obj, sections, symbols, cobjs, prefix);
@@ -1201,8 +1174,11 @@ static bool extract_sections_symbols(pyc_object *obj, RList *sections, RList *sy
 	free (prefix);
 	return true;
 fail:
-
 	free (section);
+	free (prefix);
+	free (symbol);
+	return false;
+fail2:
 	free (prefix);
 	free (symbol);
 	return false;

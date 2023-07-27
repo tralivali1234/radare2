@@ -1,27 +1,28 @@
-/* work-in-progress reverse engineered swift-demangler in C 
- * Copyright MIT 2015-2019
- * by pancake@nopcode.org */
+/* work-in-progress reverse engineered swift-demangler in C
+ * Copyright MIT 2015-2023 by pancake@nopcode.org */
 
-#include <stdio.h>
-#include <string.h>
-#include <r_util.h>
-#include <r_lib.h>
-#include <stdlib.h>
 #include <r_cons.h>
+#include <r_lib.h>
 
-#define IFDBG if(0)
+#define IFDBG if (0)
 
 // $ echo "..." | xcrun swift-demangle
+
+static R_TH_LOCAL int have_swift_demangle = -1;
+#if R2__UNIX__
+static R_TH_LOCAL bool haveSwiftCore = false;
+static R_TH_LOCAL char *(*swift_demangle)(const char *sym, int symlen, void *out, int *outlen, int flags, int unk) = NULL;
+#endif
 
 struct Type {
 	const char *code;
 	const char *name;
 };
 
-static struct Type types[] = {
+static const struct Type types[] = {
 	/* basic types */
 	{ "Sb", "Bool" },
-	{ "SS", "String" },
+	{ "SS", "Swift.String" },
 	{ "FS", "String" },
 	{ "GV", "mutableAddressor" }, // C_ARGC
 	{ "Ss", "generic" }, // C_ARGC
@@ -36,7 +37,6 @@ static struct Type types[] = {
 	{ "SQ", "ImplicitlyUnwrappedOptional" },
 	{ "Sc", "UnicodeScalar" },
 	{ "Sd", "Double" },
-	{ "SS", "String" }, // Swift.String
 	/* builtin */
 	{ "Bi1", "Builtin.Int1" },
 	{ "Bp", "Builtin.RawPointer" },
@@ -45,7 +45,7 @@ static struct Type types[] = {
 	{ NULL, NULL }
 };
 
-static struct Type metas [] = {
+static const struct Type metas [] = {
 	/* attributes */
 	{ "FC", "ClassFunc" },
 	{ "S0_FT", "?" },
@@ -58,7 +58,7 @@ static struct Type metas [] = {
 	{ NULL, NULL }
 };
 
-static struct Type flags [] = {
+static const struct Type flags [] = {
 	//{ "f", "function" }, // this is not an accessor
 	{ "s", "setter" },
 	{ "g", "getter" },
@@ -72,9 +72,20 @@ static struct Type flags [] = {
 
 static const char *getnum(const char* n, int *num) {
 	if (num && *n) {
+#if 1
 		*num = atoi (n);
+#else
+		char *endptr;
+		int _num = (int)strtoul (n, &endptr, 10);
+		if (R_UNLIKELY (n == endptr || errno == ERANGE || _num < 0)) {
+			*num = -0x40000000; // arbitrarily large number
+		} else {
+			*num = _num;
+		}
+		return endptr;
+#endif
 	}
-	while (*n && *n>='0' && *n <='9') {
+	while (*n && *n >= '0' && *n <='9') {
 		n++;
 	}
 	return n;
@@ -88,7 +99,7 @@ static const char *numpos(const char* n) {
 }
 
 static const char *getstring(const char *s, int len) {
-	static char buf[256] = {0};
+	static R_TH_LOCAL char buf[256] = {0};
 	if (len < 0 || len > sizeof (buf) - 2) {
 		return "";
 	}
@@ -97,7 +108,7 @@ static const char *getstring(const char *s, int len) {
 	return buf;
 }
 
-static const char *resolve(struct Type *t, const char *foo, const char **bar) {
+static const char *resolve(const struct Type *t, const char *foo, const char **bar) {
 	if (!t || !foo || !*foo) {
 		return NULL;
 	}
@@ -113,25 +124,21 @@ static const char *resolve(struct Type *t, const char *foo, const char **bar) {
 	return NULL;
 }
 
-static int have_swift_demangle = -1;
-
 static char *swift_demangle_cmd(const char *s) {
 	/* XXX: command injection issue here */
-	static char *swift_demangle = NULL;
+	static R_TH_LOCAL char *swift_demangle = NULL;
 	if (have_swift_demangle == -1) {
 		if (!swift_demangle) {
 			have_swift_demangle = 0;
 			swift_demangle = r_file_path ("swift-demangle");
-			if (!swift_demangle || !strcmp (swift_demangle, "swift-demangle")) {
+			if (!swift_demangle) {
 				char *xcrun = r_file_path ("xcrun");
 				if (xcrun) {
-					if (strcmp (xcrun, "xcrun")) {
-						free (swift_demangle);
-						swift_demangle = r_str_newf ("%s swift-demangle", xcrun);
-						have_swift_demangle = 1;
-					}
-					free (xcrun);
+					free (swift_demangle);
+					swift_demangle = r_str_newf ("%s swift-demangle", xcrun);
+					have_swift_demangle = 1;
 				}
+				free (xcrun);
 			}
 		}
 	}
@@ -154,55 +161,69 @@ static char *swift_demangle_cmd(const char *s) {
 }
 
 static char *swift_demangle_lib(const char *s) {
-#if __UNIX__
-	static bool haveSwiftCore = false;
-	static char *(*swift_demangle)(const char *sym, int symlen, void *out, int *outlen, int flags) = NULL;
+#if R2__UNIX__
 	if (!haveSwiftCore) {
-		void *lib = r_lib_dl_open ("/usr/lib/swift/libswiftCore.dylib");
+		void *lib = r_lib_dl_open ("/usr/lib/swift/libswiftCore." R_LIB_EXT);
+		if (!lib) {
+			lib = r_lib_dl_open ("/usr/lib/libswiftCore." R_LIB_EXT);
+			if (!lib) {
+				lib = r_lib_dl_open ("libswiftCore");
+				if (!lib) {
+					lib = r_lib_dl_open ("/usr/lib/swift/libswiftDemangle." R_LIB_EXT);
+					if (!lib) {
+						lib = r_lib_dl_open ("libswiftDemangle");
+					}
+				}
+			}
+		}
 		if (lib) {
 			swift_demangle = r_lib_dl_sym (lib, "swift_demangle");
 		}
 		haveSwiftCore = true;
 	}
 	if (swift_demangle) {
-		return swift_demangle (s, strlen (s), NULL, NULL, 0);
+		return swift_demangle (s, strlen (s), NULL, NULL, 0, 0);
 	}
 #endif
 	return NULL;
 }
 
-R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
-#define STRCAT_BOUNDS(x) if (((x) + 2 + strlen (out)) > sizeof (out)) break;
-	char out[1024];
+static const char *str_seek(const char *s, int n) {
+	int i;
+	for (i = 0; i < n && *s; i++) {
+		s++;
+	}
+	return s;
+}
+
+static inline const char *str_removeprefix(const char *s, const char *prefix) {
+	const size_t prefix_len = strlen (prefix);
+	if (r_str_startswith (s, prefix)) {
+		s += prefix_len;
+	}
+	return s;
+}
+
+R_API char *r_bin_demangle_swift(const char *s, bool syscmd, bool trylib) {
 	int i, len, is_generic = 0;
 	int is_first = 1;
 	int is_last = 0;
 	int retmode = 0;
-	if (!strncmp (s, "imp.", 4)) {
-		s = s + 4;
-	}
-	if (!strncmp (s, "reloc.", 6)) {
-		s = s + 6;
-	}
-
-	if (*s != 'T' && strncmp (s, "_T", 2) && strncmp (s, "__T", 3)) {
-		// modern swift symbols
-		if (strncmp (s, "$s", 2)) {
-			return NULL;
+	s = str_removeprefix (s, "imp.");
+	s = str_removeprefix (s, "reloc.");
+	s = str_removeprefix (s, "__");
+	char *res = NULL;
+	if (trylib) {
+		res = swift_demangle_lib (s);
+		if (res) {
+			return res;
 		}
 	}
-
-	if (!strncmp (s, "__", 2)) {
-		s = s + 2;
-	}
-#if 0
-	const char *element[] = {
-		"module", "class", "method", NULL
-	};
-#endif
-	char *res = swift_demangle_lib (s);
-	if (res) {
-		return res;
+	if (*s != 'T' && !r_str_startswith (s, "_T") && !r_str_startswith (s, "__T")) {
+		// modern swift symbols not yet supported in this parser (only via trylib)
+		if (!r_str_startswith (s, "$s")) {
+			return NULL;
+		}
 	}
 	const char *attr = NULL;
 	const char *attr2 = NULL;
@@ -219,8 +240,6 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 			return res;
 		}
 	}
-
-	out[0] = 0;
 
 	const char *tail = NULL;
 	if (p[0]) {
@@ -265,34 +284,35 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 		}
 	}
 	if (tail) {
-		if (*p) {
-			p++;
-		}
+		p = str_seek (p, 1);
 	} else {
 		if (*p && p[1]) {
-			p += 2;
+			p = str_seek (p, 2);
 		}
 	}
 
 	// XXX
 	q = getnum (p, NULL);
-	
+
+	RStrBuf *out = r_strbuf_new (NULL);
+	// r_return_val_if_fail (r_strbuf_reserve (out, 1024), NULL);
+
 	// _TF or __TW
 	if (IS_DIGIT (*p) || *p == 'v' || *p == 'I' || *p == 'o' || *p == 'T' || *p == 'V' || *p == 'M' || *p == 'C' || *p == 'F' || *p == 'W') {
-		if (!strncmp (p+1, "SS", 2)) {
-			strcat (out, "Swift.String.init (");
+		if (r_str_startswith (p + 1, "SS")) {
+			r_strbuf_append (out, "Swift.String.init(");
 			p += 3;
 		}
-		if (!strncmp (p, "vdv", 3)) {
+		if (r_str_startswith (p, "vdv")) {
 			tail = "..field";
 			p += 3;
 		}
-		if (!strncmp (p, "oFC", 3)) {
+		if (r_str_startswith (p, "oFC")) {
 			tail = "..init.witnesstable";
-			p += 4;
+			p = str_seek (p, 4); // XXX
 		}
 #if 0
-		if (!strncmp (p+1, "C", 2)) {
+		if (r_str_startswith (p+1, "C")) {
 			strcat (out, "class ");
 			p += 3;
 		}
@@ -312,23 +332,19 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 			}
 			const char *str = getstring (q, len);
 			if (len == 2 && !strcmp (str, "ee")) {
-				strcat (out, "Swift");
+				r_strbuf_append (out, "Swift");
 			} else {
-#if 0
-				printf ("%s %d %s\n", element[i],
-						len, getstring (q, len));
-#endif
 				// push string
-				if (i && *out) {
-					strcat (out, ".");
+				if (i && r_strbuf_length (out) > 0) {
+					r_strbuf_append (out, ".");
 				}
-				STRCAT_BOUNDS (len);
 				len = R_MIN (len, strlen (q));
-				strcat (out, getstring (q, len));
+				r_strbuf_append (out, getstring (q, len));
 			}
 		}
 		if (q > q_end) {
-			return 0;
+			r_strbuf_free (out);
+			return NULL;
 		}
 		p = resolve (flags, q, &attr);
 		if (!p && ((*q == 'U') || (*q == 'R'))) {
@@ -365,29 +381,22 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 			}
 //			printf ("Field Type: %s\n", attr2);
 
-			do {
-				if (name && *name) {
-					strcat (out, ".");
-					STRCAT_BOUNDS (strlen (name));
-					strcat (out, name);
-				}
-				if (attr && *attr) {
-					strcat (out, ".");
-					STRCAT_BOUNDS (strlen (attr));
-					strcat (out, attr);
-				}
-				if (attr2 && *attr2) {
-					strcat (out, "__");
-					STRCAT_BOUNDS (strlen (attr2));
-					strcat (out, attr2);
-				}
-			} while (0);
+			if (name && *name) {
+				r_strbuf_appendf (out, ".%s", name);
+			}
+			if (attr && *attr) {
+				r_strbuf_appendf (out, ".%s", attr);
+			}
+			if (attr2 && *attr2) {
+				r_strbuf_appendf (out, "__%s", attr2);
+			}
 			if (*q == '_') {
-				strcat (out, " -> ()");
+				r_strbuf_append (out, " -> ()");
 			}
 		} else {
 			/* parse function parameters here */
 			// type len value/
+			// r_return_val_if_fail (q_start <= q_end, NULL);
 			for (i = 0; q && q < q_end && q >= q_start; i++) {
 				if (*q == 'f') {
 					q++;
@@ -399,18 +408,17 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 						const char *Q = getnum (q + 1, &n);
 						const char *res = getstring (Q, n);
 						if (res) {
-							strcat (out, res);
+							r_strbuf_append (out, res);
 						}
 						q = Q + n + 1;
 						continue;
 					}
 					break;
 				case 'u':
-					if (!strncmp (q, "uRxs", 4)) {
-						strcat (out, "..");
-						int n = 0 ;
+					if (r_str_startswith (q, "uRxs")) {
+						int n = 0;
 						const char *Q = getnum (q + 4, &n);
-						strcat (out, getstring (Q, n));
+						r_strbuf_appendf (out, "..%s", getstring (Q, n));
 						q = Q + n + 1;
 						continue;
 					}
@@ -421,25 +429,23 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 					}
 					switch (q[1]) {
 					case '0':
-						strcat (out, " (self) -> ()");
+						r_strbuf_append (out, " (self) -> ()");
 						if (attr) {
-							strcat (out, attr);
+							r_strbuf_append (out, attr);
 						}
-						//p = q + 7;
 						q = p = q + 1;
 						attr = "";
 						break;
 					case 'S':
 						// swift string
-						strcat (out, "__String");
+						r_strbuf_append (out, "__String");
 						break;
 					case '_':
 						// swift string
 						if (q[0] && q[1] && q[2]) {
-							strcat (out, "..");
 							int n = 0;
 							const char *Q = getnum (q + 2, &n);
-							strcat (out, getstring (Q, n));
+							r_strbuf_appendf (out, "..%s", getstring (Q, n));
 							q = Q + n + 1;
 							continue;
 						}
@@ -455,13 +461,13 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 					}
 					break;
 				case 'F':
-					strcat (out, " ()");
+					r_strbuf_append (out, " ()");
 					p = resolve (types, (strlen (q) > 2)? q + 3: "", &attr); // type
 					break;
 				case 'G':
-					q += 2;
+					q = str_seek (q, 2);
 					//printf ("GENERIC\n");
-					if (!strncmp (q, "_V", 2)) {
+					if (r_str_startswith (q, "_V")) {
 						q += 2;
 					}
 					p = resolve (types, q, &attr); // type
@@ -489,19 +495,15 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 						if (retmode) {
 							if (q + 1 > q_end) {
 								if (attr) {
-									strcat (out, " -> ");
-									STRCAT_BOUNDS (strlen (attr));
-									strcat (out, attr);
+									r_strbuf_appendf (out, " -> %s", attr);
 								}
 								break;
 							}
-							p = resolve (types, *q? q + 1: q, &attr); // type
-							//printf ("RETURN TYPE %s\n", attr);
-		//					printf ("RET %s\n", attr);
+							p = resolve (types, *q? q + 1: q, &attr);
+							// printf ("RETURN TYPE %s\n", attr);
+							// printf ("RET %s\n", attr);
 							if (attr) {
-								strcat (out, " -> ");
-								STRCAT_BOUNDS (strlen (attr));
-								strcat (out, attr);
+								r_strbuf_appendf (out, " -> %s", attr);
 							}
 							break;
 						}
@@ -514,41 +516,36 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 					}
 					if (len <= (q_end - q) && q[len]) {
 						const char *s = getstring (q, len);
-						if (s && *s) {
-							if (is_first) {	
-								strcat (out, is_generic?"<":"(");
+						if (R_STR_ISNOTEMPTY (s)) {
+							if (is_first) {
+								r_strbuf_append (out, is_generic? "<": ": ");
 								is_first = 0;
 							}
 							//printf ("ISLAST (%s)\n", q+len);
-							is_last = q[len];
+							is_last = strlen (q+len) < 5;
 							if (attr) {
-								STRCAT_BOUNDS (strlen (attr));
-								strcat (out, attr);
-								strcat (out, " ");
-							}
-							STRCAT_BOUNDS (strlen (s));
-							strcat (out, s);
-							if (is_last) {
-								strcat (out, is_generic?">":")");
-								is_first = (*s != '_');
-								if (is_generic && !is_first) {
-									break;
+								r_strbuf_append (out, attr);
+								if (!is_last) {
+									r_strbuf_append (out, ", ");
 								}
-							} else {
-								strcat (out, ", ");
 							}
+								if (strcmp (s, "_")) {
+									r_strbuf_appendf (out, "%s%s", s, is_generic? ">": "");
+									is_first = (*s != '_');
+									if (is_generic && !is_first) {
+										break;
+									}
+								} else {
+									r_strbuf_append (out, ")");
+								}
 						} else {
 							if (attr) {
-								strcat (out, " -> ");
-								STRCAT_BOUNDS (strlen (attr));
-								strcat (out, attr);
+								r_strbuf_appendf (out, " -> %s", attr);
 							}
 						}
 					} else {
 						if (attr) {
-							strcat (out, " -> ");
-							STRCAT_BOUNDS (strlen (attr));
-							strcat (out, attr);
+							r_strbuf_appendf (out, " -> %s", attr);
 						}
 					}
 					q += len;
@@ -576,25 +573,25 @@ R_API char *r_bin_demangle_swift(const char *s, bool syscmd) {
 	} else {
 		//printf ("Unsupported type: %c\n", *p);
 	}
-	if (*out) {
+	if (r_strbuf_length (out) > 0) {
 		if (tail) {
-			strcat (out, tail);
+			r_strbuf_append (out, tail);
 		}
 #if 1
-		char *p, *outstr = strdup (out);
+		char *p, *outstr = r_strbuf_drain (out);
 		p = outstr;
 		for (;;) {
 			p = strstr (p, ")(");
-			if (p) {
-				p[0] = '_';
-				p[1] = '_';
-				p+=2;
-			} else {
+			if (!p) {
 				break;
 			}
+			p[0] = '_';
+			p[1] = '_';
+			p += 2;
 		}
 		return outstr;
 #endif
 	}
+	r_strbuf_free (out);
 	return NULL;
 }

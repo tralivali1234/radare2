@@ -67,15 +67,14 @@ beach:
 	return ret;
 }
 
-static int __close(RIODesc *fd) {
-	RIOR2Web *riom;
+static bool __close(RIODesc *fd) {
 	if (!fd || !fd->data) {
-		return -1;
+		return false;
 	}
-	riom = fd->data;
+	RIOR2Web *riom = fd->data;
 	R_FREE (riom->url);
 	R_FREE (fd->data);
-	return 0;
+	return true;
 }
 
 static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
@@ -89,10 +88,10 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 
 static bool __plugin_open(RIO *io, const char *pathname, bool many) {
 	const char *uri = "r2web://";
-	return (!strncmp (pathname, uri, strlen (uri)));
+	return r_str_startswith (pathname, uri);
 }
 
-static inline int getmalfd (RIOR2Web *mal) {
+static inline int getmalfd(RIOR2Web *mal) {
 	return 0xfffffff & (int)(size_t)mal;
 }
 
@@ -129,7 +128,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 		free (mal);
 		free (out);
 		free (path);
-		eprintf ("Error: Try http://localhost:9090/cmd/");
+		R_LOG_WARN ("Try http://localhost:9090/cmd/");
 	}
 	return NULL;
 }
@@ -160,7 +159,7 @@ RIOPlugin r_io_plugin_r2web = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.system = __system,
 	.write = __write,
 };

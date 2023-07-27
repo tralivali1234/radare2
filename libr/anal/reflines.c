@@ -1,8 +1,6 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2023 - pancake, nibble */
 
 #include <r_core.h>
-#include <r_util.h>
-#include <r_cons.h>
 
 #define mid_down_refline(a, r) ((r)->from > (r)->to && (a) < (r)->from && (a) > (r)->to)
 #define mid_up_refline(a, r) ((r)->from < (r)->to && (a) > (r)->from && (a) < (r)->to)
@@ -65,7 +63,7 @@ static bool add_refline(RList *list, RList *sten, ut64 addr, ut64 to, int *idx) 
 	return true;
 }
 
-R_API void r_anal_reflines_free (RAnalRefline *rl) {
+R_API void r_anal_reflines_free(RAnalRefline *rl) {
 	free (rl);
 }
 
@@ -78,9 +76,8 @@ R_API void r_anal_reflines_free (RAnalRefline *rl) {
  * linesout - true if you want to display lines that go outside of the scope [addr;addr+len)
  * linescall - true if you want to display call lines */
 R_API RList *r_anal_reflines_get(RAnal *anal, ut64 addr, const ut8 *buf, ut64 len, int nlines, int linesout, int linescall) {
-	RList *list, *sten;
 	RListIter *iter;
-	RAnalOp op;
+	RAnalOp op = {0};
 	struct refline_end *el;
 	const ut8 *ptr = buf;
 	const ut8 *end = buf + len;
@@ -88,7 +85,6 @@ R_API RList *r_anal_reflines_get(RAnal *anal, ut64 addr, const ut8 *buf, ut64 le
 	int sz = 0, count = 0;
 	ut64 opc = addr;
 
-	memset (&op, 0, sizeof (op));
 	/*
 	 * 1) find all reflines
 	 * 2) sort "from"s and "to"s in a list
@@ -100,11 +96,11 @@ R_API RList *r_anal_reflines_get(RAnal *anal, ut64 addr, const ut8 *buf, ut64 le
 	 *        refline, we free that level.
 	 */
 
-	list = r_list_newf (free);
+	RList *list = r_list_newf (free);
 	if (!list) {
 		return NULL;
 	}
-	sten = r_list_newf ((RListFree)free);
+	RList *sten = r_list_newf ((RListFree)free);
 	if (!sten) {
 		goto list_err;
 	}
@@ -159,7 +155,7 @@ do_skip:
 
 		// This can segfault if opcode length and buffer check fails
 		r_anal_op_fini (&op);
-		int rc = r_anal_op (anal, &op, addr, ptr, (int)(end - ptr), R_ANAL_OP_MASK_BASIC | R_ANAL_OP_MASK_HINT);
+		int rc = r_anal_op (anal, &op, addr, ptr, (int)(end - ptr), R_ARCH_OP_MASK_BASIC | R_ARCH_OP_MASK_HINT);
 		if (rc <= 0) {
 			sz = 1;
 			goto __next;
@@ -178,6 +174,9 @@ do_skip:
 			}
 		case R_ANAL_OP_TYPE_CJMP:
 		case R_ANAL_OP_TYPE_JMP:
+			if (op.jump == UT64_MAX) {
+				break;
+			}
 			if ((!linesout && (op.jump > opc + len || op.jump < opc)) || !op.jump) {
 				break;
 			}
@@ -260,6 +259,7 @@ do_skip:
 
 sten_err:
 list_err:
+	r_anal_op_fini (&op);
 	r_list_free (sten);
 	r_list_free (list);
 	return NULL;
@@ -345,6 +345,7 @@ static inline bool refline_kept(RAnalRefline *ref, bool middle_after, ut64 addr)
 // TODO: this is TOO SLOW. do not iterate over all reflines or gtfo
 R_API RAnalRefStr *r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 	RCore *core = _core;
+	r_return_val_if_fail (core && core->cons && core->anal, NULL);
 	RCons *cons = core->cons;
 	RAnal *anal = core->anal;
 	RBuffer *b;
@@ -359,7 +360,9 @@ R_API RAnalRefStr *r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 	char *str = NULL;
 	char *col_str = NULL;
 
-	r_return_val_if_fail (cons && anal && anal->reflines, NULL);
+	if (!anal->reflines) {
+		return NULL;
+	}
 
 	RList *lvls = r_list_new ();
 	if (!lvls) {
@@ -434,15 +437,15 @@ R_API RAnalRefStr *r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 	}
 	add_spaces (c, 0, pos, wide);
 	add_spaces (b, 0, pos, wide);
-	str = r_buf_to_string (b);
-	col_str = r_buf_to_string (c);
+	str = r_buf_tostring (b);
+	col_str = r_buf_tostring (c);
 	r_buf_free (b);
 	r_buf_free (c);
 	b = NULL;
 	c = NULL;
 	if (!str || !col_str) {
 		r_list_free (lvls);
-		//r_buf_free_to_string already free b and if that is the case
+		//r_buf_free_tostring already free b and if that is the case
 		//b will be NULL and r_buf_free will return but if there was
 		//an error we free b here so in other words is safe
 		r_buf_free (b);
@@ -477,13 +480,17 @@ R_API RAnalRefStr *r_anal_reflines_str(void *_core, ut64 addr, int opts) {
 
 	r_list_free (lvls);
 	RAnalRefStr *out = R_NEW0 (RAnalRefStr);
-	out->str = str;
-	out->cols = col_str;
+	if (out) {
+		out->str = str;
+		out->cols = col_str;
+	}
 	return out;
 }
 
 R_API void r_anal_reflines_str_free(RAnalRefStr *refstr) {
-	free (refstr->str);
-	free (refstr->cols);
-	free (refstr);
+	if (refstr) {
+		free (refstr->str);
+		free (refstr->cols);
+		free (refstr);
+	}
 }

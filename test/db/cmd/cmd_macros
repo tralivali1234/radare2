@@ -1,3 +1,32 @@
+NAME=escaping colons
+FILE=-
+CMDS=<<EOF
+"(msg;?e hello;?e world)"
+(msg2\;?e hello\;?e world)
+.(msg)
+.(msg2)
+EOF
+EXPECT=<<EOF
+hello
+world
+hello
+world
+EOF
+RUN
+
+NAME=escaping echoes
+FILE=-
+CMDS=<<EOF
+?e "hello\@world\|pipe"
+?e one\ntwo
+EOF
+EXPECT=<<EOF
+hello@world|pipe
+one
+two
+EOF
+RUN
+
 NAME=(msg x;?e $0)
 FILE=-
 CMDS=<<EOF
@@ -149,5 +178,55 @@ Hello 1
 World 0
 00
 Hello 1
+EOF
+RUN
+
+NAME=json
+FILE=-
+CMDS=<<EOF
+(foo;bar;cow)
+(bar;cow;foo)
+(j)~{}
+?e --
+(j~{}
+?e --
+(j)~{}>$a
+$a~name
+EOF
+EXPECT=<<EOF
+{
+  "cmd": "(j",
+  "macros": [
+    {
+      "name": "foo",
+      "args": "",
+      "cmds": "bar\ncow"
+    },
+    {
+      "name": "bar",
+      "args": "",
+      "cmds": "cow\nfoo"
+    }
+  ]
+}
+--
+{
+  "cmd": "(j",
+  "macros": [
+    {
+      "name": "foo",
+      "args": "",
+      "cmds": "bar\ncow"
+    },
+    {
+      "name": "bar",
+      "args": "",
+      "cmds": "cow\nfoo"
+    }
+  ]
+}
+--
+      "name": "foo",
+      "name": "bar",
 EOF
 RUN

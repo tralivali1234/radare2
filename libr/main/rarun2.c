@@ -1,10 +1,11 @@
-/* radare2 - Copyleft 2011-2020 - pancake */
+/* radare2 - Copyleft 2011-2022 - pancake */
 
-#include <r_util.h>
+#define R_LOG_ORIGIN "rarun2"
+
 #include <r_main.h>
 #include <r_socket.h>
 
-#if __UNIX__
+#if R2__UNIX__ && HAVE_PTY
 static void fwd(int sig) {
 	/* do nothing? send kill signal to remote process */
 }
@@ -23,7 +24,7 @@ static void rarun2_tty(void) {
 
 R_API int r_main_rarun2(int argc, const char **argv) {
 	RRunProfile *p;
-	int i, ret;
+	int i;
 	if (argc == 1 || !strcmp (argv[1], "-h")) {
 		printf ("Usage: rarun2 -v|-t|script.rr2 [directive ..]\n");
 		printf ("%s", r_run_help ());
@@ -34,11 +35,11 @@ R_API int r_main_rarun2(int argc, const char **argv) {
 	}
 	const char *file = argv[1];
 	if (!strcmp (file, "-t")) {
-#if __UNIX__
+#if R2__UNIX__ && HAVE_PTY
 		rarun2_tty ();
 		return 0;
 #else
-		eprintf ("Not supported\n");
+		R_LOG_ERROR ("TTY features not supported in this build");
 		return 1;
 #endif
 	}
@@ -69,12 +70,11 @@ R_API int r_main_rarun2(int argc, const char **argv) {
 	if (!p) {
 		return 1;
 	}
-	ret = r_run_config_env (p);
-	if (ret) {
-		printf("error while configuring the environment.\n");
+	if (!r_run_config_env (p)) {
+		R_LOG_ERROR ("cannot setup the environment");
 		return 1;
 	}
-	ret = r_run_start (p);
+	bool ret = r_run_start (p);
 	r_run_free (p);
-	return ret;
+	return ret? 0: 1;
 }

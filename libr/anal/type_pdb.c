@@ -1,7 +1,9 @@
+/* radare - LGPL - Copyright 2020-2022 - HoundThe, Florian Markl */
+
 #include <r_bin.h>
 #include <r_core.h>
 #include <r_anal.h>
-#include "../bin/pdb/types.h"
+#include "../bin/format/pdb/types.h"
 #include "base_types.h"
 
 static bool is_parsable_type(const ELeafType type) {
@@ -13,8 +15,8 @@ static bool is_parsable_type(const ELeafType type) {
 
 /**
  * @brief Create a type name from offset
- * 
- * @param offset 
+ *
+ * @param offset
  * @return char* Name or NULL if error
  */
 static char *create_type_name_from_offset(ut64 offset) {
@@ -26,7 +28,7 @@ static char *create_type_name_from_offset(ut64 offset) {
 
 /**
  * @brief Parses class/struct/union member
- * 
+ *
  * @param type_info Current type info (member)
  * @param types List of all types
  * @return RAnalStructMember* parsed member, NULL if fail
@@ -60,10 +62,10 @@ cleanup:
 
 /**
  * @brief Parse enum case
- * 
+ *
  * @param type_info Current type info (enum case)
  * @param types List of all types
- * @return RAnalEnumCase* parsed enum case, NULL if fail 
+ * @return RAnalEnumCase* parsed enum case, NULL if fail
  */
 static RAnalEnumCase *parse_enumerate(STypeInfo *type_info, RList *types) {
 	r_return_val_if_fail (type_info && types && type_info->leaf_type == eLF_ENUMERATE, NULL);
@@ -88,10 +90,10 @@ cleanup:
 
 /**
  * @brief Parses enum into BaseType and saves it into SDB
- * 
- * @param anal 
+ *
+ * @param anal
  * @param type Current type
- * @param types List of all types 
+ * @param types List of all types
  */
 static void parse_enum(const RAnal *anal, SType *type, RList *types) {
 	r_return_if_fail (anal && type && types);
@@ -152,8 +154,8 @@ cleanup:
 
 /**
  * @brief Parses classes, unions and structures into BaseType and saves them into SDB
- * 
- * @param anal 
+ *
+ * @param anal
  * @param type Current type
  * @param types List of all types
  */
@@ -215,12 +217,12 @@ cleanup:
 
 /**
  * @brief Delegate the type parsing to appropriate function
- * 
- * @param anal 
+ *
+ * @param anal
  * @param type Current type
  * @param types List of all types
  */
-static void parse_type (const RAnal *anal, SType *type, RList *types) {
+static void parse_type(const RAnal *anal, SType *type, RList *types) {
 	r_return_if_fail (anal && type && types);
 
 	int is_forward_decl;
@@ -242,14 +244,14 @@ static void parse_type (const RAnal *anal, SType *type, RList *types) {
 	default:
 		// shouldn't happen, happens when someone modifies leafs that get here
 		// but not how they should be parsed
-		eprintf ("Unknown type record");
+		eprintf ("Unknown type record\n");
 		break;
 	}
 }
 
 /**
  * @brief Saves PDB types from TPI stream into the SDB
- * 
+ *
  * @param anal
  * @param pdb PDB information
  */

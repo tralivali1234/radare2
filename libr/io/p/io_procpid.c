@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2016 - pancake */
+/* radare - LGPL - Copyright 2010-2022 - pancake */
 
 #include <r_userconf.h>
 
@@ -23,7 +23,7 @@ typedef struct {
 
 static int __waitpid(int pid) {
 	int st = 0;
-	return (waitpid(pid, &st, 0) != -1);
+	return waitpid (pid, &st, 0) != -1;
 }
 
 static int debug_os_read_at(int fdn, void *buf, int sz, ut64 addr) {
@@ -50,7 +50,7 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int len) {
 }
 
 static bool __plugin_open(RIO *io, const char *file, bool many) {
-	return (!strncmp (file, "procpid://", 10));
+	return r_str_startswith (file, "procpid://");
 }
 
 static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
@@ -64,17 +64,16 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 				switch (errno) {
 				case EPERM:
 					ret = pid;
-					eprintf ("Operation not permitted\n");
+					R_LOG_ERROR ("Operation not permitted");
 					break;
 				case EINVAL:
-					perror ("ptrace: Cannot attach");
-					eprintf ("ERRNO: %d (EINVAL)\n", errno);
+					r_sys_perror ("ptrace: Cannot attach");
 					break;
 				}
 			} else if (__waitpid (pid)) {
 				ret = pid;
 			} else {
-				eprintf ("Error in waitpid\n");
+				R_LOG_ERROR ("waitpid");
 			}
 		} else {
 			ret = pid;
@@ -95,7 +94,7 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 			return d;
 		}
 		/* kill children */
-		eprintf ("Cannot open /proc/%d/mem of already attached process\n", pid);
+		R_LOG_ERROR ("Cannot open /proc/%d/mem of an already attached process", pid);
 		(void)ptrace (PTRACE_DETACH, pid, 0, 0);
 	}
 	return NULL;
@@ -105,22 +104,22 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	return offset;
 }
 
-static int __close(RIODesc *fd) {
+static bool __close(RIODesc *fd) {
 	int ret = ptrace (PTRACE_DETACH, RIOPROCPID_PID (fd), 0, 0);
 	R_FREE (fd->data);
-	return ret;
+	return ret == 0;
 }
 
 static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 	RIOProcpid *iop = (RIOProcpid*)fd->data;
-	if (!strncmp (cmd, "pid", 3)) {
+	if (r_str_startswith (cmd, "pid")) {
 		int pid = atoi (cmd + 3);
 		if (pid > 0) {
 			iop->pid = pid;
 		}
 		io->cb_printf ("%d\n", iop->pid);
 	} else {
-		eprintf ("Try: '=!pid'\n");
+		R_LOG_ERROR ("Try: ':pid'");
 	}
 	return NULL;
 }
@@ -134,7 +133,7 @@ RIOPlugin r_io_plugin_procpid = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.system = __system,
 	.write = __write,
 };

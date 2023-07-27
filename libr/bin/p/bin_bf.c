@@ -1,8 +1,5 @@
-/* radare - LGPL - Copyright 2013-2019 - pancake */
+/* radare - LGPL - Copyright 2013-2023 - pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
@@ -10,14 +7,12 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 }
 
 static void destroy(RBinFile *bf) {
-	r_buf_free (bf->o->bin_obj);
-}
-
-static ut64 baddr(RBinFile *bf) {
-	return 0;
+	RBuffer *buf = R_UNWRAP3 (bf, o, bin_obj);
+	r_buf_free (buf);
 }
 
 static RList *strings(RBinFile *bf) {
+	// no strings here
 	return NULL;
 }
 
@@ -56,23 +51,33 @@ static RBinInfo *info(RBinFile *bf) {
 	eprintf ("\"e cmd.vprompt=pxa 32@stack;pxa 32@screen;pxa 32@data\"\n");
 	eprintf ("s 0\n");
 	eprintf ("e asm.bits=32\n");
-	eprintf ("dL bf\n");
+	eprintf ("e cmd.vprompt=pxa 32@stack;pxa 32@screen;pxa 32@data\n");
+// 	eprintf ("dL bf\n");
 	return ret;
 }
 
-static bool check_buffer(RBuffer *buf) {
+// TODO: test with all these programs http://brainfuck.org
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	r_return_val_if_fail (buf, false);
 
-	ut8 tmp[16];
-	int read_length = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
-	if (read_length <= 0) {
+	ut8 tmp[64] = {0};
+	int read_length = r_buf_read_at (buf, 0, tmp, sizeof (tmp) - 1);
+	if (read_length < 12) {
 		return false;
 	}
 
 	const ut8 *p = (const ut8 *)tmp;
-	int i;
-	for (i = 0; i < read_length; i++) {
-		switch (p[i]) {
+	int i = 0;
+	bool inbracket = p[0] == '[';
+	if (inbracket) {
+		p = (const ut8*)strchr ((const char *)p + 1, ']');
+		if (!p) {
+			return false;
+		}
+		i = p - tmp;
+	}
+	for (; i < read_length; i++) {
+		switch (tmp[i]) {
 		case '+':
 		case '-':
 		case '>':
@@ -82,6 +87,7 @@ static bool check_buffer(RBuffer *buf) {
 		case ',':
 		case '.':
 		case ' ':
+		case '\t':
 		case '\n':
 		case '\r':
 			break;
@@ -93,17 +99,15 @@ static bool check_buffer(RBuffer *buf) {
 }
 
 static RList *entries(RBinFile *bf) {
-	RList *ret;
-	RBinAddr *ptr = NULL;
-
-	if (!(ret = r_list_newf (free))) {
-		return NULL;
+	r_return_val_if_fail (bf, NULL);
+	RList *ret = r_list_newf (free);
+	if (ret) {
+		RBinAddr *ptr = R_NEW0 (RBinAddr);
+		if (ptr) {
+			ptr->paddr = ptr->vaddr = 0;
+			r_list_append (ret, ptr);
+		}
 	}
-	if (!(ptr = R_NEW0 (RBinAddr))) {
-		return ret;
-	}
-	ptr->paddr = ptr->vaddr = 0;
-	r_list_append (ret, ptr);
 	return ret;
 }
 
@@ -114,7 +118,6 @@ RBinPlugin r_bin_plugin_bf = {
 	.load_buffer = &load_buffer,
 	.destroy = &destroy,
 	.check_buffer = &check_buffer,
-	.baddr = &baddr,
 	.entries = entries,
 	.strings = &strings,
 	.info = &info,

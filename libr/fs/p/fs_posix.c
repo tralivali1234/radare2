@@ -9,14 +9,13 @@
 #define MAXPATHLEN 255
 #endif
 static RFSFile* fs_posix_open(RFSRoot *root, const char *path, bool create) {
-	FILE *fd;
 	RFSFile *file = r_fs_file_new (root, path);
 	if (!file) {
 		return NULL;
 	}
 	file->ptr = NULL;
 	file->p = root->p;
-	fd = r_sandbox_fopen (path, create? "wb": "rb");
+	FILE *fd = r_sandbox_fopen (path, create? "wb": "rb");
 	if (fd) {
 		fseek (fd, 0, SEEK_END);
 		file->size = ftell (fd);
@@ -72,7 +71,7 @@ static RList *fs_posix_dir(RFSRoot *root, const char *path, int view /*ignored*/
 	return list;
 }
 
-static int fs_posix_mount(RFSRoot *root) {
+static bool fs_posix_mount(RFSRoot *root) {
 	root->ptr = NULL;
 	return true;
 }
@@ -95,8 +94,8 @@ RFSPlugin r_fs_plugin_posix = {
 
 #ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
-        .type = R_LIB_TYPE_FS,
-        .data = &r_fs_plugin_posix,
-        .version = R2_VERSION
+	.type = R_LIB_TYPE_FS,
+	.data = &r_fs_plugin_posix,
+	.version = R2_VERSION
 };
 #endif

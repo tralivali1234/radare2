@@ -8,22 +8,23 @@
 #include "libgdbr.h"
 #include "gdbr_common.h"
 #include "packet.h"
-#include "r_util/r_strbuf.h"
-#include "r_cons.h"
-#include "r_debug.h"
+#include <r_util/r_strbuf.h>
+#include <r_util/r_log.h>
+#include <r_cons.h>
+#include <r_debug.h>
 
-#if __UNIX__
+#if R2__UNIX__
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#ifndef __wasi__
 #include <termios.h>
 #endif
-
-#if __UNIX__
-#include <signal.h>
 #endif
 
-#include <assert.h>
+#if R2__UNIX__
+#include <signal.h>
+#endif
 
 #define QSUPPORTED_MAX_RETRIES 5
 
@@ -93,6 +94,7 @@ static void gdbr_break_process(void *arg) {
 }
 
 bool gdbr_lock_tryenter(libgdbr_t *g) {
+	r_return_val_if_fail (g, false);
 	if (!r_th_lock_tryenter (g->gdbr_lock)) {
 		return false;
 	}
@@ -102,20 +104,21 @@ bool gdbr_lock_tryenter(libgdbr_t *g) {
 }
 
 bool gdbr_lock_enter(libgdbr_t *g) {
+	r_return_val_if_fail (g, false);
 	r_cons_break_push (gdbr_break_process, g);
 	void *bed = r_cons_sleep_begin ();
 	r_th_lock_enter (g->gdbr_lock);
 	g->gdbr_lock_depth++;
 	r_cons_sleep_end (bed);
-	if (g->isbreaked) {
-		return false;
-	}
-	return true;
+	return !g->isbreaked;
 }
 
 void gdbr_lock_leave(libgdbr_t *g) {
+	r_return_if_fail (g);
 	r_cons_break_pop ();
-	assert (g->gdbr_lock_depth > 0);
+	if (g->gdbr_lock_depth < 1) {
+		return;
+	}
 	bool last_leave = g->gdbr_lock_depth == 1;
 	g->gdbr_lock_depth--;
 	r_th_lock_leave (g->gdbr_lock);
@@ -178,7 +181,8 @@ int gdbr_connect(libgdbr_t *g, const char *host, int port) {
 	if (*host == '/') {
 		ret = r_socket_connect_serial (g->sock, host, port, 1);
 	} else {
-		ret = r_socket_connect_tcp (g->sock, host, sdb_fmt ("%d", port), 1);
+		r_strf_var (portstr, 32, "%d", port);
+		ret = r_socket_connect_tcp (g->sock, host, portstr, 1);
 	}
 	r_cons_sleep_end (bed);
 	r_cons_break_push (gdbr_break_process, g);
@@ -301,7 +305,7 @@ end:
 }
 
 int gdbr_select(libgdbr_t *g, int pid, int tid) {
-	char cmd[64] = { 0 };
+	char cmd[64] = {0};
 	int ret = -1;
 
 	if (!gdbr_lock_enter (g)) {
@@ -334,6 +338,7 @@ end:
 int gdbr_check_vcont(libgdbr_t *g) {
 	int ret = -1;
 	char *ptr = NULL;
+	char *save_ptr = NULL;
 
 	if (!g) {
 		return -1;
@@ -352,7 +357,7 @@ int gdbr_check_vcont(libgdbr_t *g) {
 		goto end;
 	}
 	g->data[g->data_len] = '\0';
-	if (!(ptr = strtok (g->data + strlen ("vCont;"), ";"))) {
+	if (!(ptr = r_str_tok_r (g->data + strlen ("vCont;"), ";", &save_ptr))) {
 		ret = 0;
 		goto end;
 	}
@@ -378,7 +383,7 @@ int gdbr_check_vcont(libgdbr_t *g) {
 			break;
 		}
 		g->stub_features.vContSupported = true;
-		ptr = strtok (NULL, ";");
+		ptr = r_str_tok_r (NULL, ";", &save_ptr);
 	}
 
 	ret = 0;
@@ -724,7 +729,7 @@ end:
 }
 
 static int gdbr_read_memory_page(libgdbr_t *g, ut64 address, ut8 *buf, int len) {
-	char command[128] = { 0 };
+	char command[128] = {0};
 	int last, ret_len, pkt;
 	ret_len = 0;
 
@@ -767,7 +772,8 @@ static int gdbr_read_memory_page(libgdbr_t *g, ut64 address, ut8 *buf, int len) 
 		int delta = (pkt * data_sz);
 
 		if (delta > len) {
-			eprintf ("oops\n");
+			R_LOG_ERROR ("%s: delta is greater than len (%d > %d)",
+			        __func__, delta, len);
 			break;
 		}
 		int left = R_MIN (g->data_len, len - delta);
@@ -927,7 +933,7 @@ end:
 
 int gdbr_step(libgdbr_t *g, int tid) {
 	int ret = -1;
-	char thread_id[64] = { 0 };
+	char thread_id[64] = {0};
 
 	if (!gdbr_lock_enter (g)) {
 		goto end;
@@ -936,7 +942,8 @@ int gdbr_step(libgdbr_t *g, int tid) {
 	if (tid <= 0 || write_thread_id (thread_id, sizeof (thread_id) - 1, g->pid, tid,
 		    g->stub_features.multiprocess) < 0) {
 		send_vcont (g, "vCont?", NULL);
-		send_vcont (g, sdb_fmt ("Hc%d", tid), NULL);
+		r_strf_var (hcd, 32, "Hc%d", tid);
+		send_vcont (g, hcd, NULL);
 		ret = send_vcont (g, CMD_C_STEP, NULL);
 		goto end;
 	}
@@ -948,8 +955,8 @@ end:
 }
 
 int gdbr_continue(libgdbr_t *g, int pid, int tid, int sig) {
-	char thread_id[64] = { 0 };
-	char command[16] = { 0 };
+	char thread_id[64] = {0};
+	char command[16] = {0};
 	int ret = -1;
 
 	if (!gdbr_lock_enter (g)) {
@@ -1018,7 +1025,7 @@ end:
 
 int gdbr_write_register(libgdbr_t *g, int index, char *value, int len) {
 	int ret = -1;
-	char command[255] = { 0 };
+	char command[255] = {0};
 	if (!g || !g->stub_features.P) {
 		return -1;
 	}
@@ -1029,7 +1036,8 @@ int gdbr_write_register(libgdbr_t *g, int index, char *value, int len) {
 	reg_cache.valid = false;
 	ret = snprintf (command, sizeof (command) - 1, "%s%x=", CMD_WRITEREG, index);
 	if (len + ret >= sizeof (command)) {
-		eprintf ("command is too small\n");
+		R_LOG_ERROR ("%s: command buffer is too small, expected: %d, actual: %d",
+		        __func__, len + ret, sizeof(command));
 		ret = -1;
 		goto end;
 	}
@@ -1075,7 +1083,7 @@ int gdbr_write_reg(libgdbr_t *g, const char *name, char *value, int len) {
 		i++;
 	}
 	if (g->registers[i].size == 0) {
-		eprintf ("Error registername <%s> not found in profile\n", name);
+		R_LOG_ERROR ("%s: registername <%s> not found in profile", __func__, name);
 		ret = -1;
 		goto end;
 	}
@@ -1085,7 +1093,7 @@ int gdbr_write_reg(libgdbr_t *g, const char *name, char *value, int len) {
 
 	// Use 'G' if write_register failed/isn't supported
 	gdbr_read_registers (g);
-	memcpy (g->data + g->registers[i].offset, value, len);
+	memcpy (g->data + (g->registers[i].offset / 8), value, len);
 	gdbr_write_bin_registers (g, g->data, g->data_len);
 
 	ret = 0;
@@ -1100,8 +1108,8 @@ int gdbr_write_registers(libgdbr_t *g, char *registers) {
 	int ret = -1;
 	unsigned int x, len;
 	char *command, *reg, *buff, *value;
+	char *save_ptr = NULL;
 	// read current register set
-	
 	command = buff = value = NULL;
 
 	if (!g) {
@@ -1121,11 +1129,11 @@ int gdbr_write_registers(libgdbr_t *g, char *registers) {
 		goto end;
 	}
 	memcpy (buff, registers, len);
-	reg = strtok (buff, ",");
+	reg = r_str_tok_r (buff, ",", &save_ptr);
 	while (reg) {
 		char *name_end = strchr (reg, '=');
 		if (name_end == NULL) {
-			eprintf ("Malformed argument: %s\n", reg);
+			R_LOG_ERROR ("%s: Malformed argument: %s", __func__, reg);
 			ret = -1;
 			goto end;
 		}
@@ -1158,7 +1166,7 @@ int gdbr_write_registers(libgdbr_t *g, char *registers) {
 			}
 			i++;
 		}
-		reg = strtok (NULL, " ,");
+		reg = r_str_tok_r (NULL, " ,", &save_ptr);
 	}
 
 	buffer_size = g->data_len * 2 + 8;
@@ -1191,27 +1199,8 @@ end:
 	return ret;
 }
 
-int test_command(libgdbr_t *g, const char *command) {
-	int ret = -1;
-
-	if (!gdbr_lock_enter (g)) {
-		goto end;
-	}
-
-	if ((ret = send_msg (g, command)) < 0) {
-		goto end;
-	}
-	read_packet (g, false);
-	hexdump (g->read_buff, g->data_len, 0);
-
-	ret = 0;
-end:
-	gdbr_lock_leave (g);
-	return ret;
-}
-
 int send_vcont(libgdbr_t *g, const char *command, const char *thread_id) {
-	char tmp[255] = { 0 };
+	char tmp[255] = {0};
 	int ret = -1;
 	void *bed = NULL;
 
@@ -1300,7 +1289,7 @@ end:
 }
 
 int set_bp(libgdbr_t *g, ut64 address, const char *conditions, enum Breakpoint type, int sizebp) {
-	char tmp[255] = { 0 };
+	char tmp[255] = {0};
 	int ret = -1;
 
 	if (!g) {
@@ -1395,7 +1384,7 @@ int gdbr_remove_hwa(libgdbr_t *g, ut64 address, int sizebp) {
 
 
 int remove_bp(libgdbr_t *g, ut64 address, enum Breakpoint type, int sizebp) {
-	char tmp[255] = { 0 };
+	char tmp[255] = {0};
 	int ret = -1;
 
 	if (!g) {
@@ -1445,25 +1434,24 @@ end:
 
 int gdbr_open_file(libgdbr_t *g, const char *filename, int flags, int mode) {
 	int ret = -1;
-	char *buf;
-	size_t buf_len;
 
-	if (!g || !filename || !*filename) {
+	if (!g || R_STR_ISEMPTY (filename)) {
 		return -1;
 	}
 	if (g->remote_file_fd >= 0) {
-		eprintf ("%s: Remote file already open\n", __func__);
+		R_LOG_ERROR ("%s: Remote file already open", __func__);
 		return -1;
 	}
-	buf_len = (strlen (filename) * 2) + strlen ("vFile:open:") + 30;
-	if (!(buf = calloc (buf_len, sizeof (char)))) {
+	size_t buf_len = (strlen (filename) * 2) + strlen ("vFile:open:") + 30;
+	char *buf = calloc (buf_len, sizeof (char));
+	if (!buf) {
 		return -1;
 	}
 
 	if (!gdbr_lock_enter (g)) {
 		goto end;
 	}
-	strcpy (buf, "vFile:open:");
+	r_str_ncpy (buf, "vFile:open:", buf_len);
 	pack_hex (filename, strlen (filename), buf + strlen (buf));
 	snprintf (buf + strlen (buf), buf_len - strlen (buf) - 1, ",%x,%x", flags, mode);
 	if ((ret = send_msg (g, buf)) < 0) {
@@ -1476,27 +1464,23 @@ int gdbr_open_file(libgdbr_t *g, const char *filename, int flags, int mode) {
 
 	ret = 0;
 end:
-	if (buf) {
-		free (buf);
-	}
+	free (buf);
 	gdbr_lock_leave (g);
 	return ret;
 }
 
 int gdbr_read_file(libgdbr_t *g, ut8 *buf, ut64 max_len) {
+	r_return_val_if_fail (g && buf && max_len, -1);
 	int ret, ret1;
 	char command[64];
 	ut64 data_sz;
 	ret = 0;
-	if (!g || !buf || !max_len) {
-		return -1;
-	}
 	if (max_len >= INT32_MAX) {
-		eprintf ("%s: Too big a file read requested: %"PFMT64d, __func__, max_len);
+		R_LOG_ERROR ("%s: Too big a file read requested: %"PFMT64d, __func__, max_len);
 		return -1;
 	}
 	if (g->remote_file_fd < 0) {
-		eprintf ("%s: No remote file opened\n", __func__);
+		R_LOG_ERROR ("%s: No remote file opened", __func__);
 		return -1;
 	}
 
@@ -1530,8 +1514,7 @@ int gdbr_read_file(libgdbr_t *g, ut8 *buf, ut64 max_len) {
 			goto end;
 		}
 		ret += ret1;
-    }
-
+	}
 end:
 	gdbr_lock_leave (g);
 	return ret;
@@ -1545,7 +1528,7 @@ int gdbr_close_file(libgdbr_t *g) {
 		return -1;
 	}
 	if (g->remote_file_fd < 0) {
-		eprintf ("%s: No remote file opened\n", __func__);
+		R_LOG_ERROR ("%s: No remote file opened", __func__);
 		return -1;
 	}
 
@@ -1709,7 +1692,7 @@ bool gdbr_is_thread_dead (libgdbr_t *g, int pid, int tid) {
 	if (!gdbr_lock_enter (g)) {
 		goto end;
 	}
-	char msg[64] = { 0 }, thread_id[63] = { 0 };
+	char msg[64] = {0}, thread_id[63] = { 0 };
 	if (write_thread_id (thread_id, sizeof (thread_id) - 1, pid, tid,
 		    g->stub_features.multiprocess) < 0) {
 		goto end;
@@ -1760,7 +1743,7 @@ RList* gdbr_pids_list(libgdbr_t *g, int pid) {
 	// Child processes will only show up in ThreadInfo if gdbr is currently processing a
 	// fork/vfork/exec event or if the children weren't detached yet. This is intended
 	// gdb `info inferiors` behavior that can only be avoided using xml.
-	eprintf ("Warning: Showing possibly incomplete pid list due to xml protocol failure\n");
+	R_LOG_WARN ("Showing possibly incomplete pid list due to xml protocol failure");
 
 	if (!g->stub_features.qXfer_exec_file_read
 		    || !(exec_file = gdbr_exec_file_read (g, pid))) {
@@ -1940,10 +1923,10 @@ end:
 }
 
 ut64 gdbr_get_baddr(libgdbr_t *g) {
-	ut64 off, min = UINT64_MAX;
+	ut64 off, min = UT64_MAX;
 	char *ptr;
 	if (!g) {
-		return UINT64_MAX;
+		return UT64_MAX;
 	}
 
 	if (!gdbr_lock_enter (g)) {
@@ -1951,7 +1934,7 @@ ut64 gdbr_get_baddr(libgdbr_t *g) {
 	}
 	if (send_msg (g, "qOffsets") < 0 || read_packet (g, false) < 0
 		    || send_ack (g) < 0 || g->data_len == 0) {
-		min = UINT64_MAX;
+		min = UT64_MAX;
 		goto end;
 	}
 	if (r_str_startswith (g->data, "TextSeg=")) {
@@ -1991,12 +1974,12 @@ ut64 gdbr_get_baddr(libgdbr_t *g) {
 		min = off;
 	}
 	if (!(ptr = strchr (ptr, ';')) || !r_str_startswith (ptr + 1, "Data=")) {
-		min = UINT64_MAX;
+		min = UT64_MAX;
 		goto end;
 	}
 	ptr += strlen (";Data=");
 	if (!isxdigit ((unsigned char)*ptr)) {
-		min = UINT64_MAX;
+		min = UT64_MAX;
 		goto end;
 	}
 	off = strtoull (ptr, NULL, 16);

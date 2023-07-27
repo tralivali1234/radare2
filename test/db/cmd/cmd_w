@@ -1,3 +1,91 @@
+NAME=wa+
+FILE=-
+ARGS=-a arm -b64
+CMDS=<<EOF
+3wa+nop
+s
+pd 4 @ 0
+EOF
+EXPECT=<<EOF
+0xc
+            0x00000000      1f2003d5       nop
+            0x00000004      1f2003d5       nop
+            0x00000008      1f2003d5       nop
+            0x0000000c      00000000       invalid
+EOF
+RUN
+
+NAME=wv4
+FILE=-
+CMDS=<<EOF
+wv4 1 2 3 4
+p8 16
+wv2 1 2 3 4 5 6 7 8
+p8 16
+wv1 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
+p8 16
+EOF
+EXPECT=<<EOF
+01000000020000000300000004000000
+01000200030004000500060007000800
+0102030405060708090a0b0c0d0e0f10
+EOF
+RUN
+
+NAME=wan
+FILE=-
+CMDS=<<EOF
+wx 554889e54157415641554154534881ec180600004989f74189fe488d85c0fdff
+e asm.arch=x86
+e asm.bits=64
+wan mov rax,33
+pi 5
+EOF
+EXPECT=<<EOF
+mov rax, 0x21
+nop
+push r13
+push r12
+push rbx
+EOF
+RUN
+
+NAME=wai
+FILE=-
+CMDS=<<EOF
+wx 554889e54157415641554154534881ec180600004989f74189fe488d85c0fdff
+e asm.arch=x86
+e asm.bits=64
+wai mov rax,33
+pi 5
+EOF
+EXPECT=<<EOF
+push rbp
+mov rbp, rsp
+push r15
+push r14
+push r13
+EOF
+RUN
+
+NAME=wa
+FILE=-
+CMDS=<<EOF
+wx 554889e54157415641554154534881ec180600004989f74189fe488d85c0fdff
+e asm.arch=x86
+e asm.bits=64
+wa mov rax,33
+pi 5
+EOF
+EXPECT=<<EOF
+mov rax, 0x21
+push rsi
+push r13
+push r12
+push rbx
+EOF
+RUN
+
 NAME=wB
 FILE=-
 CMDS=<<EOF
@@ -52,17 +140,33 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=w6
+NAME=w6x
 FILE=-
 CMDS=<<EOF
 w6d ESIz
 p8 3
-w6e 112233
+w6x 112233
 ps
 EOF
 EXPECT=<<EOF
 112233
 ESIz
+EOF
+RUN
+
+NAME=w6e
+FILE=-
+CMDS=<<EOF
+w6d ESIz
+p8 3
+w6x 112233
+psz
+p6e 3
+EOF
+EXPECT=<<EOF
+112233
+ESIz
+RVNJ
 EOF
 RUN
 
@@ -201,6 +305,39 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=wtf base64
+CMDS=<<EOF
+wx 01020304
+wtf base64:dGVzdGZpbGU== 4
+wx 00000000
+wff testfile
+p8 4
+rm testfile
+EOF
+EXPECT=<<EOF
+01020304
+EOF
+EXPECT_ERR=<<EOF
+INFO: Dumped 4 bytes from 0x00000000 into testfile
+EOF
+RUN
+
+NAME=wtf base64 with alias
+CMDS=<<EOF
+wx 01020304
+wtf base64:JGQ= 4
+wx 00000000
+wff $d
+p8 4
+EOF
+EXPECT=<<EOF
+01020304
+EOF
+EXPECT_ERR=<<EOF
+INFO: Dumped 4 bytes from 0x00000000 into $d
+EOF
+RUN
+
 NAME=wf
 FILE=-
 CMDS=<<EOF
@@ -230,7 +367,7 @@ CMDS=<<EOF
 wx 553344
 p8 3
 s
-wxs 1111
+wx+1111
 s
 p8 2 @ -2
 EOF
@@ -257,10 +394,10 @@ nop
 EOF
 RUN
 
-NAME=wb
+NAME=wX
 FILE=-
 CMDS=<<EOF
-wb 0102 @!20
+wX 0102 @!20
 p8 20
 EOF
 EXPECT=<<EOF
@@ -272,7 +409,7 @@ NAME=wm
 FILE=-
 CMDS=<<EOF
 wm f0ff
-wb 010203 @!20
+wX 010203 @!20
 p8 20
 EOF
 EXPECT=<<EOF
@@ -337,5 +474,42 @@ EOF
 EXPECT=<<EOF
 0568656c6c6f
 03616c6c
+EOF
+RUN
+
+NAME=ws2
+FILE=-
+CMDS=<<EOF
+ws hello
+p8 16
+ws2 hello
+p8 16
+ws hello
+p8 16
+ws4 hello
+p8 16
+EOF
+EXPECT=<<EOF
+0568656c6c6f00000000000000000000
+050068656c6c6f000000000000000000
+0568656c6c6f6f000000000000000000
+0500000068656c6c6f00000000000000
+EOF
+RUN
+
+NAME=w+
+FILE=-
+CMDS=<<EOF
+e hex.header=false
+w+hello
+w+world
+px 16
+px 16 @ 0
+p8 16
+EOF
+EXPECT=<<EOF
+0x0000000a  0000 0000 0000 0000 0000 0000 0000 0000  ................
+0x00000000  6865 6c6c 6f77 6f72 6c64 0000 0000 0000  helloworld......
+00000000000000000000000000000000
 EOF
 RUN

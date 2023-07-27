@@ -309,18 +309,18 @@ int winkd_wait_packet(WindCtx *ctx, const uint32_t type, kd_packet_t **p) {
 R_PACKED (
 	typedef struct {
 	char tag[4];
-	uint32_t start_vpn;
-	uint32_t end_vpn;
-	uint32_t parent;
-	uint32_t left;
-	uint32_t right;
-	uint32_t flags;
+	ut32 start_vpn;
+	ut32 end_vpn;
+	ut32 parent;
+	ut32 left;
+	ut32 right;
+	ut32 flags;
 }) mmvad_short;
 
 int winkd_walk_vadtree(WindCtx *ctx, ut64 address, ut64 parent) {
-	mmvad_short entry = { { 0 } };
+	mmvad_short entry = { {0} };
 	ut64 start, end;
-	int prot;
+	ut32 prot;
 
 	if (winkd_read_at (ctx, (uint8_t *) &entry, address - 0x4, sizeof(mmvad_short)) != sizeof (mmvad_short)) {
 		eprintf ("0x%"PFMT64x " Could not read the node!\n", (ut64) address);
@@ -536,6 +536,7 @@ RList *winkd_list_modules(WindCtx *ctx) {
 
 		mod->name = calloc ((ut64)length + 1, 1);
 		if (!mod->name) {
+			free (unname);
 			break;
 		}
 		wcstombs (mod->name, unname, length);
@@ -967,16 +968,15 @@ bool winkd_write_reg(WindCtx *ctx, const uint8_t *buf, int size) {
 	winkd_lock_leave (ctx);
 
 	kd_req_t *rr = PKT_REQ (pkt);
-
-	if (rr->ret) {
-		WIND_DBG eprintf("%s: req returned %08x\n", __FUNCTION__, rr->ret);
+	if (rr && rr->ret) {
+		WIND_DBG eprintf ("%s: req returned %08x\n", __FUNCTION__, rr->ret);
 		free (pkt);
-		return 0;
+		return false;
 	}
 
 	free (pkt);
-
-	return size;
+	return true;
+	// return size;
 error:
 	winkd_lock_leave (ctx);
 	return 0;
@@ -1382,7 +1382,7 @@ void winkd_break(void *arg) {
 }
 
 int winkd_break_read(WindCtx *ctx) {
-#if __WINDOWS__ && !defined(_MSC_VER)
+#if R2__WINDOWS__ && !defined(_MSC_VER)
 	static BOOL WINAPI (*w32_CancelIoEx)(HANDLE, LPOVERLAPPED) = NULL;
 	if (!w32_CancelIoEx) {
 		w32_CancelIoEx = (BOOL WINAPI (*)(HANDLE, LPOVERLAPPED))

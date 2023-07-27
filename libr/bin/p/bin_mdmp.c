@@ -1,25 +1,21 @@
-/* radare2 - LGPL - Copyright 2016-2018 - Davis, Alex Kornitzer */
+/* radare2 - LGPL - Copyright 2016-2023 - Davis, Alex Kornitzer */
 
-#include <r_types.h>
-#include <r_util.h>
 #include <r_util/r_print.h>
-#include <r_lib.h>
 #include <r_bin.h>
-
 #include "mdmp/mdmp.h"
 
 static Sdb *get_sdb(RBinFile *bf) {
 	r_return_val_if_fail (bf && bf->o, NULL);
-	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
-	return (obj && obj->kv) ? obj->kv: NULL;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	return (mdmp && mdmp->kv) ? mdmp->kv: NULL;
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_mdmp_free ((struct r_bin_mdmp_obj*)bf->o->bin_obj);
+	r_bin_mdmp_free ((RBinMdmpObj *)bf->o->bin_obj);
 }
 
 static RList* entries(RBinFile *bf) {
-	struct r_bin_mdmp_obj *obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
 	RListIter *it;
@@ -29,14 +25,12 @@ static RList* entries(RBinFile *bf) {
 		return NULL;
 	}
 
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
-
-	r_list_foreach (obj->pe32_bins, it, pe32_bin) {
+	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		list = Pe32_r_bin_mdmp_pe_get_entrypoint (pe32_bin);
 		r_list_join (ret, list);
 		r_list_free (list);
 	}
-	r_list_foreach (obj->pe64_bins, it, pe64_bin) {
+	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
 		list = Pe64_r_bin_mdmp_pe_get_entrypoint (pe64_bin);
 		r_list_join (ret, list);
 		r_list_free (list);
@@ -46,17 +40,16 @@ static RList* entries(RBinFile *bf) {
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	struct r_bin_mdmp_obj *obj;
-	RBinInfo *ret;
-
-	if (!(ret = R_NEW0 (RBinInfo))) {
+	RBinInfo *ret = R_NEW0 (RBinInfo);
+	if (!ret) {
 		return NULL;
 	}
-
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
-
-	ret->big_endian = obj->endian;
-	ret->claimed_checksum = strdup (sdb_fmt ("0x%08x", obj->hdr->check_sum));  // FIXME: Leaks
+	RBinMdmpObj *mdmp = bf->o->bin_obj;
+	if (!mdmp) {
+		return NULL;
+	}
+	ret->big_endian = mdmp->endian;
+	ret->claimed_checksum = r_str_newf ("0x%08x", mdmp->hdr->check_sum);  // FIXME: Leaks
 	ret->file = bf->file ? strdup (bf->file) : NULL;
 	ret->has_va = true;
 	ret->rclass = strdup ("mdmp");
@@ -66,11 +59,12 @@ static RBinInfo *info(RBinFile *bf) {
 	// FIXME: Needed to fix issue with PLT resolving. Can we get away with setting this for all children bins?
 	ret->has_lit = true;
 
-	sdb_set (bf->sdb, "mdmp.flags", sdb_fmt ("0x%08"PFMT64x, obj->hdr->flags), 0);
-	sdb_num_set (bf->sdb, "mdmp.streams", obj->hdr->number_of_streams, 0);
+	r_strf_var (k, 32, "0x%08"PFMT64x, mdmp->hdr->flags);
+	sdb_set (bf->sdb, "mdmp.flags", k, 0);
+	sdb_num_set (bf->sdb, "mdmp.streams", mdmp->hdr->number_of_streams, 0);
 
-	if (obj->streams.system_info) {
-		switch (obj->streams.system_info->processor_architecture) {
+	if (mdmp->streams.system_info) {
+		switch (mdmp->streams.system_info->processor_architecture) {
 		case MDMP_PROCESSOR_ARCHITECTURE_INTEL:
 			ret->machine = strdup ("i386");
 			ret->arch = strdup ("x86");
@@ -95,24 +89,24 @@ static RBinInfo *info(RBinFile *bf) {
 			break;
 		}
 
-		switch (obj->streams.system_info->product_type) {
+		switch (mdmp->streams.system_info->product_type) {
 		case MDMP_VER_NT_WORKSTATION:
 			ret->os = r_str_newf ("Windows NT Workstation %d.%d.%d",
-			obj->streams.system_info->major_version,
-			obj->streams.system_info->minor_version,
-			obj->streams.system_info->build_number);
+			mdmp->streams.system_info->major_version,
+			mdmp->streams.system_info->minor_version,
+			mdmp->streams.system_info->build_number);
 			break;
 		case MDMP_VER_NT_DOMAIN_CONTROLLER:
 			ret->os = r_str_newf ("Windows NT Server Domain Controller %d.%d.%d",
-			obj->streams.system_info->major_version,
-			obj->streams.system_info->minor_version,
-			obj->streams.system_info->build_number);
+			mdmp->streams.system_info->major_version,
+			mdmp->streams.system_info->minor_version,
+			mdmp->streams.system_info->build_number);
 			break;
 		case MDMP_VER_NT_SERVER:
 			ret->os = r_str_newf ("Windows NT Server %d.%d.%d",
-			obj->streams.system_info->major_version,
-			obj->streams.system_info->minor_version,
-			obj->streams.system_info->build_number);
+			mdmp->streams.system_info->major_version,
+			mdmp->streams.system_info->minor_version,
+			mdmp->streams.system_info->build_number);
 			break;
 		default:
 			ret->os = strdup ("Unknown");
@@ -125,7 +119,6 @@ static RBinInfo *info(RBinFile *bf) {
 static RList* libs(RBinFile *bf) {
 	char *ptr = NULL;
 	int i;
-	struct r_bin_mdmp_obj *obj;
 	struct r_bin_pe_lib_t *libs = NULL;
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
@@ -139,11 +132,11 @@ static RList* libs(RBinFile *bf) {
 		return NULL;
 	}
 
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
 
 	/* TODO: Resolve module name for lib, or filter to remove duplicates,
 	** rather than the vaddr :) */
-	r_list_foreach (obj->pe32_bins, it, pe32_bin) {
+	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		if (!(libs = Pe32_r_bin_pe_get_libs (pe32_bin->bin))) {
 			return ret;
 		}
@@ -153,7 +146,7 @@ static RList* libs(RBinFile *bf) {
 		}
 		free (libs);
 	}
-	r_list_foreach (obj->pe64_bins, it, pe64_bin) {
+	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
 		if (!(libs = Pe64_r_bin_pe_get_libs (pe64_bin->bin))) {
 			return ret;
 		}
@@ -307,18 +300,20 @@ static RList *mem(RBinFile *bf) {
 	struct minidump_memory_descriptor *module;
 	struct minidump_memory_descriptor64 *module64;
 	struct minidump_memory_info *mem_info;
-	struct r_bin_mdmp_obj *obj;
-	RList *ret;
 	RListIter *it;
 	RBinMem *ptr;
 	ut64 index;
 	ut64 state, type, a_protect;
 
-	if (!(ret = r_list_newf (r_bin_mem_free))) {
+	RList *ret = r_list_newf (r_bin_mem_free);
+	if (!ret) {
 		return NULL;
 	}
 
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
+	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)R_UNWRAP3 (bf, o, bin_obj);
+	if (!obj) {
+		return ret;
+	}
 
 	/* [1] As there isnt a better place to put this info at the moment we will
 	** mash it into the name field, but without enumeration for now  */
@@ -338,9 +333,9 @@ static RList *mem(RBinFile *bf) {
 			a_protect = mem_info->allocation_protect;
 		}
 		location = &(module->memory);
-		ptr->name = strdup (sdb_fmt ("paddr=0x%08"PFMT32x" state=0x%08"PFMT64x
+		ptr->name = r_str_newf ("paddr=0x%08"PFMT32x" state=0x%08"PFMT64x
 					" type=0x%08"PFMT64x" allocation_protect=0x%08"PFMT64x" Memory_Section",
-					location->rva, state, type, a_protect));
+					location->rva, state, type, a_protect);
 
 		r_list_append (ret, ptr);
 	}
@@ -361,9 +356,9 @@ static RList *mem(RBinFile *bf) {
 			type = mem_info->type;
 			a_protect = mem_info->allocation_protect;
 		}
-		ptr->name = strdup (sdb_fmt ("paddr=0x%08"PFMT64x" state=0x%08"PFMT64x
+		ptr->name = r_str_newf ("paddr=0x%08"PFMT64x" state=0x%08"PFMT64x
 					" type=0x%08"PFMT64x" allocation_protect=0x%08"PFMT64x" Memory_Section",
-					index, state, type, a_protect));
+					index, state, type, a_protect);
 
 		index += module64->data_size;
 
@@ -377,30 +372,25 @@ static RList* relocs(RBinFile *bf) {
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
 	RListIter *it;
-	RList* ret;
-
-	if (!(ret = r_list_newf (free))) {
+	RList* ret = r_list_newf (free);
+	if (!ret) {
 		return NULL;
 	}
-
-	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
-
-	r_list_foreach (obj->pe32_bins, it, pe32_bin) {
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		if (pe32_bin->bin && pe32_bin->bin->relocs) {
 			r_list_join (ret, pe32_bin->bin->relocs);
 		}
 	}
-	r_list_foreach (obj->pe64_bins, it, pe64_bin) {
+	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
 		if (pe64_bin->bin && pe64_bin->bin->relocs) {
 			r_list_join (ret, pe64_bin->bin->relocs);
 		}
 	}
-
 	return ret;
 }
 
 static RList* imports(RBinFile *bf) {
-	struct r_bin_mdmp_obj *obj;
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
 	RList *ret = NULL, *list;
@@ -409,17 +399,15 @@ static RList* imports(RBinFile *bf) {
 	if (!(ret = r_list_newf ((RListFree)r_bin_import_free))) {
 		return NULL;
 	}
-
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
-
-	r_list_foreach (obj->pe32_bins, it, pe32_bin) {
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		list = Pe32_r_bin_mdmp_pe_get_imports (pe32_bin);
 		if (list) {
 			r_list_join (ret, list);
 			r_list_free (list);
 		}
 	}
-	r_list_foreach (obj->pe64_bins, it, pe64_bin) {
+	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
 		list = Pe64_r_bin_mdmp_pe_get_imports (pe64_bin);
 		if (list) {
 			r_list_join (ret, list);
@@ -430,7 +418,6 @@ static RList* imports(RBinFile *bf) {
 }
 
 static RList* symbols(RBinFile *bf) {
-	struct r_bin_mdmp_obj *obj;
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
 	RList *ret, *list;
@@ -440,14 +427,14 @@ static RList* symbols(RBinFile *bf) {
 		return NULL;
 	}
 
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
 
-	r_list_foreach (obj->pe32_bins, it, pe32_bin) {
+	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		list = Pe32_r_bin_mdmp_pe_get_symbols (bf->rbin, pe32_bin);
 		r_list_join (ret, list);
 		r_list_free (list);
 	}
-	r_list_foreach (obj->pe64_bins, it, pe64_bin) {
+	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
 		list = Pe64_r_bin_mdmp_pe_get_symbols (bf->rbin, pe64_bin);
 		r_list_join (ret, list);
 		r_list_free (list);
@@ -455,7 +442,7 @@ static RList* symbols(RBinFile *bf) {
 	return ret;
 }
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut8 magic[6];
 	if (r_buf_read_at (b, 0, magic, sizeof (magic)) == 6) {
 		return !memcmp (magic, MDMP_MAGIC, 6);

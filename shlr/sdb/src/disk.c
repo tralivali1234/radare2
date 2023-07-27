@@ -1,12 +1,9 @@
-/* sdb - MIT - Copyright 2013-2018 - pancake */
+/* sdb - MIT - Copyright 2013-2022 - pancake */
 
-#include <stdio.h>
 #include <fcntl.h>
 #include <errno.h>
-#include <string.h>
-#include <stdlib.h>
 #include <sys/stat.h>
-#include "sdb.h"
+#include "sdb/sdb.h"
 
 #if __SDB_WINDOWS__
 
@@ -21,7 +18,7 @@ static wchar_t *r_utf8_to_utf16_l (const char *cstring, int len) {
 
 	if ((wcsize = MultiByteToWideChar (CP_UTF8, 0, cstring, len, NULL, 0))) {
 		wcsize += 1;
-		if ((rutf16 = (wchar_t *) calloc (wcsize, sizeof (wchar_t)))) {
+		if ((rutf16 = (wchar_t *) sdb_gh_calloc (wcsize, sizeof (wchar_t)))) {
 			MultiByteToWideChar (CP_UTF8, 0, cstring, len, rutf16, wcsize);
 			if (len != -1) {
 				rutf16[wcsize - 1] = L'\0';
@@ -36,12 +33,11 @@ static wchar_t *r_utf8_to_utf16_l (const char *cstring, int len) {
 static bool r_sys_mkdir(const char *path) {
 	LPTSTR path_ = r_sys_conv_utf8_to_utf16 (path);
 	bool ret = CreateDirectory (path_, NULL);
-
-	free (path_);
+	sdb_gh_free (path_);
 	return ret;
 }
 #else
-#define r_sys_conv_utf8_to_utf16(buf) strdup (buf)
+#define r_sys_conv_utf8_to_utf16(buf) sdb_strdup (buf)
 #define r_sys_mkdir(x) CreateDirectory (x, NULL)
 #endif
 #ifndef ERROR_ALREADY_EXISTS
@@ -53,8 +49,7 @@ static bool r_sys_mkdir(const char *path) {
 #define r_sys_mkdir_failed() (errno != EEXIST)
 #endif
 
-static inline int r_sys_mkdirp(char *dir) {
-	int ret = 1;
+static inline bool mkdirp(char *dir) {
 	const char slash = DIRSEP;
 	char *path = dir;
 	char *ptr = path;
@@ -70,14 +65,14 @@ static inline int r_sys_mkdirp(char *dir) {
 	while ((ptr = strchr (ptr, slash))) {
 		*ptr = 0;
 		if (!r_sys_mkdir (path) && r_sys_mkdir_failed ()) {
-			eprintf ("r_sys_mkdirp: fail '%s' of '%s'\n", path, dir);
+			// eprintf ("cannot make directory r_sys_mkdirp: fail '%s' of '%s'\n", path, dir);
 			*ptr = slash;
-			return 0;
+			return false;
 		}
 		*ptr = slash;
 		ptr++;
 	}
-	return ret;
+	return true;
 }
 
 SDB_API bool sdb_disk_create(Sdb* s) {
@@ -88,17 +83,17 @@ SDB_API bool sdb_disk_create(Sdb* s) {
 		return false; // cannot re-create
 	}
 	if (!s->dir && s->name) {
-		s->dir = strdup (s->name);
+		s->dir = sdb_strdup (s->name);
 	}
 	dir = s->dir ? s->dir : "./";
 	R_FREE (s->ndump);
 	nlen = strlen (dir);
-	str = malloc (nlen + 5);
+	str = (char *)sdb_gh_malloc (nlen + 5);
 	if (!str) {
 		return false;
 	}
 	memcpy (str, dir, nlen + 1);
-	r_sys_mkdirp (str);
+	mkdirp (str);
 	memcpy (str + nlen, ".tmp", 5);
 	if (s->fdump != -1) {
 		close (s->fdump);
@@ -107,7 +102,7 @@ SDB_API bool sdb_disk_create(Sdb* s) {
 	wchar_t *wstr = r_sys_conv_utf8_to_utf16 (str);
 	if (wstr) {
 		s->fdump = _wopen (wstr, O_BINARY | O_RDWR | O_CREAT | O_TRUNC, SDB_MODE);
-		free (wstr);
+		sdb_gh_free (wstr);
 	} else {
 		s->fdump = -1;
 	}
@@ -115,8 +110,8 @@ SDB_API bool sdb_disk_create(Sdb* s) {
 	s->fdump = open (str, O_BINARY | O_RDWR | O_CREAT | O_TRUNC, SDB_MODE);
 #endif
 	if (s->fdump == -1) {
-		eprintf ("sdb: Cannot open '%s' for writing.\n", str);
-		free (str);
+		// eprintf ("sdb: Cannot open '%s' for writing.\n", str);
+		sdb_gh_free (str);
 		return false;
 	}
 	cdb_make_start (&s->m, s->fdump);
@@ -155,14 +150,14 @@ SDB_API bool sdb_disk_finish (Sdb* s) {
 	if (MoveFileEx (ndump_, dir_, MOVEFILE_REPLACE_EXISTING)) {
 		//eprintf ("Error 0x%02x\n", GetLastError ());
 	}
-	free (ndump_);
-	free (dir_);
+	sdb_gh_free (ndump_);
+	sdb_gh_free (dir_);
 #else
 	if (s->ndump && s->dir) {
 		IFRET (rename (s->ndump, s->dir));
 	}
 #endif
-	free (s->ndump);
+	sdb_gh_free (s->ndump);
 	s->ndump = NULL;
 	// reopen if was open before
 	reopen = true; // always reopen if possible

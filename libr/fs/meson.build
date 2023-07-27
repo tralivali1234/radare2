@@ -1,17 +1,24 @@
 r_fs_sources = [
-  'fs_file.c',
   'fs.c',
-  'shell.c',
+  'fs_file.c',
+  'fs_shell.c',
   'p/fs_io.c',
   'p/fs_posix.c',
+  'p/fs_zip.c',
   'p/fs_r2.c',
 ]
 
-r_fs_deps = [ r_util_dep ]
+r_fs_deps = [ r_util_dep, zip_dep ]
 r_fs_cflags = [ library_cflags ]
+if get_option('blob')
+  r_fs_static_deps = [ r_util_static_dep, zip_dep ]
+endif
 
 if not user_plugins.contains('nogrub') and not get_option('nogpl')
   r_fs_deps += [ grub_dep ]
+  if get_option('blob')
+    r_fs_static_deps += [ grub_static_dep ]
+  endif
   r_fs_sources += [
     'p/fs_cpio.c',
     'p/fs_ext2.c',
@@ -53,7 +60,20 @@ r_fs = library('r_fs', r_fs_sources,
 )
 
 r_fs_dep = declare_dependency(link_with: r_fs,
-                              include_directories: platform_inc)
+  include_directories: platform_inc)
+
+if get_option('blob')
+r_fs_static = static_library('r_fs_static', r_fs_sources,
+  include_directories: platform_inc,
+  c_args: r_fs_cflags,
+  dependencies: r_fs_static_deps,
+  install: true,
+  implicit_include_directories: false,
+)
+
+r_fs_static_dep = declare_dependency(link_with: r_fs_static,
+  include_directories: platform_inc)
+endif
 
 pkgconfig_mod.generate(r_fs,
   subdirs: 'libr',

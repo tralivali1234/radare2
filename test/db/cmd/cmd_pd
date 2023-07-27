@@ -196,7 +196,7 @@ e asm.marks=false
 e asm.nbytes=0
 e asm.comments=false
 e asm.flags=false
-e asm.fcnlines=false
+e asm.lines.fcn=false
 e asm.calls=false
 e asm.functions=false
 e scr.color=false
@@ -204,7 +204,7 @@ f-rip
 pd 1
 EOF
 EXPECT=<<EOF
-fcn.00000106 ()
+fcn.00000106  ()
 EOF
 RUN
 
@@ -242,8 +242,8 @@ e asm.cmt.right=false
 pd 1
 EOF
 EXPECT=<<EOF
-            [32m[7m0x00000000[0m      [33m48[37m89[37me5[0m         [37mrbp =[36m rsp[0m[0m[0m
-[0m            [32m[7m0x00000000[0m      [33m48[37m89[37me5[0m         [37mrbp =[36m rsp[0m[0m
+            [32m[7m0x00000000[0m      [33m48[36m89[36me5[0m         [36mrbp =[36m rsp[0m[0m[0m
+[0m            [32m[7m0x00000000[0m      [33m48[36m89[36me5[0m         [36mrbp =[36m rsp[0m[0m
 EOF
 RUN
 
@@ -257,7 +257,7 @@ e scr.color=1
 pd 1
 EOF
 EXPECT=<<EOF
-            [32m[7m0x00000000[0m      [37ma9[33m7e[32m00[0m         [35mlda[36m #[33m0x007e[0m[0m[0m
+            [32m[7m0x00000000[0m      [36ma9[33m7e[32m00[0m         [35mlda[36m #[33m0x007e[0m[0m[0m
 EOF
 RUN
 
@@ -386,8 +386,8 @@ pd 10
 EOF
 EXPECT=<<EOF
                  ; [14] -r-x section size 2466 named .text
-                 ;-- entry0:
                  ;-- section..text:
+                 ;-- entry0:
                  xor ebp, ebp
                  mov r9, rdx
                  pop rsi
@@ -434,7 +434,7 @@ s 6
 pdj -1
 EOF
 EXPECT=<<EOF
-[{"offset":1,"ptr":4248444,"val":4248444,"esil":"4248444,4,esp,-,=[4],4,esp,-=","refptr":false,"fcn_addr":0,"fcn_last":1020,"size":5,"opcode":"push 0x40d37c","disasm":"push 0x40d37c","bytes":"687cd34000","family":"cpu","type":"push","reloc":false,"type_num":13,"type2_num":0}]
+[{"offset":1,"ptr":4248444,"val":4248444,"esil":"4248444,4,esp,-,=[4],4,esp,-=","refptr":0,"fcn_addr":0,"fcn_last":1020,"size":5,"opcode":"push 0x40d37c","disasm":"push 0x40d37c","bytes":"687cd34000","family":"cpu","type":"push","reloc":false,"type_num":13,"type2_num":0}]
 EOF
 RUN
 
@@ -446,7 +446,7 @@ e asm.bits=64
 pdj 3 @ main
 EOF
 EXPECT=<<EOF
-[{"offset":4195590,"esil":"rbp,8,rsp,-,=[8],8,rsp,-=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":1,"opcode":"push rbp","disasm":"push rbp","bytes":"55","family":"cpu","type":"rpush","reloc":false,"type_num":268435468,"type2_num":0,"flags":["main","sym.main"]},{"offset":4195591,"esil":"rsp,rbp,=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":3,"opcode":"mov rbp, rsp","disasm":"mov rbp, rsp","bytes":"4889e5","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0},{"offset":4195594,"ptr":4195780,"val":4195780,"esil":"4195780,rdi,=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":5,"opcode":"mov edi, 0x4005c4","disasm":"mov edi, str.Hello_World","bytes":"bfc4054000","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0}]
+[{"offset":4195590,"esil":"rbp,8,rsp,-,=[8],8,rsp,-=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":1,"opcode":"push rbp","disasm":"push rbp","bytes":"55","family":"cpu","type":"rpush","reloc":false,"type_num":268435468,"type2_num":0,"flags":["main","sym.main"]},{"offset":4195591,"esil":"rsp,rbp,=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":3,"opcode":"mov rbp, rsp","disasm":"mov rbp, rsp","bytes":"4889e5","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0},{"offset":4195594,"ptr":4195780,"val":4195780,"esil":"4195780,rdi,=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":5,"opcode":"mov edi, 0x4005c4","disasm":"mov edi, str.Hello_World","bytes":"bfc4054000","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0}]
 EOF
 RUN
 
@@ -458,7 +458,7 @@ e asm.bits=64
 pdj -3 @ 0x0040050f
 EOF
 EXPECT=<<EOF
-[{"offset":4195590,"esil":"rbp,8,rsp,-,=[8],8,rsp,-=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":1,"opcode":"push rbp","disasm":"push rbp","bytes":"55","family":"cpu","type":"rpush","reloc":false,"type_num":268435468,"type2_num":0,"flags":["main","sym.main"]},{"offset":4195591,"esil":"rsp,rbp,=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":3,"opcode":"mov rbp, rsp","disasm":"mov rbp, rsp","bytes":"4889e5","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0},{"offset":4195594,"ptr":4195780,"val":4195780,"esil":"4195780,rdi,=","refptr":false,"fcn_addr":0,"fcn_last":0,"size":5,"opcode":"mov edi, 0x4005c4","disasm":"mov edi, str.Hello_World","bytes":"bfc4054000","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0}]
+[{"offset":4195590,"esil":"rbp,8,rsp,-,=[8],8,rsp,-=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":1,"opcode":"push rbp","disasm":"push rbp","bytes":"55","family":"cpu","type":"rpush","reloc":false,"type_num":268435468,"type2_num":0,"flags":["main","sym.main"]},{"offset":4195591,"esil":"rsp,rbp,=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":3,"opcode":"mov rbp, rsp","disasm":"mov rbp, rsp","bytes":"4889e5","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0},{"offset":4195594,"ptr":4195780,"val":4195780,"esil":"4195780,rdi,=","refptr":0,"fcn_addr":0,"fcn_last":0,"size":5,"opcode":"mov edi, 0x4005c4","disasm":"mov edi, str.Hello_World","bytes":"bfc4054000","family":"cpu","type":"mov","reloc":false,"type_num":9,"type2_num":0}]
 EOF
 RUN
 
@@ -466,7 +466,7 @@ NAME=pdj str in opcode
 FILE=bins/java/Hello.class
 CMDS=pdj 1 @ 0x000002ae
 EXPECT=<<EOF
-[{"offset":686,"esil":"","refptr":false,"fcn_addr":0,"fcn_last":0,"size":2,"opcode":"ldc \"World\"","disasm":"ldc \"World\"","bytes":"120b","family":"cpu","type":"push","reloc":false,"type_num":13,"type2_num":2138640}]
+[{"offset":686,"esil":"","refptr":0,"fcn_addr":0,"fcn_last":0,"size":2,"opcode":"ldc \"World\"","disasm":"ldc \"World\"","bytes":"120b","family":"cpu","type":"push","reloc":false,"type_num":13,"type2_num":2138640}]
 EOF
 RUN
 
@@ -808,8 +808,8 @@ e asm.sub.names=false
 pd 1 @ 0x0001145f
 EOF
 EXPECT=<<EOF
-            [32m0x0001145f[0m      [37mlea[36m rdi[0m,[36m[36m [0m[36mstr.A_NULL_argv_0__was_passed_through_an_exec_system_call._n[0m[36m[0m[0m
-            [32m0x0001145f[0m      [37mlea[36m rdi[0m,[36m[36m [0m[[36m[36m0x0001b5d8[0m][36m[0m[0m
+            [32m0x0001145f[0m      [36mlea[36m rdi[0m,[36m[36m str.A_NULL_argv_0__was_passed_through_an_exec_system_call._n[0m[0m
+            [32m0x0001145f[0m      [36mlea[36m rdi[0m,[36m[36m [0m[[36m0x0001b5d8[0m][36m[0m[0m
 EOF
 RUN
 
@@ -879,7 +879,7 @@ EXPECT=<<EOF
             0x0040169d      mov esi, str.see_                          ; "see .b.e.e.f\n"
             0x00401693      mov edi, 0x4021ff                          ; "utf8> \\u00a2\\u20ac\\U00010348 in yellow:.[33m ......... .[0m\n"
             0x00401693      mov edi, 0x4021ff                          ; "utf8> \\u00a2\\u20ac\\U00010348 in yellow:.[33m ... .[0m."
-            0x004016ac      mov edi, 0x40224a                          ; 'J"@' ; u"utf16le> \\u00a2\\u20ac\\U00010348 in green:.[32m ... .[0m."
+            0x004016ac      mov edi, 0x40224a                          ; 'J\"@' ; u"utf16le> \\u00a2\\u20ac\\U00010348 in green:.[32m ... .[0m."
             0x004016ed      mov edi, 0x40258c                          ; U"utf32le> \\u00a2\\u20ac\\U00010348 in cyan:.[36m ... .[0m."
             0x004016f7      mov edi, 0x40266c                          ; U"Mountain range with embedded quad zeros: .A.A.A."
 EOF
@@ -945,7 +945,7 @@ pd 1 @ 0x004016ca
 pd 1 @ 0x004016d4
 EOF
 EXPECT=<<EOF
-            0x004016ac      mov edi, 0x40224a                          ; 'J"@' ; u"utf16le> \\u00a2\\u20ac\\U00010348 in green:\x1b[32m \xa2\u20ac\U00010348 \x1b[0m\n"
+            0x004016ac      mov edi, 0x40224a                          ; 'J\"@' ; u"utf16le> \\u00a2\\u20ac\\U00010348 in green:\x1b[32m \xa2\u20ac\U00010348 \x1b[0m\n"
             0x004016b6      mov edi, str.__e_e_b__                     ; "_%e%e%b% "
             0x004016b6      mov edi, str.__e_e_b__                     ; u"\u255f\u2565\u2565\u2562 is a wall with no embedded zeros\n"
             0x004016c0      mov edi, str.__B_                          ; " %B%"
@@ -979,8 +979,8 @@ EXPECT=<<EOF
             0x004016de      mov esi, str._tLinux_wideesc:_e_0m_r_n     ; U"\tLinux_wide\\esc: \x1b[0m\xa1\r\n"
             0x004016ed      mov edi, 0x40258c                          ; U"utf32le> \\u00a2\\u20ac\\U00010348 in cyan:\x1b[36m \xa2\u20ac\U00010348 \x1b[0m\n"
             0x004016f7      mov edi, 0x40266c                          ; U"Mountain range with embedded quad zeros: \U00010300A\U00010300A\U00010300A\n"
-            0x00401701      mov edi, 0x402730                          ; '0'@' ; "e%"
-            0x00401701      mov edi, 0x402730                          ; '0'@' ; U"\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565"
+            0x00401701      mov edi, 0x402730                          ; '0\'@' ; "e%"
+            0x00401701      mov edi, 0x402730                          ; '0\'@' ; U"\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u2565\u256b\u2565\u2565\u2565\u2565\u2565\u2565\u2565"
 EOF
 RUN
 
@@ -1039,7 +1039,7 @@ EXPECT=<<EOF
 guess
 utf8
 utf16le
-            0x004016c0      mov edi, 0x40230c                          ; u"\u2520\u2542\u2500\u2500\u2542\u2528 is a fence with embedded zeros\n"
+            0x004016c0      mov edi, 0x40230c                          ; str.__B_ ; u"\u2520\u2542\u2500\u2500\u2542\u2528 is a fence with embedded zeros\n"
 utf32le
             0x004016ed      mov edi, 0x40258c                          ; U"utf32le> \\u00a2\\u20ac\\U00010348 in cyan:\x1b[36m \xa2\u20ac\U00010348 \x1b[0m\n"
 
@@ -1062,8 +1062,8 @@ utf32le
 utf32le
 EOF
 EXPECT_ERR=<<EOF
-Unknown encoding: cat_sat_on_keyboard
-Unknown encoding: CAT_SAT_ON_KEYBOARD
+ERROR: Unknown encoding: cat_sat_on_keyboard
+ERROR: Unknown encoding: CAT_SAT_ON_KEYBOARD
 EOF
 RUN
 
@@ -1182,7 +1182,7 @@ EXPECT=<<EOF
 [0m[36m|[0m           [32m0x004010e8[0m      [35mpush[36m esi[0m[0m
 [36m|[0m           [31m; 0x402004
 [0m[36m|[0m           [31m; DWORD GetCurrentProcessorNumber(void)
-[0m[36m|[0m           [32m0x004010e9[0m      [32mcall dword [sym.imp.KERNEL32.dll_GetCurrentProcessorNumber][0m
+[0m[36m|[0m           [32m0x004010e9[0m      [32mcall dword[36m [0m[[36msym.imp.KERNEL32.dll_GetCurrentProcessorNumber[0m][36m[0m[0m
 EOF
 RUN
 
@@ -1261,7 +1261,7 @@ EOF
 EXPECT=<<EOF
 [{"offset":0,"text":"  0x00000000      90             nop                                   ; test"}]
 [{"offset":0,"text":"  0x00000000      90             nop                                   ; test \"with quotes\""}]
-[{"offset":0,"text":"  ; test \"with quotes\"\n"},{"offset":0,"text":"  0x00000000      90             nop"}]
+[{"offset":0,"text":{"offset":0,"text":"  ; test \"with quotes\"\n  ; "},{"offset":0,"text":"  0x00000000      90             nop"}}
 EOF
 RUN
 
@@ -1286,7 +1286,7 @@ pdJ 1 @ 0x00400506
 EOF
 EXPECT=<<EOF
 [{"offset":4195590,"text":"            ;-- main:"},{"offset":4195590,"text":"            0x00400506      55             push rbp"}]
-[{"offset":4195590,"text":"            ; DATA XREF from entry0 @ 0x40042d"},{"offset":4195590,"text":"/ 16: int main (int argc, char **argv, char **envp);"},{"offset":4195590,"text":"|           0x00400506      55             push rbp"}]
+[{"offset":4195590,"text":"            ; DATA XREF from entry0 @ 0x40042d(r)"},{"offset":4195590,"text":"/ 16: int main (int argc, char **argv, char **envp);"},{"offset":4195590,"text":"|           0x00400506      55             push rbp"}]
 EOF
 RUN
 
@@ -1303,24 +1303,9 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=pdJ string - oldshell
-ARGS=-ecfg.newshell=false
-FILE=malloc://128
+NAME=pdJ string
 CMDS=<<EOF
-w Snoo"ping as" usual,
-Cs 30
-pdJ 1
-EOF
-EXPECT=<<EOF
-[{"offset":0,"text":"            0x00000000     .string \"Snoo\\\"ping as\\\" usual,\" ; len=30"}]
-EOF
-RUN
-
-NAME=pdJ string - newshell
-ARGS=-ecfg.newshell=true
-FILE=malloc://128
-CMDS=<<EOF
-w "Snoo\"ping as\" usual,"
+w 'Snoo\"ping as\" usual',
 Cs 30
 pdJ 1
 EOF
@@ -1366,9 +1351,9 @@ e asm.cmt.right=1
 pdJ 1 @ 0x080483ec
 EOF
 EXPECT=<<EOF
-[{"offset":134514169,"arrow":134514133,"text":"|       `=< 0x080485f9      72da           if (((unsigned) var) < 0) goto 0x80485d5"}]
-[{"offset":134513644,"text":"            ; sym.imp.__libc_start_main"},{"offset":134513644,"text":"            ; int __libc_start_main(func main, int argc, char **ubp_av, func init, func fini, func rtld_fini, void *stack_end)"},{"offset":134513644,"text":"            0x080483ec      e873ffffff     134513508,eip,4,esp,-=,esp,=[],eip,="}]
-[{"offset":134513644,"text":"            0x080483ec      e873ffffff     134513508,eip,4,esp,-=,esp,=[],eip,= ; sym.imp.__libc_start_main ; int __libc_start_main(func main, int argc, char **ubp_av, func init, func fini, func rtld_fini, void *stack_end)"}]
+[{"offset":134514169,"arrow":134514133,"text":"|       `=< 0x080485f9      72da           if   (((unsigned) var) < 0) goto 0x80485d5"}]
+[{"offset":134513644,"text":"            ; sym.imp.__libc_start_main"},{"offset":134513644,"text":"            ; int __libc_start_main(func main, int argc, char **ubp_av, func init, func fini, func rtld_fini, void *stack_end)"},{"offset":134513644,"text":"            0x080483ec      e873ffffff     134513508,eip,4,esp,-=,esp,=[4],eip,="}]
+[{"offset":134513644,"text":"            0x080483ec      e873ffffff     134513508,eip,4,esp,-=,esp,=[4],eip,= ; sym.imp.__libc_start_main ; int __libc_start_main(func main, int argc, char **ubp_av, func init, func fini, func rtld_fini, void *stack_end)"}]
 EOF
 RUN
 
@@ -1396,10 +1381,10 @@ pd 1
 pdJ 1
 EOF
 EXPECT=<<EOF
-            0x080484aa      b8e1850408     mov eax, 0x80485e1          ; eax=0x80485e1 "%ls"
-[{"offset":134513834,"text":"            0x080484aa      b8e1850408     mov eax, 0x80485e1          ; eax=0x80485e1 \"%ls\""}]
-            [32m0x080484aa[0m      [37mb8[37me1[37m85[37m04[37m08[0m     [37mmov[36m eax[0m,[36m[36m [33m0x80485e1[0m[0m[0m[31m          ; eax=0x80485e1 [7m"%ls"[27m[0m
-[{"offset":134513834,"text":"            \u001b[32m0x080484aa\u001b[0m      \u001b[37mb8\u001b[37me1\u001b[37m85\u001b[37m04\u001b[37m08\u001b[0m     \u001b[37mmov\u001b[36m eax\u001b[0m,\u001b[36m\u001b[36m \u001b[33m0x80485e1\u001b[0m\u001b[0m\u001b[0m\u001b[31m          ; eax=0x80485e1 \u001b[7m\"%ls\"\u001b[27m\u001b[0m"}]
+            0x080484aa      b8e1850408     mov eax, 0x80485e1          ; "%ls" ; eax=0x80485e1 -> 0x736c25
+[{"offset":134513834,"text":"            0x080484aa      b8e1850408     mov eax, 0x80485e1          ; \"%ls\" ; eax=0x80485e1 -> 0x736c25"}]
+            [32m0x080484aa[0m      [36mb8[36me1[36m85[36m04[36m08[0m     [36mmov[36m eax[0m,[36m[36m [33m0x80485e1[0m[0m[31m          [31m; "%ls"[0m[31m ; eax=0x80485e1 -> 0x736c25[0m
+[{"offset":134513834,"text":"            \u001b[32m0x080484aa\u001b[0m      \u001b[36mb8\u001b[36me1\u001b[36m85\u001b[36m04\u001b[36m08\u001b[0m     \u001b[36mmov\u001b[36m eax\u001b[0m,\u001b[36m\u001b[36m \u001b[33m0x80485e1\u001b[0m\u001b[0m\u001b[31m          \u001b[31m; \"%ls\"\u001b[0m\u001b[31m ; eax=0x80485e1 -> 0x736c25\u001b[0m"}]
 EOF
 RUN
 
@@ -1733,17 +1718,17 @@ e emu.str.inv=false
 pd 1 @ 0x161d
 EOF
 EXPECT=<<EOF
-            [32m0x0000161d[0m      [37mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m [36mabcdefghi][36m[0m[0m[31m                 ; 0x21f7[31m ; "abcdefghi"[0m[31m ; [7m"\n  Blue Pill"[27m str._n__Blue_Pill[0m
-            [32m0x0000161d[0m      [37mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m [36mabcdefghi][36m[0m[0m[31m                 ; 0x21f7[31m ; [7m"abcdefghi"[27m[0m[31m ; "\n  Blue Pill" str._n__Blue_Pill[0m
+            [32m0x0000161d[0m      [36mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m abcdefghi[0m][36m[0m[0m[31m                 [31m; 0x21f7[31m [31m; "abcdefghi"[0m[31m ; [7m"\n  Blue Pill"[27m str._n__Blue_Pill[0m
+            [32m0x0000161d[0m      [36mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m abcdefghi[0m][36m[0m[0m[31m                 [31m; 0x21f7[31m [31m; [7m"abcdefghi"[27m[0m[31m ; "\n  Blue Pill" str._n__Blue_Pill[0m
 
             [31m; 0x21f7
             [31m; "abcdefghi"
 [0m[31m[0m               [31m; [7m"\n  Blue Pill"[27m str._n__Blue_Pill
-[0m            [32m0x0000161d[0m      [37mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m [36mabcdefghi][36m[0m[0m
+[0m            [32m0x0000161d[0m      [36mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m abcdefghi[0m][36m[0m[0m
             [31m; 0x21f7
             [31m; [7m"abcdefghi"[27m
 [0m[31m[0m               [31m; "\n  Blue Pill" str._n__Blue_Pill
-[0m            [32m0x0000161d[0m      [37mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m [36mabcdefghi][36m[0m[0m
+[0m            [32m0x0000161d[0m      [36mlea[36m eax[0m,[36m [0m[[36mesi [0m-[36m[36m abcdefghi[0m][36m[0m[0m
 EOF
 RUN
 
@@ -2179,7 +2164,7 @@ EOF
 EXPECT=<<EOF
             0x08048566      e829feffff     call sym.imp.printf
             0x08048566      e829feffff     call printf                 ; sym.imp.printf
-0x08048394    1 6            sym.imp.printf
+0x08048394    1      6 sym.imp.printf
 |           0x08048566      e829feffff     call sym.imp.printf         ; int printf(const char *format)
 |           0x08048566      e829feffff     call printf                 ; sym.imp.printf ; int printf(const char *format)
 EOF
@@ -2219,7 +2204,7 @@ aaa
 pdf @ 0x08048484~:1
 EOF
 EXPECT=<<EOF
-66: sym.parell (char *s);
+66: sym.parell (char *s); // noreturn
 EOF
 RUN
 
@@ -2233,7 +2218,7 @@ aaa
 pdf @ 0x08048484~:1
 EOF
 EXPECT=<<EOF
-66: parell (char *s);
+66: parell (char *s); // noreturn
 EOF
 RUN
 

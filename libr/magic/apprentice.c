@@ -38,12 +38,16 @@
 #include "file.h"
 #include "patchlevel.h"
 
-#if __UNIX__ && !defined(_MSC_VER)
+#if R2__UNIX__ && !defined(_MSC_VER) && !(defined(__wasi__))
 # define QUICK 1
 # include <sys/mman.h>
 # include <sys/param.h>
 #else
 # define QUICK 0
+#endif
+
+#ifdef __wasi__
+# define MAXPATHLEN 255
 #endif
 
 #ifdef _MSC_VER
@@ -65,11 +69,6 @@ struct r_magic_entry {
 	ut32 cont_count;
 	ut32 max_count;
 };
-
-static int magic_file_formats[FILE_NAMES_SIZE];
-static const size_t file_nformats = FILE_NAMES_SIZE;
-static const char *magic_file_names[FILE_NAMES_SIZE];
-static const size_t file_nnames = FILE_NAMES_SIZE;
 
 static int getvalue(RMagic *ms, struct r_magic *, const char **, int);
 static int hextoint(int);
@@ -165,19 +164,14 @@ static int get_type(const char *l, const char **t) {
 	return p->type;
 }
 
-static void init_file_tables(void) {
-	static bool done = false;
+void init_file_tables(RMagic *m) {
 	const struct type_tbl_s *p;
-	if (done) {
-		return;
-	}
-	done = true;
 	for (p = type_tbl; p->len; p++) {
 		if (p->type >= FILE_NAMES_SIZE) {
 			continue;
 		}
-		magic_file_names[p->type] = p->name;
-		magic_file_formats[p->type] = p->format;
+		m->magic_file_names[p->type] = p->name;
+		m->magic_file_formats[p->type] = p->format;
 	}
 }
 
@@ -268,18 +262,17 @@ void file_delmagic(struct r_magic *p, int type, size_t entries) {
 }
 
 /* const char *fn: list of magic files and directories */
-struct mlist * file_apprentice(RMagic *ms, const char *fn, int action) {
+struct mlist *file_apprentice(RMagic *ms, const char *fn, size_t fn_size, int action) {
 	char *p, *mfn;
 	int file_err, errs = -1;
 	struct mlist *mlist;
 
-	init_file_tables ();
 	if (!fn) {
 		return NULL;
 	}
 
-	if (!(mfn = strdup (fn))) {
-		file_oomem (ms, strlen (fn));
+	if (!(mfn = r_str_ndup (fn, fn_size))) {
+		file_oomem (ms, fn_size);
 		return NULL;
 	}
 	fn = mfn;
@@ -292,7 +285,7 @@ struct mlist * file_apprentice(RMagic *ms, const char *fn, int action) {
 	mlist->next = mlist->prev = mlist;
 
 	while (fn) {
-		p = strchr (fn, PATHSEP);
+		p = strstr (fn, R_SYS_ENVSEP);
 		if (p) {
 			*p++ = '\0';
 		}
@@ -501,7 +494,7 @@ static void load_b(RMagic *ms, int action, const char *data, int *errs, struct r
 	char line[BUFSIZ];
 	size_t lineno = 0;
 	/* read and parse this file */
-	for (ms->line = 1; (data = bgets (line, sizeof (line), data)) != NULL; ms->line++) {
+	for (ms->line = 1; (data = bgets (line, sizeof (line), data)); ms->line++) {
 		size_t len = strlen (line);
 		if (len == 0) { /* null line, garbage, etc */
 			continue;
@@ -549,7 +542,7 @@ static void load_1(RMagic *ms, int action, const char *file, int *errs, struct r
 		return;
 	}
 	/* read and parse this file */
-	for (ms->line = 1; fgets (line, sizeof (line), f) != NULL; ms->line++) {
+	for (ms->line = 1; fgets (line, sizeof (line), f); ms->line++) {
 		size_t len = strlen (line);
 		if (len == 0) { /* null line, garbage, etc */
 			continue;
@@ -589,21 +582,20 @@ static int apprentice_load(RMagic *ms, struct r_magic **magicp, ut32 *nmagicp, c
 	struct r_magic_entry *marray;
 	struct stat st;
 	int errs = 0;
-#if __WINDOWS__
+#if R2__WINDOWS__
 	HANDLE hdir;
 	WIN32_FIND_DATAW entry;
 	wchar_t dir[MAX_PATH];
 	wchar_t *wcpath;
 	char *cfname;
 	char subfn[1024];
-#else	
+#else
 	DIR *dir;
 	struct dirent *d;
 	char subfn[MAXPATHLEN];
 #endif
 	ms->flags |= R_MAGIC_CHECK;	/* Enable checks for parsed files */
-
-        maxmagic = MAXMAGIS;
+	maxmagic = MAXMAGIS;
 	if (!(marray = calloc (maxmagic, sizeof (*marray)))) {
 		file_oomem (ms, maxmagic * sizeof (*marray));
 		return -1;
@@ -621,7 +613,7 @@ static int apprentice_load(RMagic *ms, struct r_magic **magicp, ut32 *nmagicp, c
 			free (marray);
 			return  -1;
 		}
-#if __WINDOWS__ && !defined(__CYGWIN__)
+#if R2__WINDOWS__ && !defined(__CYGWIN__)
 		if ((wcpath = r_utf8_to_utf16 (fn))) {
 			swprintf (dir, _countof (dir), L"%ls\\*.*", wcpath);
 			hdir = FindFirstFileW (dir, &entry);
@@ -649,11 +641,13 @@ static int apprentice_load(RMagic *ms, struct r_magic **magicp, ut32 *nmagicp, c
 				if (*d->d_name == '.') {
 					continue;
 				}
-				snprintf (subfn, sizeof (subfn), "%s/%s", fn, d->d_name);
+				if (snprintf (subfn, sizeof (subfn), "%s/%s", fn, d->d_name) < 0) {
+					continue;
+				}
 				if (stat (subfn, &st) == 0 && S_ISREG (st.st_mode)) {
 					load_1 (ms, action, subfn, &errs, &marray, &marraycount);
 				}
-				//else perror (subfn);
+				//else r_sys_perror (subfn);
 			}
 			closedir (dir);
 		} else {
@@ -686,9 +680,9 @@ static int apprentice_load(RMagic *ms, struct r_magic **magicp, ut32 *nmagicp, c
 				if (marray[i].mp->flag & BINTEST) {
 #define SYMLEN 4 /* strlen("text") */
 					char *p = strstr(marray[i].mp->desc, "text");
-					if (p && (p == marray[i].mp->desc || isspace((unsigned char)p[-1])) &&
+					if (p && (p == marray[i].mp->desc || isspace ((ut8)p[-1])) &&
 					    (p + SYMLEN - marray[i].mp->desc == MAXstring ||
-					     (p[SYMLEN] == '\0' || isspace((unsigned char)p[SYMLEN])))) {
+					     (p[SYMLEN] == '\0' || isspace ((ut8 )p[SYMLEN])))) {
 						(void)fprintf(stderr,
 							      "*** Possible binary test for text type\n");
 					}
@@ -844,7 +838,7 @@ static int string_modifier_check(RMagic *ms, struct r_magic *m) {
 		if (m->str_range == 0) {
 			file_magwarn(ms,
 			    "missing range; defaulting to %d\n",
-                            STRING_DEFAULT_RANGE);
+			    STRING_DEFAULT_RANGE);
 			m->str_range = STRING_DEFAULT_RANGE;
 			return -1;
 		}
@@ -883,18 +877,19 @@ static int get_op(char c) {
 	}
 }
 
+static const struct cond_tbl_s {
+	char name[8];
+	size_t len;
+	int cond;
+} cond_tbl[] = {
+	{ "if",		2,	COND_IF },
+	{ "elif",	4,	COND_ELIF },
+	{ "else",	4,	COND_ELSE },
+	{ "",		0,	COND_NONE },
+};
+
 static int get_cond(const char *l, const char **t) {
 	const struct cond_tbl_s *p;
-	static const struct cond_tbl_s {
-		char name[8];
-		size_t len;
-		int cond;
-	} cond_tbl[] = {
-		{ "if",		2,	COND_IF },
-		{ "elif",	4,	COND_ELIF },
-		{ "else",	4,	COND_ELSE },
-		{ "",		0,	COND_NONE },
-	};
 
 	for (p = cond_tbl; p->len; p++) {
 		if (strncmp (l, p->name, p->len) == 0 &&
@@ -909,8 +904,7 @@ static int get_cond(const char *l, const char **t) {
 }
 
 static int check_cond(RMagic *ms, int cond, ut32 cont_level) {
-	int last_cond;
-	last_cond = ms->c.li[cont_level].last_cond;
+	int last_cond = ms->c.li[cont_level].last_cond;
 
 	switch (cond) {
 	case COND_IF:
@@ -953,7 +947,6 @@ static int check_cond(RMagic *ms, int cond, ut32 cont_level) {
  * parse one line from magic file, put into magic[index++] if valid
  */
 static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, const char *line, size_t lineno, int action) {
-	static ut32 last_cont_level = 0;
 	size_t i;
 	struct r_magic_entry *me;
 	struct r_magic *m;
@@ -965,12 +958,12 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	for (; *l == '>'; l++, cont_level++) {
 		;
 	}
-	if (cont_level == 0 || cont_level > last_cont_level) {
+	if (cont_level == 0 || cont_level > ms->last_cont_level) {
 		if (file_check_mem (ms, cont_level) == -1) {
 			return -1;
 		}
 	}
-	last_cont_level = cont_level;
+	ms->last_cont_level = cont_level;
 #define ALLOC_CHUNK	(size_t)10
 #define ALLOC_INCR	(size_t)200
 	if (cont_level != 0) {
@@ -1022,18 +1015,18 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	m->lineno = lineno;
 
 	if (*l == '&') {  /* m->cont_level == 0 checked below. */
-                ++l;            /* step over */
-                m->flag |= OFFADD;
-        }
+		l++;            /* step over */
+		m->flag |= OFFADD;
+	}
 	if (*l == '(') {
-		++l;		/* step over */
+		l++;		/* step over */
 		m->flag |= INDIR;
 		if (m->flag & OFFADD) {
 			m->flag = (m->flag & ~OFFADD) | INDIROFFADD;
 		}
 
 		if (*l == '&') {  /* m->cont_level == 0 checked below */
-			++l;            /* step over */
+			l++;            /* step over */
 			m->flag |= OFFADD;
 		}
 	}
@@ -1144,7 +1137,7 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	EATAB;
 
 	if (*l == 'u') {
-		++l;
+		l++;
 		m->flag |= UNSIGNED;
 	}
 
@@ -1166,7 +1159,7 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 		} else if (ms->flags & R_MAGIC_CHECK) {
 			file_magwarn (ms, "'~' invalid for string types");
 		}
-		++l;
+		l++;
 	}
 	m->str_range = 0;
 	m->str_flags = 0;
@@ -1174,7 +1167,7 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	if ((op = get_op (*l)) != -1) {
 		if (!MAGIC_IS_STRING (m->type)) {
 			ut64 val;
-			++l;
+			l++;
 			m->mask_op |= op;
 			val = (ut64)strtoull (l, &t, 0);
 			l = t;
@@ -1183,7 +1176,7 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 		}
 		else if (op == FILE_OPDIVIDE) {
 			int have_range = 0;
-			while (!isspace ((ut8)*++l)) {
+			for (l++; !isspace (*l); l++) {
 				switch (*l) {
 				case '0':  case '1':  case '2':
 				case '3':  case '4':  case '5':
@@ -1255,22 +1248,22 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	case '^':
 	case '=':
   		m->reln = *l;
-  		++l;
+  		l++;
 		if (*l == '=') {
 		   /* HP compat: ignore &= etc. */
-		   ++l;
+		   l++;
 		}
 		break;
 	case '!':
 		m->reln = *l;
-		++l;
+		l++;
 		break;
 	default:
   		m->reln = '=';	/* the default relation */
 		if (*l == 'x' && ((isascii((ut8)l[1]) &&
 				isspace ((ut8)l[1])) || !l[1])) {
 			m->reln = *l;
-			++l;
+			l++;
 		}
 		break;
 	}
@@ -1292,11 +1285,11 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 	 */
 	EATAB;
 	if (l[0] == '\b') {
-		++l;
+		l++;
 		m->flag |= NOSPACE;
 	} else if ((l[0] == '\\') && (l[1] == 'b')) {
-		++l;
-		++l;
+		l++;
+		l++;
 		m->flag |= NOSPACE;
 	}
 	for (i = 0; (m->desc[i++] = *l++) != '\0' && i < sizeof (m->desc);) {}
@@ -1307,17 +1300,17 @@ static int parse(RMagic *ms, struct r_magic_entry **mentryp, ut32 *nmentryp, con
 		}
 	}
 
-        /*
+	/*
 	 * We only do this check while compiling, or if any of the magic
 	 * files were not compiled.
-         */
+	 */
 	if (ms->flags & R_MAGIC_CHECK) {
 		if (check_format (ms, m) == -1) {
 			return -1;
 		}
 	}
 	if (action == FILE_CHECK) {
-		file_mdump (m);
+		file_mdump (ms, m);
 	}
 	m->mimetype[0] = '\0';		/* initialise MIME type to none */
 	if (m->cont_level == 0) {
@@ -1515,23 +1508,19 @@ static int check_format(RMagic *ms, struct r_magic *m) {
 		return 1;
 	}
 
-	if (file_nformats != file_nnames) {
-		return -1;
-	}		
-
-	if (m->type >= file_nformats) {
+	if (m->type >= FILE_NAMES_SIZE) {
 		file_magwarn(ms, "Internal error inconsistency between "
 		    "m->type and format strings");
 		return -1;
 	}
-	if (magic_file_formats[m->type] == FILE_FMT_NONE) {
+	if (ms->magic_file_formats[m->type] == FILE_FMT_NONE) {
 		file_magwarn(ms, "No format string for `%s' with description "
-		    "`%s'", m->desc, magic_file_names[m->type]);
+		    "`%s'", m->desc, ms->magic_file_names[m->type]);
 		return -1;
 	}
 
 	ptr++;
-	if (ptr && check_format_type(ptr, magic_file_formats[m->type]) == -1) {
+	if (ptr && check_format_type (ptr, ms->magic_file_formats[m->type]) == -1) {
 		/*
 		 * TODO: this error message is unhelpful if the format
 		 * string is not one character long
@@ -1539,7 +1528,7 @@ static int check_format(RMagic *ms, struct r_magic *m) {
 		file_magwarn(ms, "Printf format `%c' is not valid for type "
 		    "`%s' in description `%s'",
 		    ptr && *ptr ? *ptr : '?',
-		    magic_file_names[m->type], m->desc);
+		    ms->magic_file_names[m->type], m->desc);
 		return -1;
 	}
 
@@ -1548,7 +1537,7 @@ static int check_format(RMagic *ms, struct r_magic *m) {
 			file_magwarn (ms,
 			    "Too many format strings (should have at most one) "
 			    "for `%s' with description `%s'",
-			    magic_file_names[m->type], m->desc);
+			    ms->magic_file_names[m->type], m->desc);
 			return -1;
 		}
 	}
@@ -1623,7 +1612,7 @@ static int getvalue(RMagic *ms, struct r_magic *m, const char **p, int action) {
  * Copy the converted version to "p", returning its length in *slen.
  * Return updated scan pointer as function result.
  */
-static const char * getstr(RMagic *ms, const char *s, char *p, int plen, int *slen, int action) {
+static const char *getstr(RMagic *ms, const char *s, char *p, int plen, int *slen, int action) {
 	const char *origs = s;
 	char *origp = p;
 	char *pmax = p + plen - 1;
@@ -1911,7 +1900,7 @@ error1:
 #if QUICK
 		(void)munmap((void *)mm, (size_t)st.st_size);
 #else
-		free(mm);
+		free (mm);
 #endif
 	} else {
 		*magicp = NULL;
@@ -1923,7 +1912,7 @@ error2:
 }
 
 static const ut32 ar[] = {
-    MAGICNO, VERSIONNO
+	MAGICNO, VERSIONNO
 };
 
 /*
@@ -1964,9 +1953,9 @@ static int apprentice_compile(RMagic *ms, struct r_magic **magicp, ut32 *nmagicp
 
 	rv = 0;
 beach:
-	(void)close(fd);
+	(void)close (fd);
 out:
-	free(dbname);
+	free (dbname);
 	return rv;
 }
 
@@ -1979,12 +1968,16 @@ static char *mkdbname(const char *fn, int strip) {
 	int fnlen, extlen;
 	if (strip) {
 		const char *p;
-		if ((p = strrchr (fn, '/')) != NULL) {
-			fn = ++p;
+		if ((p = strrchr (fn, '/'))) {
+			p++;
+			fn = p;
 		}
 	}
 	fnlen = strlen (fn);
 	extlen = strlen (ext);
+#ifndef MAXPATHLEN
+#define MAXPATHLEN 256
+#endif
 	if (fnlen + extlen + 1 > MAXPATHLEN) {
 		return NULL;
 	}
@@ -2037,6 +2030,7 @@ static ut32 swap4(ut32 sv) {
  * swap a quad
  */
 static ut64 swap8(ut64 sv) {
+	// we have r_read apis for that, dont dupe!
 	ut64 rv;
 	ut8 *s = (ut8 *)(void *)&sv;
 	ut8 *d = (ut8 *)(void *)&rv;

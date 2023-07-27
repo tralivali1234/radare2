@@ -24,7 +24,7 @@ R_API int r_bp_plugin_add(RBreakpoint *bp, RBreakpointPlugin *foo) {
 	RListIter *iter;
 	RBreakpointPlugin *h;
 	if (!bp) {
-		eprintf ("Cannot add plugin because dbg->bp is null and/or plugin is null\n");
+		R_LOG_ERROR ("Cannot add plugin because dbg->bp is null and/or plugin is null");
 		return false;
 	}
 	/* avoid dupped plugins */
@@ -35,6 +35,11 @@ R_API int r_bp_plugin_add(RBreakpoint *bp, RBreakpointPlugin *foo) {
 	}
 	bp->nbps++;
 	r_list_append (bp->plugins, foo);
+	return true;
+}
+
+R_API int r_bp_plugin_remove(RBreakpoint *bp, RBreakpointPlugin *plugin) {
+	// R2_590 TODO
 	return true;
 }
 

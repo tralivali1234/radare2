@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2018 - rkx1209 */
+/* radare2 - LGPL - Copyright 2017-2022 - rkx1209 */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -7,11 +7,6 @@
 #include <r_io.h>
 #include <r_cons.h>
 #include "nxo/nxo.h"
-#ifdef R_MESON_VERSION
-#include <lz4.h>
-#else
-#include "../../../shlr/lz4/lz4.c"
-#endif
 
 #define NSO_OFF(x) r_offsetof (NSOHeader, x)
 #define NSO_OFFSET_MODMEMOFF r_offsetof (NXOStart, mod_memoffset)
@@ -40,20 +35,28 @@ static uint32_t decompress(const ut8 *cbuf, ut8 *obuf, int32_t csize, int32_t us
 	if (csize < 0 || usize < 0 || !cbuf || !obuf) {
 		return -1;
 	}
-	return LZ4_decompress_safe ((const char*)cbuf, (char*)obuf, (uint32_t) csize, (uint32_t) usize);
+	int consumed, osize;
+	ut8 *out = r_inflate_lz4 (cbuf, (int)csize, &consumed, &osize);
+	if (out) {
+		// osize should be the same as usize
+		memcpy (obuf, out, R_MIN (usize, osize));
+		free (out);
+		return usize;
+	}
+	return 0;
 }
 
 static ut64 baddr(RBinFile *bf) {
 	return 0x8000000;
 }
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) >= 0x20) {
 		ut8 magic[4];
 		if (r_buf_read_at (b, 0, magic, sizeof (magic)) != 4) {
 			return false;
 		}
-		return fileType (magic) != NULL;
+		return fileType (magic);
 	}
 	return false;
 }
@@ -68,8 +71,10 @@ static RBinNXOObj *nso_new(void) {
 	return bin;
 }
 
+// 512MB
+#define MAX_UNCOMPRESSED_SIZE (1024*1024*512)
+
 static bool load_bytes(RBinFile *bf, void **bin_obj, const ut8 *buf, ut64 sz, ut64 loadaddr, Sdb *sdb) {
-	eprintf ("load_bytes in bin.nso must die\n");
 	RBin *rbin = bf->rbin;
 	ut32 toff = r_buf_read_le32_at (bf->buf, NSO_OFF (text_memoffset));
 	ut32 tsize = r_buf_read_le32_at (bf->buf, NSO_OFF (text_size));
@@ -78,12 +83,16 @@ static bool load_bytes(RBinFile *bf, void **bin_obj, const ut8 *buf, ut64 sz, ut
 	ut32 doff = r_buf_read_le32_at (bf->buf, NSO_OFF (data_memoffset));
 	ut32 dsize = r_buf_read_le32_at (bf->buf, NSO_OFF (data_size));
 	ut64 total_size = tsize + rosize + dsize;
+	if (total_size > MAX_UNCOMPRESSED_SIZE) {
+		R_LOG_WARN ("prevented oom");
+		return false;
+	}
 	RBuffer *newbuf = r_buf_new_empty (total_size);
 	ut64 ba = baddr (bf);
 	ut8 *tmp = NULL;
 
-	if (rbin->iob.io && !(rbin->iob.io->cached & R_PERM_W)) {
-		eprintf ("Please add \'-e io.cache=true\' option to r2 command. This is required to decompress the code.\n");
+	if (!r_io_cache_writable (rbin->iob.io)) {
+		R_LOG_INFO ("Please add '-e io.cache=true' option to r2 command. This is required to decompress the code");
 		goto fail;
 	}
 	/* Decompress each sections */
@@ -92,7 +101,7 @@ static bool load_bytes(RBinFile *bf, void **bin_obj, const ut8 *buf, ut64 sz, ut
 		goto fail;
 	}
 	if (decompress (buf + toff, tmp, rooff - toff, tsize) != tsize) {
-		eprintf ("decompression failure\n");
+		R_LOG_ERROR ("decompression failure");
 		goto fail;
 	}
 	r_buf_write_at (newbuf, 0, tmp, tsize);
@@ -138,7 +147,7 @@ fail:
 }
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	r_return_val_if_fail (bf && buf, NULL);
+	r_return_val_if_fail (bf && buf, false);
 	const ut64 la = bf->loadaddr;
 	ut64 sz = 0;
 	const ut8 *bytes = r_buf_data (buf, &sz);

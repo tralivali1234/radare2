@@ -1,6 +1,8 @@
-#include "sdb.h"
-#include "ht_up.h"
-#include "ht_inc.c"
+/* sdb - MIT - Copyright 2018-2022 - ret2libc, pancake */
+
+#include "sdb/sdb.h"
+#include "sdb/ht_up.h"
+#include "ht.inc.c"
 
 static HtName_(Ht)* internal_ht_default_new(ut32 size, ut32 prime_idx, HT_(DupValue) valdup, HT_(KvFreeFunc) pair_free, HT_(CalcSizeV) calcsizeV) {
 	HT_(Options) opt = {

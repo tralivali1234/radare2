@@ -4,7 +4,7 @@
 #include "minunit.h"
 
 bool test_buf(RBuffer *b) {
-	ut8 buffer[1024] = { 0 };
+	ut8 buffer[1024] = {0};
 	const char *content = "Something To\nSay Here..";
 	const int length = 23;
 	int r;
@@ -52,7 +52,7 @@ bool test_buf(RBuffer *b) {
 	mu_assert_memeq (buffer, (ut8 *)"his is a ", 9, "read right bytes from offset 1");
 
 	r_buf_set_bytes (b, (ut8 *)"World", strlen ("World"));
-	char *base = r_buf_to_string (b);
+	char *base = r_buf_tostring (b);
 	mu_assert_notnull (base, "string should be there");
 	mu_assert_streq (base, "World", "World there");
 	free (base);
@@ -60,13 +60,13 @@ bool test_buf(RBuffer *b) {
 	const char *s3 = "Hello ";
 	res = r_buf_prepend_bytes (b, (const ut8 *)s3, strlen (s3));
 	mu_assert ("bytes should be prepended", res);
-	char *st = r_buf_to_string (b);
+	char *st = r_buf_tostring (b);
 	mu_assert_notnull (st, "string should be there");
 	mu_assert_streq (st, "Hello World", "hello world there");
 	free (st);
 
 	r_buf_insert_bytes (b, 5, (ut8 *)",", 1);
-	char *st2 = r_buf_to_string (b);
+	char *st2 = r_buf_tostring (b);
 	mu_assert_notnull (st2, "string should be there");
 	mu_assert_streq (st2, "Hello, World", "comma inserted");
 	free (st2);
@@ -84,7 +84,7 @@ bool test_buf(RBuffer *b) {
 	RBuffer *sec_buf = r_buf_new_with_bytes ((ut8 *)" second", 7);
 	res = r_buf_append_buf (b, sec_buf);
 	mu_assert ("append buf should succeed", res);
-	char *st3 = r_buf_to_string (b);
+	char *st3 = r_buf_tostring (b);
 	mu_assert_streq (st3, "Hello second", "append buf correctly");
 	free (st3);
 	r_buf_free (sec_buf);
@@ -92,7 +92,7 @@ bool test_buf(RBuffer *b) {
 	sec_buf = r_buf_new_with_bytes ((ut8 *)"123456789", 9);
 	res = r_buf_append_buf_slice (b, sec_buf, 5, 3);
 	mu_assert ("append buf slice should succeed", res);
-	char *st4 = r_buf_to_string (b);
+	char *st4 = r_buf_tostring (b);
 	mu_assert_streq (st4, "Hello second678", "append buf slice correctly");
 	free (st4);
 	r_buf_free (sec_buf);
@@ -109,7 +109,9 @@ bool test_r_buf_file(void) {
 	// Prepare file
 	int fd = r_file_mkstemp ("", &filename);
 	mu_assert_neq ((ut64)fd, (ut64)-1, "mkstemp failed...");
-	write (fd, content, length);
+	if (write (fd, content, length) != length) {
+		return false;
+	}
 	close (fd);
 
 	b = r_buf_new_file (filename, O_RDWR, 0);
@@ -152,26 +154,27 @@ bool test_r_buf_mmap(void) {
 	// Prepare file
 	int fd = r_file_mkstemp ("", &filename);
 	mu_assert_neq ((long long)fd, -1LL, "mkstemp failed...");
-	write (fd, content, length);
+	if (write (fd, content, length) != length) {
+		return false;
+	}
 	close (fd);
 
 	b = r_buf_new_mmap (filename, R_PERM_RW);
 	mu_assert_notnull (b, "r_buf_new_mmap failed");
 
 	if (test_buf (b) != MU_PASSED) {
-		unlink(filename);
+		unlink (filename);
 		mu_fail ("test failed");
 	}
 
 	// Cleanup
 	r_buf_free (b);
-	unlink(filename);
+	unlink (filename);
 	free (filename);
 	mu_end;
 }
 
 bool test_r_buf_io(void) {
-	RBuffer *b;
 	const char *content = "Something To\nSay Here..";
 	const int length = 23;
 
@@ -185,7 +188,7 @@ bool test_r_buf_io(void) {
 	RIOBind bnd;
 	r_io_bind (io, &bnd);
 
-	b = r_buf_new_with_io(&bnd, desc->fd);
+	RBuffer *b = r_buf_new_with_io (&bnd, desc->fd);
 	mu_assert_notnull (b, "r_buf_new_file failed");
 
 	if (test_buf (b) != MU_PASSED) {
@@ -272,7 +275,7 @@ bool test_r_buf_bytes_steal(void) {
 
 	b = r_buf_new_with_bytes ((const ut8 *)content, length);
 	mu_assert_notnull (b, "r_buf_new_file failed");
-	char *s = r_buf_to_string (b);
+	char *s = r_buf_tostring (b);
 	mu_assert_streq (s, content, "content is right");
 	free (s);
 

@@ -7,9 +7,10 @@
 #include "r_list.h"
 #include "r_types_base.h"
 
-static RList* parse_list (const char *str) {
+static RList* parse_list(const char *str) {
 	RList *list;
 	char *line, *data, *p, *str_n;
+	char *save_ptr = NULL;
 
 	if (!str) {
 		return NULL;
@@ -21,14 +22,14 @@ static RList* parse_list (const char *str) {
 		free (str_n);
 		return NULL;
 	}
-	line = strtok (str_n, "\n");
+	line = r_str_tok_r (str_n, "\n", &save_ptr);
 	data = strchr (line, '=');
 	// TODO: use r_str_split()
-	p = strtok (data + 1, ",");
+	p = r_str_tok_r (data + 1, ",", &save_ptr);
 
 	while (p) {
 		r_list_append (list, (void*)strdup (p));
-		p = strtok (NULL, ",");
+		p = r_str_tok_r (NULL, ",", &save_ptr);
 	}
 
 	free (str_n);
@@ -38,24 +39,26 @@ static RList* parse_list (const char *str) {
 static RList* get_constants(const char *str) {
 	RList *list;
 	char *p, *data;
+	char *save_ptr = NULL;
+
 	if (!str) {
 		return NULL;
 	}
 
 	data = strdup (str);
 	list = r_list_newf (free);
-	p = strtok (data, ",");
+	p = r_str_tok_r (data, ",", &save_ptr);
 	while (p) {
 		if (strtol (p, NULL, 0)) {
 			r_list_append (list, (void*)strdup (p));
 		}
-		p = strtok (NULL, ",");
+		p = r_str_tok_r (NULL, ",", &save_ptr);
 	}
 	free (data);
 	return list;
 }
 
-static bool isFlag (RRegItem *reg) {
+static bool isFlag(RRegItem *reg) {
 	const char *type = r_reg_get_type (reg->type);
 
 	if (!strcmp (type, "flg"))
@@ -64,7 +67,7 @@ static bool isFlag (RRegItem *reg) {
 }
 
 // binary op
-static bool simulate_op (const char *op, ut64 src1, ut64 src2, ut64 old_src1, ut64 old_src2, ut64 *result, int size) {
+static bool simulate_op(const char *op, ut64 src1, ut64 src2, ut64 old_src1, ut64 old_src2, ut64 *result, int size) {
 	ut64 limit;
 	if (size == 64) {
 		limit = UT64_MAX;
@@ -164,7 +167,7 @@ static bool simulate_op (const char *op, ut64 src1, ut64 src2, ut64 old_src1, ut
 }
 
 // fill REGs with known values
-static void fillRegisterValues (RCore *core) {
+static void fillRegisterValues(RCore *core) {
 	RListIter *iter_reg;
 	RList *regs;
 	RRegItem *reg_item;
@@ -185,7 +188,7 @@ static void fillRegisterValues (RCore *core) {
 // split esil string in flags part and main instruction
 // hacky, only tested for x86, TODO: portable version
 // NOTE: esil_main and esil_flg are heap allocated and must be freed by the caller
-static void esil_split_flg (char *esil_str, char **esil_main, char **esil_flg) {
+static void esil_split_flg(char *esil_str, char **esil_main, char **esil_flg) {
 	char *split = strstr (esil_str, "f,=");
 	const int kCommaHits = 2;
 	int hits = 0;
@@ -235,7 +238,6 @@ static char* rop_classify_constant(RCore *core, RList *ropList) {
 	const bool stats = r_config_get_i (core->config, "esil.stats");
 
 	if (!romem || !stats) {
-		// eprintf ("Error: esil.romem and esil.stats must be set TRUE");
 		return NULL;
 	}
 
@@ -253,7 +255,7 @@ static char* rop_classify_constant(RCore *core, RList *ropList) {
 			goto continue_error;
 		}
 		esil_split_flg (esil_str, &esil_main, &esil_flg);
-		cmd_anal_esil (core, esil_main? esil_main: esil_str);
+		cmd_anal_esil (core, esil_main? esil_main: esil_str, false);
 		out = sdb_querys (core->anal->esil->stats, NULL, 0, "*");
 		if (!out) {
 			goto continue_error;
@@ -302,7 +304,7 @@ continue_error:
 	}
 	return ct;
 out_error:
-	FREE_ROP;	
+	FREE_ROP;
 	r_list_free (constants);
 	return NULL;
 }
@@ -320,7 +322,6 @@ static char* rop_classify_mov(RCore *core, RList *ropList) {
 	const bool stats = r_config_get_i (core->config, "esil.stats");
 
 	if (!romem || !stats) {
-		// eprintf ("Error: esil.romem and esil.stats must be set TRUE");
 		return NULL;
 	}
 
@@ -332,7 +333,7 @@ static char* rop_classify_mov(RCore *core, RList *ropList) {
 			goto out_error;
 		}
 		esil_split_flg (esil_str, &esil_main, &esil_flg);
-		cmd_anal_esil (core, esil_main? esil_main: esil_str);
+		cmd_anal_esil (core, esil_main? esil_main: esil_str, false);
 		out = sdb_querys (core->anal->esil->stats, NULL, 0, "*");
 		if (out) {
 			ops_list  = parse_list (strstr (out, "ops.list"));
@@ -417,7 +418,6 @@ static char* rop_classify_arithmetic(RCore *core, RList *ropList) {
 	ut64 *op_result_r = R_NEW0 (ut64);
 
 	if (!romem || !stats) {
-		// eprintf ("Error: esil.romem and esil.stats must be set TRUE");
 		free (op_result);
 		free (op_result_r);
 		return NULL;
@@ -432,9 +432,9 @@ static char* rop_classify_arithmetic(RCore *core, RList *ropList) {
 		}
 		esil_split_flg (esil_str, &esil_main, &esil_flg);
 		if (esil_main) {
-			cmd_anal_esil (core, esil_main);
+			cmd_anal_esil (core, esil_main, false);
 		} else {
-			cmd_anal_esil (core, esil_str);
+			cmd_anal_esil (core, esil_str, false);
 		}
 		out = sdb_querys (core->anal->esil->stats, NULL, 0, "*");
 		// r_cons_println (out);
@@ -517,7 +517,7 @@ static char* rop_classify_arithmetic(RCore *core, RList *ropList) {
 				}
 			}
 		}
-continue_error:	
+continue_error:
 		FREE_ROP;
 	}
 	free (op_result);
@@ -525,7 +525,7 @@ continue_error:
 	return arithmetic;
 out_error:
 	FREE_ROP;
-	free (op_result);	
+	free (op_result);
 	free (op_result_r);
 	return NULL;
 }
@@ -544,7 +544,6 @@ static char* rop_classify_arithmetic_const(RCore *core, RList *ropList) {
 	ut64 *op_result_r = R_NEW0 (ut64);
 
 	if (!romem || !stats) {
-		// eprintf ("Error: esil.romem and esil.stats must be set TRUE");
 		R_FREE (op_result);
 		R_FREE (op_result_r);
 		return NULL;
@@ -565,9 +564,9 @@ static char* rop_classify_arithmetic_const(RCore *core, RList *ropList) {
 		}
 		esil_split_flg (esil_str, &esil_main, &esil_flg);
 		if (esil_main) {
-			cmd_anal_esil (core, esil_main);
+			cmd_anal_esil (core, esil_main, false);
 		} else {
-			cmd_anal_esil (core, esil_str);
+			cmd_anal_esil (core, esil_str, false);
 		}
 		char *out = sdb_querys (core->anal->esil->stats, NULL, 0, "*");
 		// r_cons_println (out);
@@ -615,11 +614,11 @@ static char* rop_classify_arithmetic_const(RCore *core, RList *ropList) {
 					if (value_dst != diff_dst) {
 						r_list_foreach (constants, iter_const, constant) {
 							ut64 value_ct = r_num_get (NULL, constant);
-							simulate = simulate_op (op, value_src1, value_ct, 
-							  			diff_src1, value_ct, op_result, 
+							simulate = simulate_op (op, value_src1, value_ct,
+							  			diff_src1, value_ct, op_result,
 									 	item_dst->size);
-							simulate_r = simulate_op (op, value_ct, value_src1, 
-							  			value_ct, diff_src1, op_result_r, 
+							simulate_r = simulate_op (op, value_ct, value_src1,
+							  			value_ct, diff_src1, op_result_r,
 										item_dst->size);
 							if (simulate && op_result && value_dst == *op_result) {
 								char *tmp = r_str_newf ("%s <-- %s %s %s;", item_dst->name, item_src1->name, op, constant);
@@ -661,7 +660,6 @@ static int rop_classify_nops(RCore *core, RList *ropList) {
 	const bool stats = r_config_get_i (core->config, "esil.stats");
 
 	if (!romem || !stats) {
-		// eprintf ("Error: esil.romem and esil.stats must be set TRUE\n");
 		return -2;
 	}
 
@@ -669,7 +667,7 @@ static int rop_classify_nops(RCore *core, RList *ropList) {
 		fillRegisterValues (core);
 
 		// r_cons_printf ("Emulating nop:%s\n", esil_str);
-		cmd_anal_esil (core, esil_str);
+		cmd_anal_esil (core, esil_str, false);
 		char *out = sdb_querys (core->anal->esil->stats, NULL, 0, "*");
 		// r_cons_println (out);
 		if (out) {
@@ -683,7 +681,7 @@ static int rop_classify_nops(RCore *core, RList *ropList) {
 	return changes;
 }
 
-static void rop_classify (RCore *core, Sdb *db, RList *ropList, const char *key, unsigned int size) {
+static void rop_classify(RCore *core, Sdb *db, RList *ropList, const char *key, unsigned int size) {
 	int nop = 0;  rop_classify_nops (core, ropList);
 	char *mov, *ct, *arithm, *arithm_ct, *str;
 	Sdb *db_nop = sdb_ns (db, "nop", true);
@@ -693,7 +691,7 @@ static void rop_classify (RCore *core, Sdb *db, RList *ropList, const char *key,
 	Sdb *db_aritm_ct = sdb_ns (db, "arithm_ct", true);
 
 	if (!db_nop || !db_mov || !db_ct || !db_aritm || !db_aritm_ct) {
-		eprintf ("Error: Could not create SDB 'rop' sub-namespaces\n");
+		R_LOG_ERROR ("Could not create SDB 'rop' sub-namespaces");
 		return;
 	}
 	nop = rop_classify_nops (core, ropList);

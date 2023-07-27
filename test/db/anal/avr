@@ -186,15 +186,15 @@ RUN
 NAME=avr rjmp - relative jump forward
 FILE=malloc://8192
 CMDS=<<EOF
-wxs 00c0 01c0 02c0 03c0 7ec0 7fc0 80c0 81c0
-wxs fec0 ffc0 00c1 01c1 7ec1 7fc1 80c1 81c1
-wxs fec1 ffc1 00c2 01c2 7ec2 7fc2 80c2 81c2
-wxs fec2 ffc2 00c3 01c3 7ec3 7fc3 80c3 81c3
-wxs fec3 ffc3 00c4 01c4 7ec4 7fc4 80c4 81c4
-wxs fec4 ffc4 00c5 01c5 7ec5 7fc5 80c5 81c5
-wxs fec5 ffc5 00c6 01c6 7ec6 7fc6 80c6 81c6
-wxs fec6 ffc6 00c7 01c7 7ec7 7fc7 80c7 81c7
-wxs fec7 ffc7
+wx+ 00c0 01c0 02c0 03c0 7ec0 7fc0 80c0 81c0
+wx+ fec0 ffc0 00c1 01c1 7ec1 7fc1 80c1 81c1
+wx+ fec1 ffc1 00c2 01c2 7ec2 7fc2 80c2 81c2
+wx+ fec2 ffc2 00c3 01c3 7ec3 7fc3 80c3 81c3
+wx+ fec3 ffc3 00c4 01c4 7ec4 7fc4 80c4 81c4
+wx+ fec4 ffc4 00c5 01c5 7ec5 7fc5 80c5 81c5
+wx+ fec5 ffc5 00c6 01c6 7ec6 7fc6 80c6 81c6
+wx+ fec6 ffc6 00c7 01c7 7ec7 7fc7 80c7 81c7
+wx+ fec7 ffc7
 e asm.arch=avr
 e asm.cpu=ATmega640
 aoe 66 @ 0
@@ -352,7 +352,8 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=avr functions 1
+NAME=avr functions 1 fail without esil
+BROKEN=1
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
 e asm.arch=avr
@@ -361,6 +362,19 @@ axt 0x28a
 EOF
 EXPECT=<<EOF
 fcn.0000029e 0x328 [CODE] jmp 0x28a
+EOF
+RUN
+
+NAME=avr functions 1
+FILE=bins/firmware/arduino_avr.bin
+CMDS=<<EOF
+aeim
+e asm.arch=avr
+aaa
+axt 0x28a
+EOF
+EXPECT=<<EOF
+fcn.0000029e 0x328 [CODE:--x] jmp 0x28a
 EOF
 RUN
 
@@ -386,7 +400,7 @@ FILE=bins/firmware/arduino_avr.bin
 ARGS=-a avr
 CMDS=/ad ldi~0x6d
 EXPECT=<<EOF
-0x00000276   # 2: ldi r22, 0x6d
+0x00000276                 6de6  ldi r22, 0x6d
 EOF
 RUN
 
@@ -395,8 +409,8 @@ FILE=bins/firmware/arduino_avr.bin
 ARGS=-a avr
 CMDS=/ad ldi ~ 0x18
 EXPECT=<<EOF
-0x00001672   # 2: ldi r24, 0x18
-0x000019a4   # 2: ldi r18, 0x18
+0x00001672                 88e1  ldi r24, 0x18
+0x000019a4                 28e1  ldi r18, 0x18
 EOF
 RUN
 
@@ -408,7 +422,7 @@ e search.align=2
 /ad in ~ 0x12
 EOF
 EXPECT=<<EOF
-0x00000282   # 2: in r24, 0x12
+0x00000282                 82b3  in r24, 0x12
 EOF
 RUN
 
@@ -416,6 +430,7 @@ NAME=Search rop gadgets for in command
 FILE=bins/firmware/arduino_avr.bin
 ARGS=-a avr
 CMDS=<<EOF
+aeim
 e search.align=2
 /R in r24
 EOF
@@ -453,6 +468,7 @@ NAME=Search rop gadgets for IN command with align=2
 FILE=bins/firmware/arduino_avr.bin
 ARGS=-a avr
 CMDS=<<EOF
+aeim
 e search.align=2
 /R in r24
 EOF
@@ -491,11 +507,11 @@ FILE=bins/firmware/arduino_avr.bin
 ARGS=-a avr
 CMDS=<<EOF
 s 0
-/ad in ~ 0x18
+/ad in~0x18
 pd 5
 EOF
 EXPECT=<<EOF
-0x00000296   # 2: in r24, 0x18
+0x00000296                 88b3  in r24, 0x18
         ,=< 0x00000000      0c94ac00       jmp entry0
        ,==< 0x00000004      0c94db00       jmp 0x1b6
       ,===< 0x00000008      0c94db00       jmp 0x1b6
@@ -531,54 +547,59 @@ RUN
 NAME=avr search
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
+aeim
 e asm.arch=avr
 aaa
 /ad call 0x4ec
 EOF
 EXPECT=<<EOF
-0x000003e2   # 4: call fcn.000004ec
+0x000003e2             0e947602  call fcn.000004ec
 EOF
 RUN
 
 NAME=avr search - XXX dupped hit
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
+aeim
 e asm.arch=avr
 aaa
 /ad call 0x4ec
 EOF
 EXPECT=<<EOF
-0x000003e2   # 4: call fcn.000004ec
+0x000003e2             0e947602  call fcn.000004ec
 EOF
 RUN
 
 NAME=avr search 2
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
+aeim
 e asm.arch=avr
 aac @ 0
 axt 0x4ec
 EOF
 EXPECT=<<EOF
-fcn.00000360 0x3e2 [CALL] call fcn.000004ec
+fcn.00000360 0x3e2 [CALL:--x] call fcn.000004ec
 EOF
 RUN
 
 NAME=avr search 3
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
+aeim
 e asm.arch=avr
 aaa
 axt 0x4ec
 EOF
 EXPECT=<<EOF
-fcn.00000360 0x3e2 [CALL] call fcn.000004ec
+fcn.00000360 0x3e2 [CALL:--x] call fcn.000004ec
 EOF
 RUN
 
 NAME=detect false xrefs
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
+aeim
 e asm.arch=avr
 e asm.lines=false
 aar
@@ -625,6 +646,7 @@ NAME=avr stop anal when invalid instruction is found
 FILE=bins/firmware/arduino_avr.bin
 CMDS=<<EOF
 e asm.arch=avr
+aeim
 aaa
 f
 EOF
@@ -727,6 +749,7 @@ EXPECT=<<EOF
 0x00001bde 46 fcn.00001bde
 0x00001c4e 48 fcn.00001c4e
 0x00001c84 44 fcn.00001c84
+0x00001dfe 30 fcn.00001dfe
 0x00001e78 88 fcn.00001e78
 0x00001efe 38 fcn.00001efe
 0x00001f24 14 fcn.00001f24

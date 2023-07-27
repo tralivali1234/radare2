@@ -1,23 +1,26 @@
-.Dd Jun 24, 2020
+.Dd Jun 24, 2021
 .Dt RAFIND2 1
 .Sh NAME
 .Nm rafind2
-.Nd Advanced commandline hexadecimal editor
+.Nd advanced command-line byte pattern search in files
 .Sh SYNOPSIS
 .Nm rafind2
-.Op Fl ijzZXnrhqv
+.Op Fl cijzZXLnrhqv
 .Op Fl b Ar size
 .Op Fl f Ar from
 .Op Fl F Ar file
 .Op Fl t Ar to
 .Op Fl [m|s|e] Ar str
+.Op Fl V Ar s:val
 .Op Fl x Ar hex
 .Ar file|dir
 .Sh DESCRIPTION
-rafind2 is a program to find byte patterns into files
+rafind2 is a program to find byte patterns in files
 .Pp
 The options are:
 .Bl -tag -width Fl
+.It Fl c
+Disable colorful output (for -X and such)
 .It Fl z
 Search for zero-terminated strings
 .It Fl j
@@ -28,22 +31,26 @@ Only accept aligned hits
 Search for a specific string
 .It Fl S Ar str
 Search for a specific wide string
+.It Fl V Ar size:value
+Search for a little-endian value of given size. For example -V 4:123
 .It Fl e Ar regex
-Search for a regular expression string matches
+Search for regular expression string matches
 .It Fl x Ar hex
 Search for an hexpair string
 .It Fl i
-Identify filetype (like file, uses r2 -qcpm)
+Identify file type (like file, uses r2 -qcpm)
+.It Fl L
+List available IO plugins
 .It Fl m
-Carve for known file-types using the r_magic signatures
+Carve for known file types using the r_magic signatures
 .It Fl M Ar mask
 Set binary mask to be applied
 .It Fl f Ar from
-Specify the source adddress
+Specify the source address
 .It Fl F Ar file
 Read the keyword to search from the contents of the given file
 .It Fl t Ar to
-Specify the target adddress
+Specify the target address
 .It Fl X
 Display hexdump of search results
 .It Fl Z
@@ -63,14 +70,7 @@ Print version and exit
 .El
 .Sh SEE ALSO
 .Pp
-.Xr radare2(1) ,
-.Xr rahash2(1) ,
-.Xr rabin2(1) ,
-.Xr radiff2(1) ,
-.Xr rasm2(1) ,
-.Xr ragg2(1) ,
-.Xr rarun2(1) ,
-.Xr rax2(1) ,
+.Xr radare2(1)
 .Sh AUTHORS
 .Pp
 pancake <pancake@nopcode.org>

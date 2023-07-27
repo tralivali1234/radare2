@@ -12,6 +12,10 @@
 
 #include <r_list.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct r_skiplist_node_t {
 	void *data;	// pointer to the value
 	struct r_skiplist_node_t **forward; // forward pointer
@@ -32,7 +36,7 @@ R_API RSkipListNode* r_skiplist_insert(RSkipList* list, void* data);
 R_API bool r_skiplist_insert_autofree(RSkipList* list, void* data);
 R_API bool r_skiplist_delete(RSkipList* list, void* data);
 R_API bool r_skiplist_delete_node(RSkipList *list, RSkipListNode *node);
-R_API RSkipListNode* r_skiplist_find(RSkipList* list, void* data);
+R_API RSkipListNode* r_skiplist_find(const RSkipList* list, void* data);
 R_API RSkipListNode* r_skiplist_find_geq(RSkipList* list, void* data);
 R_API RSkipListNode* r_skiplist_find_leq(RSkipList* list, void* data);
 R_API void r_skiplist_join(RSkipList *l1, RSkipList *l2);
@@ -54,5 +58,9 @@ R_API RList *r_skiplist_to_list(RSkipList *list);
 #define r_skiplist_foreach_safe(list, it, tmp, pos)\
 	if (list)\
 		for (it = list->head->forward[0]; it != list->head && ((pos = it->data) || 1) && ((tmp = it->forward[0]) || 1); it = tmp)
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // R2_SKIP_LIST_H

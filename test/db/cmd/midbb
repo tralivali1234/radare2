@@ -116,7 +116,7 @@ EXPECT=<<EOF
   {
     "offset": 0,
     "esil": ",",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 16,
     "size": 5,
@@ -135,7 +135,7 @@ EXPECT=<<EOF
   {
     "offset": 3,
     "esil": "al,rax,+=[1],7,$o,of,:=,7,$s,sf,:=,$z,zf,:=,7,$c,cf,:=,$p,pf,:=,3,$c,af,:=",
-    "refptr": true,
+    "refptr": 1,
     "fcn_addr": 0,
     "fcn_last": 17,
     "size": 2,
@@ -150,7 +150,8 @@ EXPECT=<<EOF
     "xrefs": [
       {
         "addr": 17,
-        "type": "CODE"
+        "type": "CODE",
+        "perm": "--x"
       }
     ]
   },
@@ -159,7 +160,7 @@ EXPECT=<<EOF
     "ptr": 3238002721,
     "val": 3238002721,
     "esil": "3238002721,rax,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 15,
     "size": 5,
@@ -176,7 +177,7 @@ EXPECT=<<EOF
     "offset": 9,
     "val": 253,
     "esil": "0,cf,:=,1,253,-,1,<<,ebx,&,?{,1,cf,:=,},253,ebx,>>,ebx,=,$z,zf,:=,$p,pf,:=,31,$s,sf,:=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 16,
     "size": 3,
@@ -191,7 +192,8 @@ EXPECT=<<EOF
     "xrefs": [
       {
         "addr": 10,
-        "type": "CODE"
+        "type": "CODE",
+        "perm": "--x"
       }
     ]
   },
@@ -200,7 +202,7 @@ EXPECT=<<EOF
     "ptr": 44,
     "val": 44,
     "esil": "44,rbx,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 14,
     "size": 5,
@@ -215,14 +217,15 @@ EXPECT=<<EOF
     "refs": [
       {
         "addr": 44,
-        "type": "DATA"
+        "type": "DATA",
+        "perm": "r--"
       }
     ]
   },
   {
     "offset": 17,
     "esil": "0x3,rip,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 17,
     "size": 2,
@@ -238,7 +241,8 @@ EXPECT=<<EOF
     "refs": [
       {
         "addr": 3,
-        "type": "CODE"
+        "type": "CODE",
+        "perm": "--x"
       }
     ]
   }
@@ -250,7 +254,7 @@ EXPECT=<<EOF
   {
     "offset": 0,
     "esil": ",",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 14,
     "size": 5,
@@ -271,7 +275,7 @@ EXPECT=<<EOF
     "ptr": 3238002721,
     "val": 3238002721,
     "esil": "3238002721,rax,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 14,
     "size": 5,
@@ -287,7 +291,7 @@ EXPECT=<<EOF
   {
     "offset": 10,
     "esil": "0x9,rip,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 17,
     "size": 2,
@@ -303,7 +307,8 @@ EXPECT=<<EOF
     "refs": [
       {
         "addr": 9,
-        "type": "CODE"
+        "type": "CODE",
+        "perm": "--x"
       }
     ]
   },
@@ -312,7 +317,7 @@ EXPECT=<<EOF
     "ptr": 44,
     "val": 44,
     "esil": "44,rbx,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 14,
     "size": 5,
@@ -327,14 +332,15 @@ EXPECT=<<EOF
     "refs": [
       {
         "addr": 44,
-        "type": "DATA"
+        "type": "DATA",
+        "perm": "r--"
       }
     ]
   },
   {
     "offset": 17,
     "esil": "0x3,rip,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 17,
     "size": 2,
@@ -350,7 +356,8 @@ EXPECT=<<EOF
     "refs": [
       {
         "addr": 3,
-        "type": "CODE"
+        "type": "CODE",
+        "perm": "--x"
       }
     ]
   }
@@ -366,7 +373,7 @@ EXPECT=<<EOF
     {
       "offset": 0,
       "esil": ",",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 14,
       "size": 5,
@@ -385,7 +392,7 @@ EXPECT=<<EOF
     {
       "offset": 3,
       "esil": "al,rax,+=[1],7,$o,of,:=,7,$s,sf,:=,$z,zf,:=,7,$c,cf,:=,$p,pf,:=,3,$c,af,:=",
-      "refptr": true,
+      "refptr": 1,
       "fcn_addr": 0,
       "fcn_last": 17,
       "size": 2,
@@ -400,7 +407,8 @@ EXPECT=<<EOF
       "xrefs": [
         {
           "addr": 17,
-          "type": "CODE"
+          "type": "CODE",
+          "perm": "--x"
         }
       ]
     },
@@ -409,7 +417,7 @@ EXPECT=<<EOF
       "ptr": 3238002721,
       "val": 3238002721,
       "esil": "3238002721,rax,=",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 14,
       "size": 5,
@@ -425,7 +433,7 @@ EXPECT=<<EOF
     {
       "offset": 10,
       "esil": "0x9,rip,=",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 17,
       "size": 2,
@@ -441,7 +449,8 @@ EXPECT=<<EOF
       "refs": [
         {
           "addr": 9,
-          "type": "CODE"
+          "type": "CODE",
+          "perm": "--x"
         }
       ]
     },
@@ -449,7 +458,7 @@ EXPECT=<<EOF
       "offset": 9,
       "val": 253,
       "esil": "0,cf,:=,1,253,-,1,<<,ebx,&,?{,1,cf,:=,},253,ebx,>>,ebx,=,$z,zf,:=,$p,pf,:=,31,$s,sf,:=",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 16,
       "size": 3,
@@ -464,7 +473,8 @@ EXPECT=<<EOF
       "xrefs": [
         {
           "addr": 10,
-          "type": "CODE"
+          "type": "CODE",
+          "perm": "--x"
         }
       ]
     },
@@ -473,7 +483,7 @@ EXPECT=<<EOF
       "ptr": 44,
       "val": 44,
       "esil": "44,rbx,=",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 14,
       "size": 5,
@@ -488,14 +498,15 @@ EXPECT=<<EOF
       "refs": [
         {
           "addr": 44,
-          "type": "DATA"
+          "type": "DATA",
+          "perm": "r--"
         }
       ]
     },
     {
       "offset": 17,
       "esil": "0x3,rip,=",
-      "refptr": false,
+      "refptr": 0,
       "fcn_addr": 0,
       "fcn_last": 17,
       "size": 2,
@@ -511,7 +522,8 @@ EXPECT=<<EOF
       "refs": [
         {
           "addr": 3,
-          "type": "CODE"
+          "type": "CODE",
+          "perm": "--x"
         }
       ]
     }
@@ -641,9 +653,61 @@ EXPECT=<<EOF
 |           0x00560e99      1400           adc al, 0
 
             [36m;-- sym.real:[0m
-            [32m0x00560e95[0m  ~   [37mba[37m0f[33m31[37me9[37m14[0m     [37mmov[36m edx[0m,[36m[36m [33m0x14e9310f[0m[0m[0m
+            [32m0x00560e95[0m  ~   [36mba[36m0f[33m31[36me9[36m14[0m     [36mmov[36m edx[0m,[36m[36m [33m0x14e9310f[0m[0m[0m
 [36m|[0m           [36m;-- sym.dummy:[0m
-[36m|[0m           [32m0x00560e97[0m      [33m31[37me9[0m           [36mxor[36m ecx[0m,[36m[36m ebp[0m[0m[0m
-[36m|[0m           [32m0x00560e99[0m      [37m14[32m00[0m           [33madc[36m al[0m,[36m[36m [33m0[0m[0m[0m
+[36m|[0m           [32m0x00560e97[0m      [33m31[36me9[0m           [33mxor[36m ecx[0m,[36m ebp[0m[0m[0m
+[36m|[0m           [32m0x00560e99[0m      [36m14[32m00[0m           [33madc[36m al[0m,[36m [33m0[0m[0m[0m
+EOF
+RUN
+
+# test color bugs
+
+# r2 -N -qe bin.types=false  -s 0x00560e99 -c 'pd 3' bins/pe/cmd_adf_sample0.exe
+NAME=color0
+FILE=bins/pe/cmd_adf_sample0.exe
+CMDS=<<EOF
+s..560e99
+pd 3 @e:scr.color=1
+EOF
+EXPECT=<<EOF
+            [32m0x00560e99[0m      [36m14[32m00[0m           [33madc[36m al[0m,[36m [33m0[0m[0m[0m
+            [32m0x00560e9b[0m      [32m00[32m00[0m           [33madd byte[36m [0m[[36meax[0m][36m[0m,[36m al[0m[0m[0m
+            [32m0x00560e9d[0m      [36ma8[33m36[0m           [33mtest[36m al[0m,[36m[36m [33m0x36[0m[0m[31m               [31m; 54[0m
+EOF
+RUN
+
+# r2 -q -c 'f sym.real=0x00560e95;f sym.dummy=0x00560e97;s 0x00560e95;pd 3' bins/pe/cmd_adf_sample0.exe
+NAME=color1
+FILE=bins/pe/cmd_adf_sample0.exe
+CMDS=<<EOF
+e scr.color=1
+f sym.real=0x00560e95
+f sym.dummy=0x00560e97
+s 0x00560e95
+pd 3
+EOF
+EXPECT=<<EOF
+            [36m;-- sym.real:[0m
+            [32m0x00560e95[0m  ~   [36mba[36m0f[33m31[36me9[36m14[0m     [36mmov[36m edx[0m,[36m[36m [33m0x14e9310f[0m[0m[0m
+            [36m;-- sym.dummy:[0m
+            [32m0x00560e97[0m      [33m31[36me9[0m           [33mxor[36m ecx[0m,[36m ebp[0m[0m[0m
+            [32m0x00560e99[0m      [36m14[32m00[0m           [33madc[36m al[0m,[36m [33m0[0m[0m[0m
+EOF
+RUN
+
+# r2 -q -c 's 0x100004420;pd 1' /bin/ls
+NAME=color2
+FILE=bins/mach0/ls-m1
+ARGS=-a arm -b64
+CMDS=<<EOF
+e scr.color=1
+s 0x100003b34
+pd 1
+f sup.babel0=0x100003bc0
+pd 1
+EOF
+EXPECT=<<EOF
+        [36m,[0m[36m=[0m[36m<[0m [32m0x100003b34[0m      [33m60[36m04[32m00[36mb4[0m       [32mcbz[36m x0[0m,[36m[36m [33m0x100003bc0[0m[0m[0m
+        [36m,[0m[36m=[0m[36m<[0m [32m0x100003b34[0m      [33m60[36m04[32m00[36mb4[0m       [32mcbz[36m x0[0m,[36m[36m sup.babel0[0m[0m[0m
 EOF
 RUN

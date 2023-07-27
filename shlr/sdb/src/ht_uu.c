@@ -1,6 +1,8 @@
-#include "sdb.h"
-#include "ht_uu.h"
-#include "ht_inc.c"
+/* sdb - MIT - Copyright 2018-2022 - ret2libc, pancake */
+
+#include "sdb/sdb.h"
+#include "sdb/ht_uu.h"
+#include "ht.inc.c"
 
 // creates a default HtUU that has strings as keys
 SDB_API HtName_(Ht)* Ht_(new0)(void) {

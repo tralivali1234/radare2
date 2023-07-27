@@ -1,10 +1,9 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake, nikolai */
+/* radare - LGPL - Copyright 2009-2022 - pancake, nikolai */
 
-#include <r_diff.h>
+#include <r_util/r_diff.h>
 
 // the non-system-diff doesnt work well
 #define USE_SYSTEM_DIFF 1
-
 
 R_API RDiff *r_diff_new_from(ut64 off_a, ut64 off_b) {
 	RDiff *d = R_NEW0 (RDiff);
@@ -13,7 +12,7 @@ R_API RDiff *r_diff_new_from(ut64 off_a, ut64 off_b) {
 		d->user = NULL;
 		d->off_a = off_a;
 		d->off_b = off_b;
-		d->diff_cmd = "diff -u";
+		d->diff_cmd = strdup ("diff -u");
 	}
 	return d;
 }
@@ -22,9 +21,11 @@ R_API RDiff *r_diff_new(void) {
 	return r_diff_new_from (0, 0);
 }
 
-R_API RDiff *r_diff_free(RDiff *d) {
-	free (d);
-	return NULL;
+R_API void r_diff_free(RDiff *d) {
+	if (d) {
+		free (d->diff_cmd);
+		free (d);
+	}
 }
 
 R_API int r_diff_set_callback(RDiff *d, RDiffCallback callback, void *user) {
@@ -171,7 +172,7 @@ typedef struct {
 } RDiffUser;
 
 #if USE_SYSTEM_DIFF
-R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
+R_API char *r_diff_buffers_tostring(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
 	return r_diff_buffers_unified (d, a, la, b, lb);
 }
 
@@ -209,7 +210,7 @@ static int tostring(RDiff *d, void *user, RDiffOp *op) {
 	return 1;
 }
 
-R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
+R_API char *r_diff_buffers_tostring(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
 	// XXX buffers_static doesnt constructs the correct string in this callback
 	void *c = d->callback;
 	void *u = d->user;
@@ -223,7 +224,7 @@ R_API char *r_diff_buffers_to_string(RDiff *d, const ut8 *a, int la, const ut8 *
 }
 #endif
 
-#define diffHit(void) { \
+#define diffHit() { \
 	const size_t i_hit = i - hit; \
 	int ra = la - i_hit; \
 	int rb = lb - i_hit; \
@@ -241,7 +242,7 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 	lb = R_ABS (lb);
 	if (la != lb) {
 		len = R_MIN (la, lb);
-		eprintf ("Buffer truncated to %d byte(s) (%d not compared)\n", len, R_ABS(lb - la));
+		R_LOG_INFO ("Buffer truncated to %d byte(s) (%d not compared)", len, R_ABS(lb - la));
 	} else {
 		len = la;
 	}
@@ -261,29 +262,46 @@ R_API int r_diff_buffers_static(RDiff *d, const ut8 *a, int la, const ut8 *b, in
 	return 0;
 }
 
-// XXX: temporary files are
 R_API char *r_diff_buffers_unified(RDiff *d, const ut8 *a, int la, const ut8 *b, int lb) {
-	r_file_dump (".a", a, la, 0);
-	r_file_dump (".b", b, lb, 0);
+	char *fa = NULL;
+	char *fb = NULL;
+	int fd = r_file_mkstemp ("r_diff", &fa);
+	int fe = r_file_mkstemp ("r_diff", &fb);
+	if (fd == -1 || fe == -1) {
+		R_LOG_ERROR ("Failed to create temporary files");
+		return NULL;
+	}
+	if (!fa || !fb) {
+		R_LOG_ERROR ("fafb nul");
+		free (fa);
+		free (fb);
+		return NULL;
+	}
+	r_file_dump (fa, a, la, 0);
+	r_file_dump (fb, b, lb, 0);
 #if 0
 	if (r_mem_is_printable (a, R_MIN (5, la))) {
-		r_file_dump (".a", a, la, 0);
-		r_file_dump (".b", b, lb, 0);
+		r_file_dump (fa, a, la, 0);
+		r_file_dump (fb, b, lb, 0);
 	} else {
-		r_file_hexdump (".a", a, la, 0);
-		r_file_hexdump (".b", b, lb, 0);
+		r_file_hexdump (fa, a, la, 0);
+		r_file_hexdump (fb, b, lb, 0);
 	}
 #endif
 	char *err = NULL;
 	char *out = NULL;
 	int out_len;
-	char *diff_cmdline = r_str_newf ("%s .a .b", d->diff_cmd);
+	char *diff_cmdline = r_str_newf ("%s %s %s", d->diff_cmd, fa, fb);
 	if (diff_cmdline) {
 		(void)r_sys_cmd_str_full (diff_cmdline, NULL, 0, &out, &out_len, &err);
 		free (diff_cmdline);
 	}
-	r_file_rm (".a");
-	r_file_rm (".b");
+	close (fd);
+	close (fe);
+	r_file_rm (fa);
+	r_file_rm (fb);
+	free (fa);
+	free (fb);
 	free (err);
 	return out;
 }
@@ -330,7 +348,7 @@ R_API bool r_diff_buffers_distance_myers(RDiff *diff, const ut8 *a, ut32 la, con
 			}
 		}
 		if (verbose && di % 10000 == 0) {
-			eprintf ("\rProcessing dist %" PFMT64d " of max %" PFMT64d "\r", di, m);
+			eprintf ("\rProcessing dist %" PFMT64d " of max %" PFMT64d "\r", (st64)di, (st64)m);
 		}
 	}
 
@@ -467,9 +485,11 @@ R_API RDiffChar *r_diffchar_new(const ut8 *a, const ut8 *b) {
 			const ut8 a_ch = a[col - 1];
 			const ut8 b_ch = b[row - 1];
 			const st16 tl_score = *(align_table + (row - 1) * dim + col - 1)
-			                    + (a_ch == b_ch ?
-			                       (a_ch == '\n' ? match_nl : match) :
-			                       mismatch);
+				+ (a_ch == b_ch
+					? (a_ch == '\n'
+						? match_nl
+						: match)
+					: mismatch);
 			const st16 t_score = *(align_table + (row - 1) * dim + col) + gap;
 			const st16 l_score = *(align_table + row * dim + col - 1) + gap;
 			st16 score;
@@ -616,7 +636,7 @@ R_API void r_diffchar_print(RDiffChar *diffchar) {
 		} else if (!a_ch && b_ch) {
 			cur_align = R2R_ALIGN_TOP_GAP;
 		} else if (a_ch != b_ch) {
-			eprintf ("Internal error: mismatch detected!\n");
+			R_LOG_ERROR ("Internal mismatch detected!");
 			cur_align = R2R_ALIGN_MISMATCH;
 		} else {
 			cur_align = R2R_ALIGN_MATCH;
@@ -627,14 +647,16 @@ R_API void r_diffchar_print(RDiffChar *diffchar) {
 					printf ("%c", a_ch);
 				}
 			} else if (cur_align == R2R_ALIGN_BOTTOM_GAP) {
-				printf (a_ch == '\n' ?
-				        "%c"Color_HLDELETE :
-				        Color_HLDELETE"%c", a_ch);
+				printf (a_ch == '\n'
+						? "%c" Color_HLDELETE
+						: Color_HLDELETE "%c",
+					a_ch);
 				cur_mode = R2R_DIFF_DELETE;
 			} else if (cur_align == R2R_ALIGN_TOP_GAP) {
-				printf (b_ch == '\n' ?
-				        "%c"Color_HLINSERT :
-				        Color_HLINSERT"%c", b_ch);
+				printf (b_ch == '\n'
+						? "%c" Color_HLINSERT
+						: Color_HLINSERT "%c",
+					b_ch);
 				cur_mode = R2R_DIFF_INSERT;
 			}
 		} else if (cur_mode == R2R_DIFF_DELETE) {
@@ -645,13 +667,15 @@ R_API void r_diffchar_print(RDiffChar *diffchar) {
 				}
 				cur_mode = R2R_DIFF_MATCH;
 			} else if (cur_align == R2R_ALIGN_BOTTOM_GAP) {
-				printf (a_ch == '\n' ?
-				        Color_RESET"%c"Color_HLDELETE :
-				        "%c", a_ch);
+				printf (a_ch == '\n'
+						? Color_RESET "%c" Color_HLDELETE
+						: "%c",
+					a_ch);
 			} else if (cur_align == R2R_ALIGN_TOP_GAP) {
-				printf (b_ch == '\n' ?
-				        Color_RESET"%c"Color_HLINSERT :
-				        Color_HLINSERT"%c", b_ch);
+				printf (b_ch == '\n'
+						? Color_RESET "%c" Color_HLINSERT
+						: Color_HLINSERT "%c",
+					b_ch);
 				cur_mode = R2R_DIFF_INSERT;
 			}
 		} else if (cur_mode == R2R_DIFF_INSERT) {
@@ -662,19 +686,21 @@ R_API void r_diffchar_print(RDiffChar *diffchar) {
 				}
 				cur_mode = R2R_DIFF_MATCH;
 			} else if (cur_align == R2R_ALIGN_BOTTOM_GAP) {
-				printf (a_ch == '\n' ?
-				        Color_RESET"%c"Color_HLDELETE :
-				        Color_HLDELETE"%c", a_ch);
+				printf (a_ch == '\n'
+						? Color_RESET "%c" Color_HLDELETE
+						: Color_HLDELETE "%c",
+					a_ch);
 				cur_mode = R2R_DIFF_DELETE;
 			} else if (cur_align == R2R_ALIGN_TOP_GAP) {
-				printf (b_ch == '\n' ?
-				        Color_RESET"%c"Color_HLINSERT :
-				        "%c", b_ch);
+				printf (b_ch == '\n'
+						? Color_RESET "%c" Color_HLINSERT
+						: "%c",
+					b_ch);
 			}
 		}
 		idx_align++;
 	}
-	printf (Color_RESET"\n");
+	printf (Color_RESET "\n");
 }
 
 R_API void r_diffchar_free(RDiffChar *diffchar) {
@@ -782,11 +808,11 @@ static st32 r_diff_levenshtein_nopath(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst,
 }
 
 /**
- * \brief Return Levenshtein distance and put array of changes, of unkown
+ * \brief Return Levenshtein distance and put array of changes, of unknown
  * lenght, in chgs
  * \param bufa Structure to represent starting buffer
  * \param bufb Structure to represent the buffer to reach
- * \param maxdst Max Levenshtein distance need, send UT32_MAX if unkown.
+ * \param maxdst Max Levenshtein distance need, send UT32_MAX if unknown.
  * \param levdiff Function pointer returning true when there is a difference.
  * \param chgs Returned array of changes to get from bufa to bufb
  *
@@ -819,7 +845,8 @@ R_API st32 r_diff_levenshtein_path(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst, RL
 	size_t skip;
 	ut32 alen = bufa->len;
 	ut32 blen = bufb->len;
-	for (skip=0; skip < alen && !levdiff (bufa, bufb, skip, skip); skip++) {}
+	for (skip = 0; skip < alen && !levdiff (bufa, bufb, skip, skip); skip++) {
+	}
 
 	// strip suffix as long as bytes don't diff
 	size_t i;
@@ -928,11 +955,11 @@ R_API st32 r_diff_levenshtein_path(RLevBuf *bufa, RLevBuf *bufb, ut32 maxdst, RL
 	{
 		// for debugging matrix
 		size_t total = 0;
-		for (i=0; i <= alen; i++) {
+		for (i = 0; i <= alen; i++) {
 			Levrow *bow = matrix + i;
 			ut32 j;
 			printf ("   ");
-			for (j=0; j <= blen; j++) {
+			for (j = 0; j <= blen; j++) {
 				ut32 val = lev_get_val (bow, j);
 				if (val >= UT32_MAX - 1) {
 					printf (" ..");

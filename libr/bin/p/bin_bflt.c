@@ -1,8 +1,5 @@
-/* radare - LGPL - Copyright 2016-2019 - Oscar Salvador */
+/* radare - LGPL - Copyright 2016-2023 - Oscar Salvador */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 #include <r_io.h>
 #include "bflt/bflt.h"
@@ -13,32 +10,24 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 }
 
 static RList *entries(RBinFile *bf) {
-	struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) bf->o->bin_obj;
-	RList *ret;
-	RBinAddr *ptr;
-
-	if (!(ret = r_list_newf (free))) {
-		return NULL;
+	RList *ret = r_list_newf (free);
+	if (ret) {
+		struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) R_UNWRAP3 (bf, o, bin_obj);
+		RBinAddr *ptr = r_bflt_get_entry (obj);
+		if (ptr) {
+			r_list_append (ret, ptr);
+		}
 	}
-	ptr = r_bflt_get_entry (obj);
-	if (!ptr) {
-		r_list_free (ret);
-		return NULL;
-	}
-	r_list_append (ret, ptr);
 	return ret;
 }
 
-static void __patch_reloc(RBuffer *buf, ut32 addr_to_patch, ut32 data_offset) {
-	ut8 val[4] = {
-		0
-	};
+static void __patch_reloc(RIOBind *iob, ut32 addr_to_patch, ut32 data_offset) {
+	ut8 val[4] = { 0 };
 	r_write_le32 (val, data_offset);
-	r_buf_write_at (buf, addr_to_patch, (void *) val, sizeof (val));
+	iob->overlay_write_at (iob->io, addr_to_patch, val, sizeof (val));
 }
 
-static int search_old_relocation(struct reloc_struct_t *reloc_table,
-                                 ut32 addr_to_patch, int n_reloc) {
+static int search_old_relocation(struct reloc_struct_t *reloc_table, ut32 addr_to_patch, int n_reloc) {
 	int i;
 	for (i = 0; i < n_reloc; i++) {
 		if (addr_to_patch == reloc_table[i].data_offset) {
@@ -48,34 +37,24 @@ static int search_old_relocation(struct reloc_struct_t *reloc_table,
 	return -1;
 }
 
-static RList *patch_relocs(RBin *b) {
+static RList *patch_relocs(RBinFile *bf) {
+	r_return_val_if_fail (bf && bf->rbin && bf->rbin->iob.io, NULL);
 	struct r_bin_bflt_obj *bin = NULL;
-	RList *list = NULL;
-	RBinObject *obj;
-	int i = 0;
-	if (!b || !b->iob.io || !b->iob.io->desc) {
-		return NULL;
-	}
-	if (!(b->iob.io->cached & R_PERM_W)) {
-		eprintf (
-			"Warning: please run r2 with -e io.cache=true to patch "
-			"relocations\n");
-		return NULL;
-	}
-
-	obj = r_bin_cur_object (b);
+	RBin *b = bf->rbin;
+	RBinObject *obj = r_bin_cur_object (b);
 	if (!obj) {
 		return NULL;
 	}
 	bin = obj->bin_obj;
-	list = r_list_newf ((RListFree) free);
+	RList *list = r_list_newf ((RListFree) free);
 	if (!list) {
 		return NULL;
 	}
 	if (bin->got_table) {
 		struct reloc_struct_t *got_table = bin->got_table;
+		int i;
 		for (i = 0; i < bin->n_got; i++) {
-			__patch_reloc (bin->b, got_table[i].addr_to_patch,
+			__patch_reloc (&b->iob, got_table[i].addr_to_patch,
 				got_table[i].data_offset);
 			RBinReloc *reloc = R_NEW0 (RBinReloc);
 			if (reloc) {
@@ -90,15 +69,15 @@ static RList *patch_relocs(RBin *b) {
 
 	if (bin->reloc_table) {
 		struct reloc_struct_t *reloc_table = bin->reloc_table;
+		int i = 0;
 		for (i = 0; i < bin->hdr->reloc_count; i++) {
 			int found = search_old_relocation (reloc_table,
-				reloc_table[i].addr_to_patch,
-				bin->hdr->reloc_count);
+				reloc_table[i].addr_to_patch, bin->hdr->reloc_count);
 			if (found != -1) {
-				__patch_reloc (bin->b, reloc_table[found].addr_to_patch,
+				__patch_reloc (&b->iob, reloc_table[found].addr_to_patch,
 					reloc_table[i].data_offset);
 			} else {
-				__patch_reloc (bin->b, reloc_table[i].addr_to_patch,
+				__patch_reloc (&b->iob, reloc_table[i].addr_to_patch,
 					reloc_table[i].data_offset);
 			}
 			RBinReloc *reloc = R_NEW0 (RBinReloc);
@@ -111,9 +90,6 @@ static RList *patch_relocs(RBin *b) {
 		}
 		R_FREE (bin->reloc_table);
 	}
-	ut64 tmpsz;
-	const ut8 *tmp = r_buf_data (bin->b, &tmpsz);
-	b->iob.write_at (b->iob.io, 0, tmp, tmpsz);
 	return list;
 }
 
@@ -254,32 +230,27 @@ out_error:
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	struct r_bin_bflt_obj *obj = NULL;
-	RBinInfo *info = NULL;
-	if (!bf || !bf->o || !bf->o->bin_obj) {
-		return NULL;
+	RBinInfo *info = R_NEW0 (RBinInfo);
+	if (info) {
+		struct r_bin_bflt_obj *obj = R_UNWRAP3 (bf, o, bin_obj);
+		info->file = bf->file? strdup (bf->file): NULL;
+		info->rclass = strdup ("bflt");
+		info->bclass = strdup ("bflt" );
+		info->type = strdup ("bFLT (Executable file)");
+		info->os = strdup ("Linux");
+		info->subsystem = strdup ("Linux");
+		info->arch = strdup ("arm");
+		info->big_endian = obj? obj->endian: R_SYS_ENDIAN_LITTLE;
+		info->bits = 32;
+		info->has_va = false;
+		info->dbg_info = 0;
+		info->machine = strdup ("unknown");
 	}
-	obj = (struct r_bin_bflt_obj *) bf->o->bin_obj;
-	if (!(info = R_NEW0 (RBinInfo))) {
-		return NULL;
-	}
-	info->file = bf->file? strdup (bf->file): NULL;
-	info->rclass = strdup ("bflt");
-	info->bclass = strdup ("bflt" );
-	info->type = strdup ("bFLT (Executable file)");
-	info->os = strdup ("Linux");
-	info->subsystem = strdup ("Linux");
-	info->arch = strdup ("arm");
-	info->big_endian = obj->endian;
-	info->bits = 32;
-	info->has_va = false;
-	info->dbg_info = 0;
-	info->machine = strdup ("unknown");
 	return info;
 }
 
-static bool check_buffer(RBuffer *buf) {
-	ut8 tmp[4];
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+	ut8 tmp[4] = {0};
 	int r = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
 	return r == sizeof (tmp) && !memcmp (tmp, "bFLT", 4);
 }

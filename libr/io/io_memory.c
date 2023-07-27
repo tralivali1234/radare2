@@ -1,34 +1,20 @@
-/* radare - LGPL - Copyright 2008-2020 - pancake */
+/* radare - LGPL - Copyright 2008-2022 - pancake */
 
 #include "io_memory.h"
 
 static inline ut32 _io_malloc_sz(RIODesc *desc) {
-	if (!desc) {
-		return 0;
-	}
+	r_return_val_if_fail (desc, 0);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal? mal->size: 0;
 }
 
-static inline void _io_malloc_set_sz(RIODesc *desc, ut32 sz) {
-	if (!desc) {
-		return;
-	}
-	RIOMalloc *mal = (RIOMalloc*)desc->data;
-	if (mal) {
-		mal->size = sz;
-	}
-}
-
 static inline ut8* _io_malloc_buf(RIODesc *desc) {
-	if (!desc) {
-		return NULL;
-	}
+	r_return_val_if_fail (desc, NULL);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal->buf;
 }
 
-
+#if 0
 static inline ut8* _io_malloc_set_buf(RIODesc *desc, ut8* buf) {
 	if (!desc) {
 		return NULL;
@@ -36,25 +22,23 @@ static inline ut8* _io_malloc_set_buf(RIODesc *desc, ut8* buf) {
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal->buf = buf;
 }
+#endif
 
 static inline ut64 _io_malloc_off(RIODesc *desc) {
-	if (!desc) {
-		return 0;
-	}
+	r_return_val_if_fail (desc, 0);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal->offset;
 }
 
 static inline void _io_malloc_set_off(RIODesc *desc, ut64 off) {
-	if (!desc) {
-		return;
-	}
+	r_return_if_fail (desc);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	mal->offset = off;
 }
 
 int io_memory_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	if (!fd || !buf || count < 0 || !fd->data) {
+	r_return_val_if_fail (io && fd && buf, -1);
+	if (count < 0 || !fd->data) {
 		return -1;
 	}
 	if (_io_malloc_off (fd) > _io_malloc_sz (fd)) {
@@ -72,31 +56,31 @@ int io_memory_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 }
 
 bool io_memory_resize(RIO *io, RIODesc *fd, ut64 count) {
-	ut8 * new_buf = NULL;
-	if (!fd || !fd->data || count == 0) {
+	r_return_val_if_fail (io && fd, false);
+	if (count == 0) { // TODO: why cant truncate to 0 bytes
 		return false;
 	}
 	ut32 mallocsz = _io_malloc_sz (fd);
 	if (_io_malloc_off (fd) > mallocsz) {
 		return false;
 	}
-	new_buf = malloc (count);
+	RIOMalloc *mal = (RIOMalloc*)fd->data;
+	ut8 *new_buf = realloc (mal->buf, count);
 	if (!new_buf) {
 		return false;
 	}
-	memcpy (new_buf, _io_malloc_buf (fd), R_MIN (count, mallocsz));
-	if (count > mallocsz) {
-		memset (new_buf + mallocsz, 0, count - mallocsz);
+	mal->buf = new_buf;
+	if (count > mal->size) {
+		memset (mal->buf + mal->size, 0, count - mal->size);
 	}
-	free (_io_malloc_buf (fd));
-	_io_malloc_set_buf (fd, new_buf);
-	_io_malloc_set_sz (fd, count);
+	mal->size = count;
 	return true;
 }
 
 int io_memory_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
+	r_return_val_if_fail (io && fd && buf, -1);
 	memset (buf, 0xff, count);
-	if (!fd || !fd->data) {
+	if (!fd->data) {
 		return -1;
 	}
 	ut32 mallocsz = _io_malloc_sz (fd);
@@ -111,18 +95,18 @@ int io_memory_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	return count;
 }
 
-int io_memory_close(RIODesc *fd) {
-	RIOMalloc *riom;
+bool io_memory_close(RIODesc *fd) {
 	if (!fd || !fd->data) {
-		return -1;
+		return false;
 	}
-	riom = fd->data;
+	RIOMalloc *riom = fd->data;
 	R_FREE (riom->buf);
 	R_FREE (fd->data);
-	return 0;
+	return true;
 }
 
 ut64 io_memory_lseek(RIO* io, RIODesc *fd, ut64 offset, int whence) {
+	r_return_val_if_fail (io && fd, offset);
 	ut64 r_offset = offset;
 	if (!fd || !fd->data) {
 		return offset;

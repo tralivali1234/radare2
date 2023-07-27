@@ -1,10 +1,11 @@
-/* radare2 - LGPL - Copyright 2015-2020 - pancake */
+/* radare2 - LGPL - Copyright 2015-2023 - pancake */
 
 #ifndef R2_BIND_H
 #define R2_BIND_H
 
-// TODO: move riobind here too?
-// TODO: move rprint here too
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef int (*RCoreCmd)(void *core, const char *cmd);
 typedef int (*RCoreCmdF)(void *user, const char *fmt, ...);
@@ -18,7 +19,7 @@ typedef bool (*RCoreIsMapped)(void *core, ut64 addr, int perm);
 typedef bool (*RCoreDebugMapsSync)(void *core);
 typedef const char *(*RCoreGetName)(void *core, ut64 off);
 typedef char *(*RCoreGetNameDelta)(void *core, ut64 off);
-typedef void (*RCoreSeekArchBits)(void *core, ut64 addr); 
+typedef void (*RCoreSeekArchBits)(void *core, ut64 addr);
 typedef int (*RCoreConfigGetI)(void *core, const char *key);
 typedef const char *(*RCoreConfigGet)(void *core, const char *key);
 typedef ut64 (*RCoreNumGet)(void *core, const char *str);
@@ -44,5 +45,9 @@ typedef struct r_core_bind_t {
 	RCoreDebugMapsSync syncDebugMaps;
 	RCorePJWithEncoding pjWithEncoding;
 } RCoreBind;
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

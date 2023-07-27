@@ -1,11 +1,10 @@
-/* radare - LGPL - Copyright 2012-2020 - pancake */
+/* radare - LGPL - Copyright 2012-2023 - pancake */
 
 #include <r_util.h>
 
 R_API RStrpool* r_strpool_new(int sz) {
 	RStrpool *p = R_NEW (RStrpool);
 	if (!p) {
-		eprintf ("Malloc failed!\n");
 		return NULL;
 	}
 	if (sz < 1) {
@@ -13,7 +12,6 @@ R_API RStrpool* r_strpool_new(int sz) {
 	}
 	p->str = malloc (sz);
 	if (!p->str) {
-		eprintf ("Malloc failed!\n");
 		free (p);
 		return NULL;
 	}
@@ -24,13 +22,16 @@ R_API RStrpool* r_strpool_new(int sz) {
 }
 
 R_API char *r_strpool_empty(RStrpool *p) {
+	r_return_val_if_fail (p, NULL);
 	p->len = 0;
 	p->str[0] = 0;
 	p->str[1] = 0;
 	return p->str;
 }
 
+// must be internal imho
 R_API char *r_strpool_alloc(RStrpool *p, int l) {
+	r_return_val_if_fail (p, NULL);
 	char *ret = p->str + p->len;
 	if ((p->len + l) >= p->size) {
 		ut64 osize = p->size;
@@ -40,13 +41,11 @@ R_API char *r_strpool_alloc(RStrpool *p, int l) {
 			p->size += R_STRPOOL_INC;
 		}
 		if (p->size < osize) {
-			eprintf ("Underflow!\n");
 			p->size = osize;
 			return NULL;
 		}
 		ret = realloc (p->str, p->size);
 		if (!ret) {
-			eprintf ("Realloc failed!\n");
 			free (p->str);
 			p->str = NULL;
 			return NULL;
@@ -58,6 +57,7 @@ R_API char *r_strpool_alloc(RStrpool *p, int l) {
 	return ret;
 }
 
+// must be internal imho, we store strings not bytes. must be always nul terminated. or just rename to append_n
 R_API int r_strpool_memcat(RStrpool *p, const char *s, int len) {
 	char *ptr = r_strpool_alloc (p, len);
 	if (!ptr) {
@@ -72,7 +72,8 @@ R_API int r_strpool_append(RStrpool *p, const char *s) {
 	return r_strpool_memcat (p, s, l);
 }
 
-R_API int r_strpool_ansi_chop(RStrpool *p, int n){
+// R2_590 Rename to ansi_trim() not chop
+R_API int r_strpool_ansi_chop(RStrpool *p, int n) {
 	/* p->str need not be a c-string */
 	int i = r_str_ansi_trim (p->str, p->len, n);
 	p->len = i;
@@ -80,19 +81,18 @@ R_API int r_strpool_ansi_chop(RStrpool *p, int n){
 }
 
 R_API void r_strpool_free(RStrpool *p) {
-	free (p->str);
-	free (p);
+	if (p) {
+		free (p->str);
+		free (p);
+	}
 }
 
 R_API int r_strpool_fit(RStrpool *p) {
-	char *s;
 	if (p->len == p->size) {
 		return false;
 	}
-	s = realloc (p->str, p->len);
-	if (!s)
-	{
-		eprintf ("Realloc failed!\n");
+	char *s = realloc (p->str, p->len);
+	if (!s) {
 		free (p->str);
 		return false;
 	}
@@ -102,12 +102,11 @@ R_API int r_strpool_fit(RStrpool *p) {
 }
 
 R_API char *r_strpool_get(RStrpool *p, int index) {
-	if (!p || !p->str || index < 0 || index >= p->len) {
-		return NULL;
-	}
-	return p->str + index;
+	r_return_val_if_fail (p && p->str && index >= 0, NULL);
+	return (index < 0 || index >= p->len) ? NULL : p->str + index;
 }
 
+// TODO: find a better name like get_nth. also this is O(n) so better dont use it
 R_API char *r_strpool_get_i(RStrpool *p, int index) {
 	int i, n = 0;
 	if (index < 0 || index >= p->len) {
@@ -140,15 +139,20 @@ R_API char *r_strpool_next(RStrpool *p, int index) {
 	return ptr;
 }
 
+// suboptimal and shouldnt be used
 R_API char *r_strpool_slice(RStrpool *p, int index) {
-	int idx, len;
-	char *o, *x = r_strpool_get_i (p, index + 1);
-	if (!x || !*x) {
+	r_return_val_if_fail (p && index >= 0, NULL);
+	char *x = r_strpool_get_i (p, index + 1);
+	if (!x) {
 		return NULL;
 	}
-	idx = (size_t)(x - p->str);
-	len = p->len - idx;
-	o = malloc (len + 128);
+	if (!(*x)) {
+		free (x);
+		return NULL;
+	}
+	int idx = (size_t)(x - p->str);
+	int len = p->len - idx;
+	char *o = malloc (len + 128);
 	if (!o) {
 		return NULL;
 	}

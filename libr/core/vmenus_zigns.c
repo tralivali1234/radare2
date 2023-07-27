@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2019 - pancake */
+/* radare - LGPL - Copyright 2019-2022 - pancake */
 
 #include <r_core.h>
 
@@ -14,9 +14,9 @@ typedef struct {
 	bool canRight;
 } RCoreVisualViewZigns;
 
-static const char *cur_name = NULL;
+static R_TH_LOCAL const char *cur_name = NULL;
 
-static char *print_item (void *_core, void *_item, bool selected) {
+static char *print_item(void *_core, void *_item, bool selected) {
 	RSignItem *item = _item;
 	int i;
 	int bytes_mask = 0;
@@ -156,14 +156,14 @@ R_API int r_core_visual_view_zigns(RCore *core) {
 			return false;
 		case ':': // TODO: move this into a separate helper function
 			{
-			char cmd[1024];
+			char cmd[1024] = {0};
 			r_cons_show_cursor (true);
 			r_cons_set_raw (0);
-			cmd[0]='\0';
 			r_line_set_prompt (":> ");
 			if (r_cons_fgets (cmd, sizeof (cmd), 0, NULL) < 0) {
 				cmd[0] = '\0';
 			}
+			cmd[sizeof (cmd) - 1] = 0;
 			r_core_cmd_task_sync (core, cmd, 1);
 			r_cons_set_raw (1);
 			r_cons_show_cursor (false);

@@ -105,6 +105,12 @@ struct powerpc_regs_t {
 #include <sys/ucontext.h>
 typedef ut64 mips64_regs_t [274];
 #define R_DEBUG_REG_T mips64_regs_t
+
+#elif __loongarch__
+
+#include <sys/ucontext.h>
+typedef ut64 la_regs_t [32];
+#define R_DEBUG_REG_T la_regs_t
 #endif
 #endif
 
@@ -121,19 +127,19 @@ typedef ut64 mips64_regs_t [274];
 bool linux_set_options(RDebug *dbg, int pid);
 int linux_step(RDebug *dbg);
 RDebugReasonType linux_ptrace_event(RDebug *dbg, int pid, int status, bool dowait);
-int linux_attach(RDebug *dbg, int pid);
+bool linux_attach(RDebug *dbg, int pid);
 bool linux_attach_new_process(RDebug *dbg, int pid);
 RDebugInfo *linux_info(RDebug *dbg, const char *arg);
 RList *linux_pid_list(int pid, RList *list);
 RList *linux_thread_list(RDebug *dbg, int pid, RList *list);
 bool linux_select(RDebug *dbg, int pid, int tid);
 RDebugPid *fill_pid_info(const char *info, const char *path, int tid);
-int linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size);
-int linux_reg_write(RDebug *dbg, int type, const ut8 *buf, int size);
+bool linux_reg_read(RDebug *dbg, int type, ut8 *buf, int size);
+bool linux_reg_write(RDebug *dbg, int type, const ut8 *buf, int size);
 RList *linux_desc_list(int pid);
 bool linux_stop_threads(RDebug *dbg, int except);
 int linux_handle_signals(RDebug *dbg, int tid);
-int linux_dbg_wait(RDebug *dbg, int pid);
+RDebugReasonType linux_dbg_wait(RDebug *dbg, int pid);
 char *linux_reg_profile(RDebug *dbg);
 int match_pid(const void *pid_o, const void *th_o);
 

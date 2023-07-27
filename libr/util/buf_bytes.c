@@ -38,7 +38,7 @@ static bool buf_bytes_init(RBuffer *b, const void *user) {
 		priv->buf = malloc (priv->length);
 		if (!priv->buf) {
 			free (priv);
-			return NULL;
+			return false;
 		}
 		if (priv->length) {
 			memmove (priv->buf, u->data, priv->length);
@@ -74,6 +74,9 @@ static bool buf_bytes_resize(RBuffer *b, ut64 newsize) {
 
 static st64 buf_bytes_read(RBuffer *b, ut8 *buf, ut64 len) {
 	struct buf_bytes_priv *priv = get_priv_bytes (b);
+	if (!priv->buf) {
+		return 0;
+	}
 	ut64 real_len = priv->length < priv->offset? 0: R_MIN (priv->length - priv->offset, len);
 	memmove (buf, priv->buf + priv->offset, real_len);
 	priv->offset += real_len;
@@ -103,20 +106,15 @@ static st64 buf_bytes_seek(RBuffer *b, st64 addr, int whence) {
 	if (addr < 0 && (-addr) > (st64)priv->offset) {
 		return -1;
 	}
-
-	switch (whence) {
-	case R_BUF_CUR:
-		priv->offset += addr;
-		break;
-	case R_BUF_SET:
+	if (R_LIKELY (whence == R_BUF_SET)) {
+		// 50%
 		priv->offset = addr;
-		break;
-	case R_BUF_END:
+	} else if (whence == R_BUF_CUR) {
+		// 20%
+		priv->offset += addr;
+	} else {
+		// 5%
 		priv->offset = priv->length + addr;
-		break;
-	default:
-		r_warn_if_reached ();
-		return -1;
 	}
 	return priv->offset;
 }

@@ -61,15 +61,15 @@ R_API char *r_bin_demangle_objc(RBinFile *bf, const char *sym) {
 			if (name) {
 				*name++ = 0;
 				name = strdup (name);
-				if (!name){
+				if (!name) {
 					free (clas);
 					return NULL;
 				}
 				for (i = 0; name[i]; i++) {
-					if (name[i]==']') {
+					if (name[i] == ']') {
 						name[i] = 0;
 					}
-					if (name[i]==':') {
+					if (name[i] == ':') {
 						nargs++;
 						name[i] = 0;
 					}

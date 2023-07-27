@@ -1,9 +1,8 @@
-/* radare - LGPL - Copyright 2018 - rkx1209 */
+/* radare - LGPL - Copyright 2018-2021 - rkx1209 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 #include <r_types.h>
 #include <r_util.h>
 #include <r_lib.h>
@@ -36,7 +35,7 @@ const char *fileType(const ut8 *buf) {
 	return NULL;
 }
 
-static void walkSymbols (RBuffer *buf, RBinNXOObj *bin, ut64 symtab, ut64 strtab, ut64 strtab_size, ut64 relplt, ut64 baddr) {
+static void walkSymbols(RBuffer *buf, RBinNXOObj *bin, ut64 symtab, ut64 strtab, ut64 strtab_size, ut64 relplt, ut64 baddr) {
 	int i, import = 0;
 	RBinSymbol *sym;
 	RBinImport *imp;
@@ -103,7 +102,7 @@ static void walkSymbols (RBuffer *buf, RBinNXOObj *bin, ut64 symtab, ut64 strtab
 		r_list_append (bin->methods_list, sym);
 		i += 8 - 1;
 	}
-    return;
+	return;
 
 out_walk_symbol:
 	R_FREE (sym);

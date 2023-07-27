@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2019 - pancake, nibble */
+/* radare - LGPL - Copyright 2010-2022 - pancake, nibble */
 
 #include <r_anal.h>
 #include <r_util.h>
@@ -31,8 +31,7 @@ static bool bb_from_offset_first_cb(RAnalBlock *block, void *user) {
 }
 
 R_API RAnalBlock *r_anal_bb_from_offset(RAnal *anal, ut64 off) {
-	const bool x86 = anal->cur->arch && !strcmp (anal->cur->arch, "x86");
-	if (anal->opt.jmpmid && x86) {
+	if (anal->opt.jmpmid && r_anal_is_aligned (anal, off)) {
 		BBFromOffsetJmpmidCtx ctx = { off, NULL };
 		r_anal_blocks_foreach_in (anal, off, bb_from_offset_jmpmid_cb, &ctx);
 		return ctx.ret;
@@ -43,7 +42,7 @@ R_API RAnalBlock *r_anal_bb_from_offset(RAnal *anal, ut64 off) {
 	return ret;
 }
 
-/* return the offset of the i-th instruction in the basicblock bb.
+/* returns the offset of the i-th instruction in the basicblock bb.
  * If the index of the instruction is not valid, it returns UT16_MAX */
 R_API ut16 r_anal_bb_offset_inst(const RAnalBlock *bb, int i) {
 	if (i < 0 || i >= bb->ninstr) {
@@ -52,7 +51,7 @@ R_API ut16 r_anal_bb_offset_inst(const RAnalBlock *bb, int i) {
 	return (i > 0 && (i - 1) < bb->op_pos_size)? bb->op_pos[i - 1]: 0;
 }
 
-/* return the address of the i-th instruction in the basicblock bb.
+/* returns the address of the i-th instruction in the basicblock bb.
  * If the index of the instruction is not valid, it returns UT64_MAX */
 R_API ut64 r_anal_bb_opaddr_i(RAnalBlock *bb, int i) {
 	ut16 offset = r_anal_bb_offset_inst (bb, i);
@@ -68,12 +67,23 @@ R_API bool r_anal_bb_set_offset(RAnalBlock *bb, int i, ut16 v) {
 	if (i > 0 && v > 0) {
 		if (i >= bb->op_pos_size) {
 			int new_pos_size = i * 2;
+			if (new_pos_size >= UT16_MAX) {
+				R_LOG_WARN ("Basic block at 0x%08"PFMT64x" is too large", bb->addr);
+				return false;
+			}
 			ut16 *tmp_op_pos = realloc (bb->op_pos, new_pos_size * sizeof (*bb->op_pos));
 			if (!tmp_op_pos) {
 				return false;
 			}
-			bb->op_pos_size = new_pos_size;
 			bb->op_pos = tmp_op_pos;
+#if 0
+			// initialize the uninitialized
+			// not necessary because its catched earlier when ut16max limit is reached
+			for (i = bb->op_pos_size; i < new_pos_size; i++) {
+				bb->op_pos[i] = 0;
+			}
+#endif
+			bb->op_pos_size = new_pos_size;
 		}
 		bb->op_pos[i - 1] = v;
 		return true;
@@ -81,7 +91,7 @@ R_API bool r_anal_bb_set_offset(RAnalBlock *bb, int i, ut16 v) {
 	return true;
 }
 
-/* return the address of the instruction that occupy a given offset.
+/* returns the address of the instruction that occupies a given offset.
  * If the offset is not part of the given basicblock, UT64_MAX is returned. */
 R_API ut64 r_anal_bb_opaddr_at(RAnalBlock *bb, ut64 off) {
 	ut16 delta, delta_off, last_delta;
@@ -102,7 +112,7 @@ R_API ut64 r_anal_bb_opaddr_at(RAnalBlock *bb, ut64 off) {
 	return bb->addr + last_delta;
 }
 
-// returns the size of the i-th instruction in a basic block
+// returns the size of the i-th instruction in a basicblock
 R_API ut64 r_anal_bb_size_i(RAnalBlock *bb, int i) {
 	if (i < 0 || i >= bb->ninstr) {
 		return UT64_MAX;
@@ -112,7 +122,7 @@ R_API ut64 r_anal_bb_size_i(RAnalBlock *bb, int i) {
 	return idx_next != UT16_MAX? idx_next - idx_cur: bb->size - idx_cur;
 }
 
-/* returns the address of the basic block that contains addr or UT64_MAX if
+/* returns the address of the basicblock that contains addr or UT64_MAX if
  * there is no such basic block */
 R_API ut64 r_anal_get_bbaddr(RAnal *anal, ut64 addr) {
 	RAnalBlock *bb = r_anal_bb_from_offset (anal, addr);

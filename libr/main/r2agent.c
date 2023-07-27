@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2013-2020 - pancake */
+/* radare2 - LGPL - Copyright 2013-2022 - pancake */
 
 #include "index.h"
 #include <r_main.h>
@@ -14,7 +14,7 @@ extern int memorystatus_control(uint32_t command, pid_t pid, uint32_t flags, voi
 #define USE_IOS_JETSAM 0
 #endif
 
-static int usage (int v) {
+static int usage(int v) {
 	printf ("Usage: r2agent [-adhs] [-p port]\n"
 	"  -a        listen for everyone (localhost by default)\n"
 	"  -d        run in daemon mode (background)\n"
@@ -33,7 +33,6 @@ static int showversion(void) {
 R_API int r_main_r2agent(int argc, const char **argv) {
 	RSocket *s;
 	RSocketHTTPOptions so;
-	RSocketHTTPRequest *rs;
 	int c;
 	int dodaemon = 0;
 	int dosandbox = 0;
@@ -82,7 +81,7 @@ R_API int r_main_r2agent(int argc, const char **argv) {
 
 	if (so.httpauth) {
 		if (!httpauthfile) {
-			eprintf ("No authentication user list set\n");
+			R_LOG_ERROR ("No authentication user list set");
 			return usage (0);
 		}
 
@@ -91,12 +90,12 @@ R_API int r_main_r2agent(int argc, const char **argv) {
 		if (pfile) {
 			so.authtokens = r_str_split_list (pfile, "\n", 0);
 		} else {
-			eprintf ("Empty list of HTTP users\\n");
+			R_LOG_ERROR ("Empty list of HTTP users");
 			return usage (0);
 		}
 	}
 #if USE_IOS_JETSAM
-	memorystatus_control (MEMORYSTATUS_CMD_SET_JETSAM_TASK_LIMIT, getpid (), 256, NULL, 0);
+	memorystatus_control (MEMORYSTATUS_CMD_SET_JETSAM_TASK_LIMIT, r_sys_getpid (), 256, NULL, 0);
 #endif
 	if (dodaemon) {
 #if LIBC_HAVE_FORK
@@ -110,14 +109,14 @@ R_API int r_main_r2agent(int argc, const char **argv) {
 	s = r_socket_new (false);
 	s->local = listenlocal;
 	if (!r_socket_listen (s, port, NULL)) {
-		eprintf ("Cannot listen on %d\n", s->port);
+		R_LOG_ERROR ("Cannot listen on %d", s->port);
 		r_socket_free (s);
 		return 1;
 	}
 
-	eprintf ("http://localhost:%d/\n", s->port);
+	R_LOG_INFO ("http://localhost:%d/", s->port);
 	if (dosandbox && !r_sandbox_enable (true)) {
-		eprintf ("sandbox: Cannot be enabled.\n");
+		R_LOG_ERROR ("Cannot enable the sandbox");
 		free (pfile);
 		r_list_free (so.authtokens);
 		r_socket_free (s);
@@ -127,68 +126,51 @@ R_API int r_main_r2agent(int argc, const char **argv) {
 	(void)r_cons_new ();
 
 	while (!r_cons_singleton ()->context->breaked) {
-		char *result_heap = NULL;
-		const char *result = page_index;
-
-		rs = r_socket_http_accept (s, &so);
+		char *res = NULL;
+		RSocketHTTPRequest *rs = r_socket_http_accept (s, &so);
 		if (!rs) {
+			R_LOG_ERROR ("Failed to accept http client");
 			continue;
 		}
 		if (!rs->auth) {
 			r_socket_http_response (rs, 401, "", 0, NULL);
 		}
 		if (!strcmp (rs->method, "GET")) {
-			if (!strncmp (rs->path, "/proc/kill/", 11)) {
+			if (r_str_startswith (rs->path, "/proc/kill/")) {
 				// TODO: show page here?
-				int pid = atoi (rs->path + 11);
+				int pid = atoi (rs->path + strlen ("/proc/kill/"));
 				if (pid > 0) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 					r_sandbox_kill (pid, 0);
 #else
 					r_sandbox_kill (pid, SIGKILL);
 #endif
 				}
-			} else if (!strncmp (rs->path, "/file/open/", 11)) {
-				int pid;
+			} else if (r_str_startswith (rs->path, "/file/open/")) {
 				int session_port = 3000 + r_num_rand (1024);
-				char *filename = rs->path + 11;
+				char *filename = rs->path + strlen ("/file/open/");
 				char *escaped_filename = r_str_escape (filename);
-				size_t escaped_len = strlen (escaped_filename);
-				size_t cmd_len = escaped_len + 40;
-				char *cmd;
-
-				if (!(cmd = malloc (cmd_len))) {
-					perror ("malloc");
-					return 1;
-				}
-				snprintf (cmd, cmd_len, "r2 -q %s-e http.port=%d -c=h \"%s\"",
+				char *cmd = r_str_newf ("r2 -q %s-e http.port=%d -c=h \"%s\"",
 					listenlocal? "": "-e http.bind=public ",
 					session_port, escaped_filename);
 
 				// TODO: use r_sys api to get pid when running in bg
-				pid = r_sys_cmdbg (cmd);
+				int pid = r_sys_cmdbg (cmd);
 				free (cmd);
 				free (escaped_filename);
-				result = result_heap = malloc (1024 + escaped_len);
-				if (!result) {
-					perror ("malloc");
-					free (pfile);
-					r_list_free (so.authtokens);
-					return 1;
-				}
-				sprintf (result_heap,
+
+				res = r_str_newf (
 				"<html><body>"
 				"<a href='/'>back</a><hr size=1/>"
 				" - <a target='_blank' href='http://localhost:%d/'>open</a><br />"
 				" - <a href='/proc/kill/%d'>kill</a><br />"
 				"</body></html>", session_port, pid);
-				eprintf ("\nchild pid %d\n\n", pid);
+				R_LOG_DEBUG ("child pid %d", pid);
 			}
 		}
-		r_socket_http_response (rs, 200, result, 0, NULL);
+		r_socket_http_response (rs, 200, res? res: page_index, 0, NULL);
 		r_socket_http_close (rs);
-		free (result_heap);
-		result_heap = NULL;
+		R_FREE (res);
 	}
 	r_cons_free ();
 	free (pfile);

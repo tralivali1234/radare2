@@ -1,55 +1,52 @@
 /* radare2 - LGPL - Copyright 2016-2019 - pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 
 #define MENUET_VERSION(x) x[7]
 
 #if 0
-        db      'MENUET00'           ; 8 byte id
-        dd      38                   ; required os
-        dd      START                ; program start
-        dd      I_END                ; image size
-        dd      0x100000             ; reguired amount of memory
-        dd      0x00000000           ; reserved=no extended header
+db      'MENUET00'           ; 8 byte id
+dd      38                   ; required os
+dd      START                ; program start
+dd      I_END                ; image size
+dd      0x100000             ; reguired amount of memory
+dd      0x00000000           ; reserved=no extended header
 
-        org     0x0
-        db      'MENUET01'              ; 8 byte id
-        dd      1                       ; header version
-        dd      START                   ; program start
-        dd      I_END                   ; program image size
-        dd      0x1000                  ; required amount of memory
-        dd      0x1000                  ; esp
-        dd      0, 0                    ; no parameters, no path
+org     0x0
+db      'MENUET01'              ; 8 byte id
+dd      1                       ; header version
+dd      START                   ; program start
+dd      I_END                   ; program image size
+dd      0x1000                  ; required amount of memory
+dd      0x1000                  ; esp
+dd      0, 0                    ; no parameters, no path
 
-         0 db 'MENUET02'
-         8 dd 0x01
-        12 dd __start
-        16 dd __iend
-        20 dd __bssend
-        24 dd __stack
-        28 dd __cmdline
-        32 dd __pgmname
-        36 dd 0x0; tls map
-        40 dd __idata_start; секция .import
-        44 dd __idata_end
-        48 dd main
+0 db 'MENUET02'
+8 dd 0x01
+12 dd __start
+16 dd __iend
+20 dd __bssend
+24 dd __stack
+28 dd __cmdline
+32 dd __pgmname
+36 dd 0x0; tls map
+40 dd __idata_start; секция .import
+44 dd __idata_end
+48 dd main
 
-        db 'MENUET02'
-        dd 1
-        dd start
-        dd i_end
-        dd mem
-        dd mem
-        dd cmdline
-        dd path
-        dd 0
+db 'MENUET02'
+dd 1
+dd start
+dd i_end
+dd mem
+dd mem
+dd cmdline
+dd path
+dd 0
 
 #endif
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut8 buf[8];
 	if (r_buf_read_at (b, 0, buf, sizeof (buf)) != sizeof (buf)) {
 		return false;
@@ -66,8 +63,8 @@ static bool check_buffer(RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer (RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb){
-	return check_buffer (b);
+static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
+	return check_buffer (bf, b);
 }
 
 static ut64 baddr(RBinFile *bf) {

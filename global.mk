@@ -29,9 +29,6 @@ else
 GIT_PREFIX=git://
 endif
 
-# verbose error messages everywhere
-STATIC_DEBUG=0
-
 rmdblslash=$(subst //,/,$(subst //,/,$(subst /$$,,$1)))
 
 .c:
@@ -42,9 +39,11 @@ endif
 
 .c.o:
 ifneq ($(SILENT),)
-	@echo "CC $(shell basename $<)"
-endif
+	@echo "[$(shell $(LIBR)/count.sh)] CC $<"
+	@$(CC) -c $(CFLAGS) -o $@ $<
+else
 	$(CC) -c $(CFLAGS) -o $@ $<
+endif
 
 -include $(TOP)/config-user.mk
 -include $(TOP)/mk/platform.mk

@@ -6,9 +6,14 @@ e asm.bits=16
 s main
 af
 afi~^size
+-b 32
+wx 0ae78ce2
+ao~val
 EOF
 EXPECT=<<EOF
 size: 32
+description: add two values
+val: 0x00280000
 EOF
 RUN
 
@@ -21,7 +26,7 @@ wx dff80000 12000000 34000000
 pd 1
 EOF
 EXPECT=<<EOF
-            0x00000000      dff80000       ldr.w r0, [0x00000004]      ; [0x4:4]=18 ; 4
+            0x00000000      dff80000       ldr.w r0, [0x00000004]      ; [0x4:4]=18
 EOF
 RUN
 
@@ -62,9 +67,9 @@ wx 0149 014a 014b 0000 1111 2222 3333 4444 5555 6666
 pd 3
 EOF
 EXPECT=<<EOF
-            0x00000000      0149           ldr r1, [0x00000008]        ; [0x8:4]=0x22221111 ; 8
-            0x00000002      014a           ldr r2, [0x00000008]        ; [0x8:4]=0x22221111 ; 8
-            0x00000004      014b           ldr r3, [0x0000000c]        ; [0xc:4]=0x44443333 ; 12
+            0x00000000      0149           ldr r1, [0x00000008]        ; [0x8:4]=0x22221111
+            0x00000002      014a           ldr r2, [0x00000008]        ; [0x8:4]=0x22221111
+            0x00000004      014b           ldr r3, [0x0000000c]        ; [0xc:4]=0x44443333 ; "33DDUUff"
 EOF
 RUN
 
@@ -78,9 +83,9 @@ wx 0249 024a 024b 7944 7a44 7b44 1111 2222 3333 4444 5555 6666 7777
 pd 6
 EOF
 EXPECT=<<EOF
-            0x00000000      0249           ldr r1, [0x0000000c]        ; [0xc:4]=0x22221111 ; 12 ; r1=0x22221111
-            0x00000002      024a           ldr r2, [0x0000000c]        ; [0xc:4]=0x22221111 ; 12 ; r2=0x22221111
-            0x00000004      024b           ldr r3, [0x00000010]        ; [0x10:4]=0x44443333 ; 16 ; r3=0x44443333
+            0x00000000      0249           ldr r1, [0x0000000c]        ; [0xc:4]=0x22221111 ; r1=0x22221111
+            0x00000002      024a           ldr r2, [0x0000000c]        ; [0xc:4]=0x22221111 ; r2=0x22221111
+            0x00000004      024b           ldr r3, [0x00000010]        ; [0x10:4]=0x44443333 ; r3=0x44443333
             0x00000006      7944           add r1, pc                  ; r1=0x2222111b
             0x00000008      7a44           add r2, pc                  ; r2=0x2222111d
             0x0000000a      7b44           add r3, pc                  ; r3=0x44443341
@@ -97,7 +102,7 @@ pd 1 @ 0x2
 EOF
 EXPECT=<<EOF
             0x00000002      01a0           adr r0, 4                   ; "Radare2 test string"
-                                                                       ; 0x8 ; 8
+                                                                       ; 0x8
 EOF
 RUN
 
@@ -127,7 +132,7 @@ mov r0, r0
             0x00000000      0000           movs r0, r0
             0x00000000      0000a0e1       mov r0, r0
             0x00000000      0000           movs r0, r0
-            0x00000002                    unaligned
+            0x00000002      a0e1           unaligned
         ,=< 0x00000002      a0e1           b 0x346
 EOF
 RUN
@@ -142,7 +147,7 @@ pd 1 @ 0x2
 EOF
 EXPECT=<<EOF
             0x00000002      01a0           adr r0, 4                   ; "Radare2 test\r\n"
-                                                                       ; 0x8 ; 8
+                                                                       ; 0x8
 EOF
 RUN
 
@@ -212,7 +217,6 @@ RUN
 
 NAME=ARM32 bb 0 size -- a2f
 FILE=malloc://32
-BROKEN=1
 CMDS=<<EOF
 wx ff0000e2010050e30000001affffffea70009de594008de5e4139fe500f09ee5
 e asm.arch=arm
@@ -568,7 +572,7 @@ aa
 afl~abort
 EOF
 EXPECT=<<EOF
-0x000102bc    1 12           sym.imp.abort
+0x000102bc    1     12 sym.imp.abort
 EOF
 RUN
 
@@ -579,7 +583,7 @@ aa
 afl~weak
 EOF
 EXPECT=<<EOF
-0x00010304    1 28           sym.call_weak_fn
+0x00010304    1     28 sym.call_weak_fn
 EOF
 RUN
 
@@ -590,7 +594,7 @@ af @@ sym*
 afl~weak
 EOF
 EXPECT=<<EOF
-0x00010304    1 28           sym.call_weak_fn
+0x00010304    1     28 sym.call_weak_fn
 EOF
 RUN
 
@@ -602,7 +606,7 @@ f~sym?
 afl~?
 EOF
 EXPECT=<<EOF
-42
+46
 15
 EOF
 RUN
@@ -611,24 +615,25 @@ NAME=ELF ARM: aa2
 FILE=bins/elf/analysis/arm_32_flags0
 CMDS=<<EOF
 aa
+aflsa
 afl
 EOF
 EXPECT=<<EOF
-0x000102c8    1 44           entry0
-0x000102a4    1 12           sym.imp.__libc_start_main
-0x00010304    1 28           sym.call_weak_fn
-0x00010328    1 36           sym.deregister_tm_clones
-0x00010358    1 44           sym.register_tm_clones
-0x00010390    1 36           sym.__do_global_dtors_aux
-0x000103b8    4 44           entry.init0
-0x00010494    1 4            sym.__libc_csu_fini
-0x00010498    1 8            sym._fini
-0x000103ec    1 28           sym.func
-0x00010434    3 88           sym.__libc_csu_init
-0x00010278    1 12           sym._init
-0x00010408    1 40           main
-0x00010298    1 12           sym.imp.printf
-0x000102bc    1 12           sym.imp.abort
+0x00010278    1     12 sym._init
+0x00010298    1     12 sym.imp.printf
+0x000102a4    1     12 sym.imp.__libc_start_main
+0x000102bc    1     12 sym.imp.abort
+0x000102c8    1     44 entry0
+0x00010304    1     28 sym.call_weak_fn
+0x00010328    1     36 sym.deregister_tm_clones
+0x00010358    1     44 sym.register_tm_clones
+0x00010390    1     36 sym.__do_global_dtors_aux
+0x000103b8    4     44 sym.frame_dummy
+0x000103ec    1     28 sym.func
+0x00010408    1     40 main
+0x00010434    3     88 sym.__libc_csu_init
+0x00010494    1      4 sym.__libc_csu_fini
+0x00010498    1      8 sym._fini
 EOF
 RUN
 
@@ -641,15 +646,15 @@ afva@sym.call
 pdf@sym.call
 EOF
 EXPECT=<<EOF
-            ; CALL XREF from main @ 0x10468
+            ; CALL XREF from main @ 0x10468(x)
 / (fcn) sym.call 44
-|           ; var int32_t var_8h @ fp-0x8
 |           ; arg int32_t arg1 @ r0
+|           ; var int32_t var_8h @ fp-0x8
 |           0x00010420      00482de9       push {fp, lr}
 |           0x00010424      04b08de2       add fp, sp, 4
 |           0x00010428      08d04de2       sub sp, sp, 8
 |           0x0001042c      08000be5       str r0, [var_8h]            ; 8 ; arg1
-|           0x00010430      14009fe5       ldr r0, [0x0001044c]        ; [0x1044c:4]=0x104f0
+|           0x00010430      14009fe5       ldr r0, [0x0001044c]        ; [0x1044c:4]=0x104f0 "%d"
 |           0x00010434      08101be5       ldr r1, [var_8h]            ; 8
 |           0x00010438      a2ffffeb       bl sym.imp.printf
 |           0x0001043c      0030a0e3       mov r3, 0
@@ -670,10 +675,10 @@ EOF
 EXPECT=<<EOF
 / (fcn) main 44
 // int main (int argc, char **argv);
-|           ; var int32_t var_ch @ fp-0xc
-|           ; var int32_t var_8h @ fp-0x8
 |           ; arg int argc @ r0
 |           ; arg char **argv @ r1
+|           ; var int32_t var_8h @ fp-0x8
+|           ; var int32_t var_ch @ fp-0xc
 |           0x00010450      00482de9       push {fp, lr}
 |           0x00010454      04b08de2       add fp, sp, 4
 |           0x00010458      08d04de2       sub sp, sp, 8
@@ -698,8 +703,8 @@ EOF
 EXPECT=<<EOF
             0x00010328      .dword 0x000104e0 ; sym.__libc_csu_fini
             0x0001032c      .dword 0x00010450 ; main ; sym.main
-            ; UNKNOWN XREF from section..plt @ +0x10
             ;-- aav.0x00010330:
+            ; NULL XREF from section..plt @ +0x10(r)
             0x00010330      .dword 0x0001047c ; sym.__libc_csu_init
 EOF
 RUN
@@ -856,20 +861,20 @@ FILE=malloc://2048
 CMDS=<<EOF
 e asm.arch=arm
 e asm.bits=16
-wxs 01380793d3b24ff00109024600bf00bf00bf00bf59b2a1f120005a28139200f28d81404d02eb8004082601270122dfe810f09700850185015c0085015b008501850185018501a2
-wxs 0097008501ac007b008501af005d005d005d005d005d005d005d005d005d008501850185018501850185018501c300850185018501c3008501c30085018501850185019c008501
-wxs 85018501850185018501850185018501850185010d0185018501850185018501850185018501c30085011c01e700c300c300c300b200e700b50085019c00850129016801390185
-wxs 0185014c019f006201850185010e0185019f00b1e6d7e6139ca1f13000224612f9013fa3f1300109293ff686afa21c00eb800012f9013b01eb4000a3f130010a29f5d3dbb2013a
-wxs c0f1000878e700bf07df0100139a104610f9011fcbb22a2b35d0303900274ff00109079709293ff662af901c002303eb830310f9012b01eb4303a2f130010a29f5d34fe758b20a
-wxs 9001200b9096e60cf1010c93e64ff0010c90e609981ef0010f50f8048b099018bfc8f1000886e60122129f85e60120089080e6acf1010c7de64ff0020c7ae6139000e013920998
-wxs 4ff0010950f8041b079109906fe6bcf1010f18bfbcf1000f40f0bb800998ddf830a008300990e7e0ddf830a0139d109c0e98012805d195f90000119900f02dfc05e014f0ff0f04
-wxs bf28780af8010b0d9801300d9018e60cf10200042800f29980dfe810f00500050005000500a901099a52f8040bc1170a9f0029d14d4ff030090b9eb8bf01260b96b8bf2d2710eb
-wxs e1700a9780eae17441ebe17080eae1770a26b3e0c84d129810f0010f52d058b2302141ea00200a90022010260b9001204ae00999bcf1000f01f10400dcbf09688df86b10099001
-wxs 9f0121dfe00cf10200042857d8dfe810f078028102050005008a02099951f8040b099185e20998002250f8044b0990002c00f0c48004920220ac4d10220b900820079047f63000
-wxs 0a9030e0099819f0010f50f8047b099000f0ac80079a30230021002a00f0b080785c002800f0ac8001319142f8d3a7e09d4d0a2602e00020102612900cf10200042817d8dfe800
-wxs f0030308084d00099a52f8044be71748e00998324650f8044b09900020049020463023059014ae029f104662e00696139d2c4614f8010d2528fbd1ddf830a0ac4229d80d980025
-wxs 009901eb00080f98b0f1ff3f06d018eb050002bf0af801bb012010900e98012806d1139e119996f9000000f061fb07e01098139e10f0ff0f04bf30780af8010b01356019b042de
-wxs d90d9828440d90139d109c
+wx+ 01380793d3b24ff00109024600bf00bf00bf00bf59b2a1f120005a28139200f28d81404d02eb8004082601270122dfe810f09700850185015c0085015b008501850185018501a2
+wx+ 0097008501ac007b008501af005d005d005d005d005d005d005d005d005d008501850185018501850185018501c300850185018501c3008501c30085018501850185019c008501
+wx+ 85018501850185018501850185018501850185010d0185018501850185018501850185018501c30085011c01e700c300c300c300b200e700b50085019c00850129016801390185
+wx+ 0185014c019f006201850185010e0185019f00b1e6d7e6139ca1f13000224612f9013fa3f1300109293ff686afa21c00eb800012f9013b01eb4000a3f130010a29f5d3dbb2013a
+wx+ c0f1000878e700bf07df0100139a104610f9011fcbb22a2b35d0303900274ff00109079709293ff662af901c002303eb830310f9012b01eb4303a2f130010a29f5d34fe758b20a
+wx+ 9001200b9096e60cf1010c93e64ff0010c90e609981ef0010f50f8048b099018bfc8f1000886e60122129f85e60120089080e6acf1010c7de64ff0020c7ae6139000e013920998
+wx+ 4ff0010950f8041b079109906fe6bcf1010f18bfbcf1000f40f0bb800998ddf830a008300990e7e0ddf830a0139d109c0e98012805d195f90000119900f02dfc05e014f0ff0f04
+wx+ bf28780af8010b0d9801300d9018e60cf10200042800f29980dfe810f00500050005000500a901099a52f8040bc1170a9f0029d14d4ff030090b9eb8bf01260b96b8bf2d2710eb
+wx+ e1700a9780eae17441ebe17080eae1770a26b3e0c84d129810f0010f52d058b2302141ea00200a90022010260b9001204ae00999bcf1000f01f10400dcbf09688df86b10099001
+wx+ 9f0121dfe00cf10200042857d8dfe810f078028102050005008a02099951f8040b099185e20998002250f8044b0990002c00f0c48004920220ac4d10220b900820079047f63000
+wx+ 0a9030e0099819f0010f50f8047b099000f0ac80079a30230021002a00f0b080785c002800f0ac8001319142f8d3a7e09d4d0a2602e00020102612900cf10200042817d8dfe800
+wx+ f0030308084d00099a52f8044be71748e00998324650f8044b09900020049020463023059014ae029f104662e00696139d2c4614f8010d2528fbd1ddf830a0ac4229d80d980025
+wx+ 009901eb00080f98b0f1ff3f06d018eb050002bf0af801bb012010900e98012806d1139e119996f9000000f061fb07e01098139e10f0ff0f04bf30780af8010b01356019b042de
+wx+ d90d9828440d90139d109c
 s 0
 af
 pds 1@0x2e~:1
@@ -890,20 +895,18 @@ EOF
 EXPECT=<<EOF
 address: 0x568
 opcode: push {r3, lr}
-esilcost: 16
+esilcost: 24
 disasm: push {r3, lr}
-pseudo: push (r3, lr) 
+pseudo: push (r3, lr)
 mnemonic: push
 mask: ffffffff
-prefix: 0
 id: 128
 bytes: 08402de9
-refptr: 0
 size: 4
 sign: false
 type: push
 cycles: 1
-esil: 8,sp,-=,lr,r3,2,sp,=[*]
+esil: 8,sp,-=,r3,sp,=[4],lr,sp,4,+,=[4]
 family: cpu
 stackop: inc
 stackptr: 8
@@ -916,10 +919,8 @@ pseudo: r7 = sp + 0
 mnemonic: add
 description: add two values
 mask: ffff
-prefix: 0
 id: 2
 bytes: 00af
-refptr: 0
 size: 2
 sign: false
 type: add
@@ -939,9 +940,11 @@ pd 9 @ main
 EOF
 EXPECT=<<EOF
             ;-- main:
+            ;-- pc:
+            ;-- r15:
             0x0000050c      80b5           push {r7, lr}
             0x0000050e      00af           add r7, sp, 0
-            0x00000510      034b           ldr r3, [0x00000520]        ; [0x520:4]=94 ; 1312
+            0x00000510      034b           ldr r3, [0x00000520]        ; [0x520:4]=94
             0x00000512      7b44           add r3, pc                  ; 0x574 ; "Hello world!"
             0x00000514      1846           mov r0, r3
             0x00000516      fff75aef       blx sym.imp.puts
@@ -1047,12 +1050,26 @@ NAME=misaligned arm string xref
 FILE=bins/mach0/misaligned_data-iOS-armv7
 CMDS=<<EOF
 aav
+af
+aae
+axt str.helloradareworld_n
+EOF
+EXPECT=<<EOF
+main 0xbf9c [STRN:-w-] add r0, pc
+EOF
+RUN
+
+NAME=misaligned arm string xref failing
+BROKEN=1
+FILE=bins/mach0/misaligned_data-iOS-armv7
+CMDS=<<EOF
+aav
 aae
 af
 axt str.helloradareworld_n
 EOF
 EXPECT=<<EOF
-main 0xbf9c [DATA] add r0, pc
+main 0xbf9c [STRN:-w-] add r0, pc
 EOF
 RUN
 
@@ -1067,5 +1084,118 @@ afi~size
 EOF
 EXPECT=<<EOF
 size: 20
+EOF
+RUN
+
+NAME=raw aac with maps (using a PIC bin)
+FILE=bins/elf/libmagic.so
+ARGS=-n -m 0x80000 -a arm -b 16 -e cfg.bigendian=false
+CMDS=<<EOF
+aac
+e search.in=io.maps
+afl~?
+EOF
+EXPECT=<<EOF
+94
+EOF
+RUN
+
+NAME=aav thumb detection
+FILE=bins/firmware/armthumb.bin
+BROKEN=1
+ARGS=-aarm -b32
+CMDS=<<EOF
+aav
+f
+EOF
+EXPECT=<<EOF
+0x0000000d 4 aav.0x0000000d
+EOF
+RUN
+
+NAME=Function definition
+FILE=bins/elf/arm1.bin
+CMDS=<<EOF
+afr @ main
+s 0x000082cc
+pd 1~?*xmalloc
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=no string on cbz
+FILE=malloc://8096
+CMDS=<<EOF
+e asm.arch=arm
+e asm.bits=64
+e cfg.bigendian=false
+e emu.str=true
+wv 0x52800015
+wv 0x340000b5 @ 4
+w hello @ 0x18
+pd 2
+EOF
+EXPECT=<<EOF
+            0x00000000      15008052       mov w21, 0
+        ,=< 0x00000004      b5000034       cbz w21, 0x18               ; likely
+EOF
+RUN
+
+
+NAME=load code refs
+FILE=bins/elf/blah.bin
+CMDS=<<EOF
+af
+pdf
+s main
+pd 1
+EOF
+EXPECT=<<EOF
+            ;-- section..text:
+/ 44: entry0 (int32_t arg1, int argc);
+|           ; arg int32_t arg1 @ r0
+|           ; arg int argc @ r1
+|           0x000083b8      00b0a0e3       mov fp, 0                   ; [14] -r-x section size 800 named .text
+|           0x000083bc      00e0a0e3       mov lr, 0
+|           0x000083c0      04109de4       pop {r1}
+|           0x000083c4      0d20a0e1       mov r2, sp
+|           0x000083c8      04202de5       str r2, [sp, -4]!
+|           0x000083cc      04002de5       str r0, [sp, -4]!           ; arg1
+|           0x000083d0      10c09fe5       ldr ip, fcn.00008664        ; [0x83e8:4]=0x8664 fcn.00008664
+|           0x000083d4      04c02de5       str ip, [sp, -4]!
+|           0x000083d8      0c009fe5       ldr r0, main                ; [0x83ec:4]=0x8470 main
+|           0x000083dc      0c309fe5       ldr r3, fcn.00008668        ; [0x83f0:4]=0x8668 fcn.00008668
+\           0x000083e0      e5ffffeb       bl sym.imp.__libc_start_main ; int __libc_start_main(func main, int argc, char **ubp_av, func init, func fini, func rtld_fini, void *stack_end)
+            ; ICOD XREF from entry0 @ 0x83d8(x)
+/ 484: int main (int argc, char **argv, char **envp);
+|           ; var int32_t var_10h @ fp-0x10
+|           ; var int32_t var_14h @ fp-0x14
+|           ; var int32_t var_18h @ fp-0x18
+|           ; var int32_t var_1ch @ fp-0x1c
+|           ; var int32_t var_20h @ fp-0x20
+|           ; var int32_t var_24h @ fp-0x24
+|           0x00008470      10482de9       push {r4, fp, lr}
+EOF
+RUN
+
+NAME=thumb push fp
+FILE=malloc://32
+CMDS=<<EOF
+e asm.arch=arm
+e asm.bits=16
+wx 2de9 8048 bde8 8048 7047 00bf
+pi 3
+af
+afll
+EOF
+EXPECT=<<EOF
+push.w {r7, fp, lr}
+pop.w {r7, fp, lr}
+bx lr
+address    noret size  nbbs edges    cc cost  min bound range max bound  calls locals args xref frame name
+========== ===== ===== ===== ===== ===== ==== ========== ===== ========== ===== ====== ==== ==== ===== ====
+0x00000000     0   10     1     0     1    7 0x00000000    10 0x0000000a     0    0      0    0    12 fcn.00000000
 EOF
 RUN

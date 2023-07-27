@@ -29,7 +29,7 @@ No such file or directory.
 Default scripting languages are NodeJS and Python.
 -bash: r2: command not found
 Press any key to continue ...
-Ilo ni li pona li pali e lipu. mi wile e ni: sina kama jo e musi
+ilo ni li pona li pali e lipu. o musi!
 radare2 for FideOS, now with extra potato
 Your project name should contain an uppercase letter, 8 vowels, some numbers, and the first 5 characters of your private bitcoin key.
 This computer has gone to sleep.
@@ -66,7 +66,7 @@ Documentation is for weak people.
 PEBCAK ERROR: Documentation not found.
 License server overloaded (ETOOMUCHCASH)
 Error: cannot yank negative sleep
-If you're not satisfied by our product, we'll be happy to refund you.
+If you're not satisfied by our product, you may ask for a refund.
 Already up-to-date.
 How about a nice game of chess?
 THE ONLY WINNING MOVE IS NOT TO PLAY.
@@ -81,13 +81,13 @@ Everything up-to-date.
 Sharing your latest session to Facebook ...
 This should be documented, since it's not that obvious.
 It's working! Look at the door!
-This is an unacceptable milion year dungeon.
+This is an unacceptable million year dungeon.
 The Hard ROP Cafe
 Wait a minute! I found a bug, self-fixing ... OK
 Hold on, this should never happen!
-Well this is embarrasing ...
+Well this is embarrassing ...
 THIS IS NOT FUNNY
-♥ --
+♥  --
 Can you stand on your head?
 May the segfault be with you.
 I script in C, because I can.
@@ -140,7 +140,7 @@ When you sold that exploit, what they really bought, was your silence.
 Greetings, human.
 nothing personal, just bitness
 Too old to crash
-Finnished a beer
+Finished a beer
 ESIL ruined my life
 ESIL: The Aftersleep
 Insert coin to continue ...
@@ -172,7 +172,7 @@ Are you a wizard?
 Learn pancake as if you were radare!
 r2 is a great OS, but a terrible hex editor
 THE CAKE IS A PIE
-radare2 0.9.7 is so old, my grandfarther was using it with his enigma in WWII
+radare2 0.9.7 is so old, my grandfather was using it with his enigma in WWII
 Have you seen the latest radare2 TV spot?
 scp ~/.idapro/ida.key radare.org:/var/www/radare.org/pub/losers/
 Too bad there is no gif support in r2. Yet. -- @r2gif
@@ -198,7 +198,7 @@ r2 talks to you. tries to make you feel well.
 Now i'm like an evil engineer. MUAHAHAH
 We only have bugs, features are an unintended side-effect
 There are 5 minutes from WTF to FIX in r2land
-Quantum dissasemble: it's there as long as you don't observe it
+Quantum disassemble: it's there as long as you don't observe it
 Ceci n'est pas une r2pipe
 Buy a mac
 (gdb) ^D
@@ -231,7 +231,7 @@ What is the most complex r2 command? q - then you have to deal with real life /o
 If you're having fun using radare2, odds are that you're doing something wrong.
 Don't trust what can't be compiled
 Coffee time!
-Can you you challenge a perfect immortal machine?
+Can you challenge a perfect immortal machine?
 Add more blockchains to your life.
 Congratulations! You got the segfault 1.000.000! Click [here] to win a prize!
 Well, it looks like it's working.
@@ -268,7 +268,7 @@ Error: There's a missing space before the opening parenthesis '('
 WARNING: r_list_length: assertion 'list' failed (line 55)
 This accessory is not supported by this version of radare2.
 When can we have an official anime mascot for radare2?
-Iaito became Cutter the same way Iai-giri became Cut.
+Radare2, we need you to ctrl+s the world.
 Sorry, radare2 has experienced an internal error.
 Segmentation fault (core dumped)
 Use rabin2 to discover the real TRUTH
@@ -291,3 +291,44 @@ I like my binary stripped.
 Now 8-bit clean with better ＡＳＣＩＩ!
 Please insert disc 2 and press any key to continue...
 DOOM all the things!
+Put some sugar before the release, attracts the bugs and makes it easier to squash them
+Stay indoors and await further instructions
+radare2 works best, when pirated.
+I could go up there about 11 at night, stay till 4 in the morning, and get all the computer runs I ever wanted.
+Safety third
+You should try our sister project, radar3!
+This pancake guy sure does know his way around r2.
+make: r2: Command not found
+rip and tear until it compiles
+The r emblem on the front is the legendary symbol for invincibility!
+Send PR or GTFO
+If it's stupid and it works, it is not stupid
+33 + 77 = 100
+radare2[15449] Corpse failure, too many 6
+Process[15449] crashed: radare2. Too many corpses being created.
+You can't sleep now there are monsters nearby
+Every journey begins with a choice
+Do 'r2pm -i r2premium; echo "e cfg.fortunes.type = nsfw" >> ~/.radare2rc' for a even more fun with r2
+pneumonic
+Click below to prove you are not a bot
+Sorry, not sorry.
+fix it or set the machine on fire
+burn it before the bug spreads to other installations
+The signals are strong tonight
+It's dangerous to go alone, take this.
+"If you gotta burn it all to the ground; Then let it burn"
+Watch until the end!
+Don't forget to subscribe!
+Ah shit, here we go again.
+Checking whether this software can be played...
+Will it blend?
+Are you still watching?
+Starting application, this might take some time...
+Do you want to restart to install these updates now or try tonight?
+Updates available
+This binary has not been analyzed. Would you like to analyze it now?
+The software is up to date. Just kidding, git pull again
+Caps lock is on.
+$10 or mistery box?
+INSERT COIN
+This program is not compatible with your device.

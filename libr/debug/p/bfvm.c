@@ -103,14 +103,14 @@ R_API ut8 bfvm_get(BfvmCPU *c) {
 
 R_API void bfvm_inc(BfvmCPU *c) {
 	ut8 *mem = bfvm_get_ptr (c);
-	if (mem != NULL) {
+	if (mem) {
 		mem[0]++;
 	}
 }
 
 R_API void bfvm_dec(BfvmCPU *c) {
 	ut8 *mem = bfvm_get_ptr (c);
-	if (mem != NULL) {
+	if (mem) {
 		mem[0]--;
 	}
 }
@@ -266,9 +266,9 @@ R_API int bfvm_cont(BfvmCPU *c, ut64 until) {
 }
 
 R_API int bfvm_trace(BfvmCPU *c, ut64 until) {
-	c->trace=1;
+	c->trace = 1;
 	bfvm_cont (c, until);
-	c->trace=0;
+	c->trace = 0;
 	return 0;
 }
 

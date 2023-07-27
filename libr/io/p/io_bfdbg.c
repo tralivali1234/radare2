@@ -126,16 +126,15 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	return count;
 }
 
-static int __close(RIODesc *fd) {
-	RIOBfdbg *riom;
+static bool __close(RIODesc *fd) {
 	if (!fd || !fd->data) {
-		return -1;
+		return false;
 	}
-	riom = fd->data;
+	RIOBfdbg *riom = fd->data;
 	bfvm_free (riom->bfvm);
 	R_FREE (riom->buf);
 	R_FREE (fd->data);
-	return 0;
+	return true;
 }
 
 static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
@@ -148,21 +147,21 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 }
 
 static bool __plugin_open(RIO *io, const char *pathname, bool many) {
-	return (!strncmp (pathname, "bfdbg://", 8));
+	return r_str_startswith (pathname, "bfdbg://");
 }
 
-static inline int getmalfd (RIOBfdbg *mal) {
-	return 0xffff & (int)(size_t)mal->buf;
+static inline int getmalfd(RIOBfdbg *mal) {
+	return UT16_MAX & (unsigned int)(size_t)mal->buf;
 }
 
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	char *out;
 	if (__plugin_open (io, pathname, 0)) {
-		RIOBind iob;
 		RIOBfdbg *mal = R_NEW0 (RIOBfdbg);
 		if (!mal) {
 			return NULL;
 		}
+		RIOBind iob;
 		r_io_bind (io, &iob);
 		mal->fd = getmalfd (mal);
 		mal->bfvm = bfvm_new (&iob);
@@ -179,14 +178,14 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 		}
 		mal->size = (ut32)rlen;
 		mal->buf = malloc (mal->size+1);
-		if (mal->buf != NULL) {
+		if (mal->buf) {
 			memcpy (mal->buf, out, rlen);
 			free (out);
 			return r_io_desc_new (io, &r_io_plugin_bfdbg,
 				pathname, rw, mode, mal);
 		}
-		eprintf ("Cannot allocate (%s) %"PFMT32u" byte(s)\n",
-			pathname+9, mal->size);
+		R_LOG_ERROR ("Cannot allocate %"PFMT32u" byte(s) for %s",
+			mal->size, pathname + 9);
 		free (mal);
 		free (out);
 	}
@@ -202,7 +201,7 @@ RIOPlugin r_io_plugin_bfdbg = {
 	.close = __close,
 	.read = __read,
 	.check = __plugin_open,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 };
 

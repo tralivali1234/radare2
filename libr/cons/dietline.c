@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2021 - pancake */
+/* radare - LGPL - Copyright 2007-2023 - pancake */
 /* dietline is a lightweight and portable library similar to GNU readline */
 
 #include <r_cons.h>
@@ -6,28 +6,29 @@
 #include <string.h>
 #include <stdlib.h>
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #include <windows.h>
 #define printf(...) r_cons_win_printf (false, __VA_ARGS__)
 #define USE_UTF8 1
 static int r_line_readchar_win(ut8 *s, int slen);
 #else
 #include <sys/ioctl.h>
+#ifndef HAVE_PTY
 #include <termios.h>
+#endif
 #include <signal.h>
 #define USE_UTF8 1
 #endif
 
-static char *r_line_nullstr = "";
 static const char word_break_characters[] = "\t\n ~`!@#$%^&*()-_=+[]{}\\|;:\"'<>,./";
 
+// TODO: remove global variables
+static R_TH_LOCAL bool enable_yank_pop = false;
 
 typedef enum {
 	MINOR_BREAK,
 	MAJOR_BREAK
 } BreakMode;
-
-bool enable_yank_pop = false;
 
 static inline bool is_word_break_char(char ch, bool mode) {
 	int i;
@@ -185,15 +186,35 @@ static void unix_word_rubout(void) {
 }
 
 static int inithist(void) {
+	if (I.history.data) {
+		int new_size = I.hist_size;
+		if (new_size > 0 && I.history.size != new_size) {
+			char **new_data = (char **) calloc (new_size, sizeof (char *));
+			if (new_data) {
+				int nb_copy_lines = R_MIN (I.history.top + 1, new_size);
+				memcpy (new_data, I.history.data + (I.history.top + 1 - nb_copy_lines), sizeof (char *) * nb_copy_lines);
+				int i;
+				for (i = 0; i < I.history.top + 1 - nb_copy_lines; i++) {
+				    free (I.history.data[i]);
+				}
+				free (I.history.data);
+				I.history.data = new_data;
+				I.history.size = new_size;
+				I.history.top = R_MIN (I.history.top, nb_copy_lines - 1);
+				I.history.index = R_MIN (I.history.index, nb_copy_lines - 1);
+			}
+		}
+		return true;
+	}
 	ZERO_FILL (I.history);
-	if ((I.history.size + 1024) * sizeof (char *) < I.history.size) {
+	I.history.size = I.hist_size;
+	if (I.history.size <= 0) {
 		return false;
 	}
-	I.history.data = (char **) calloc ((I.history.size + 1024), sizeof(char *));
+	I.history.data = (char **) calloc (I.history.size, sizeof (char *));
 	if (!I.history.data) {
 		return false;
 	}
-	I.history.size = R_LINE_HISTSIZE;
 	return true;
 }
 
@@ -210,7 +231,7 @@ R_API int r_line_dietline_init(void) {
 #if USE_UTF8
 /* read utf8 char into 's', return the length in bytes */
 static int r_line_readchar_utf8(ut8 *s, int slen) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	return r_line_readchar_win (s, slen);
 #else
 	// TODO: add support for w32
@@ -218,16 +239,16 @@ static int r_line_readchar_utf8(ut8 *s, int slen) {
 	if (slen < 1) {
 		return 0;
 	}
-	int ch = r_cons_readchar ();
+	int ch = -1;
+	if (I.demo) {
+		ch = r_cons_readchar_timeout (80);
+	} else {
+		ch = r_cons_readchar ();
+	}
 	if (ch == -1) {
-		return -1;
+		return I.demo? 0: -1;
 	}
 	*s = ch;
-#if 0
-	if ((t = read (0, s, 1)) != 1) {
-		return t;
-	}
-#endif
 	*s = r_cons_controlz (*s);
 	if (*s < 0x80) {
 		len = 1;
@@ -244,7 +265,7 @@ static int r_line_readchar_utf8(ut8 *s, int slen) {
 		return -1;
 	}
 	for (i = 1; i < len; i++) {
-		int ch = r_cons_readchar ();
+		ch = r_cons_readchar ();
 		if (ch != -1) {
 			s[i] = ch;
 		}
@@ -257,16 +278,15 @@ static int r_line_readchar_utf8(ut8 *s, int slen) {
 }
 #endif
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 static int r_line_readchar_win(ut8 *s, int slen) { // this function handle the input in console mode
-	INPUT_RECORD irInBuf = { { 0 } };
-	BOOL ret, bCtrl = FALSE;
+	INPUT_RECORD irInBuf = { {0} };
+	BOOL ret;
 	DWORD mode, out;
 	char buf[5] = {0};
-	HANDLE h;
 	void *bed;
 
-	h = GetStdHandle (STD_INPUT_HANDLE);
+	HANDLE h = GetStdHandle (STD_INPUT_HANDLE);
 	DWORD new_mode = I.vtmode == 2 ? ENABLE_VIRTUAL_TERMINAL_INPUT : 0;
 	GetConsoleMode (h, &mode);
 	SetConsoleMode (h, new_mode);
@@ -295,19 +315,19 @@ do_it_again:
 	if (irInBuf.EventType == KEY_EVENT) {
 		if (irInBuf.Event.KeyEvent.bKeyDown) {
 			if (irInBuf.Event.KeyEvent.uChar.UnicodeChar) {
-				char *tmp = r_sys_conv_win_to_utf8_l ((PTCHAR)&irInBuf.Event.KeyEvent.uChar, 1);
-				if (!tmp) {
-					return 0;
+				ut8 chbuf[4] = {0};
+				memcpy (chbuf, &(irInBuf.Event.KeyEvent.uChar), 2);
+				char *tmp = r_sys_conv_win_to_utf8_l ((PTCHAR)&chbuf, 1);
+				if (tmp) {
+					r_str_ncpy (buf, tmp, sizeof (buf));
+					free (tmp);
 				}
-				strncpy_s (buf, sizeof (buf), tmp, strlen (tmp));
-				free (tmp);
 			} else {
 				int idx = 0;
 				buf[idx++] = 27;
 				buf[idx++] = '['; // Simulate escaping
-				bCtrl = irInBuf.Event.KeyEvent.dwControlKeyState & 8;
-				if (bCtrl) {
-					buf[idx++] = 0x31;
+				if (irInBuf.Event.KeyEvent.dwControlKeyState & 8) {
+					buf[idx++] = '1'; // control key
 				}
 				switch (irInBuf.Event.KeyEvent.wVirtualKeyCode) {
 				case VK_UP: buf[idx++] = 'A'; break;
@@ -327,7 +347,7 @@ do_it_again:
 	if (!buf[0]) {
 		goto do_it_again;
 	}
-	strncpy_s ((char *)s, slen, buf, sizeof (buf));
+	r_str_ncpy ((char *)s, buf, slen);
 	SetConsoleMode (h, mode);
 	return strlen ((char *)s);
 }
@@ -343,7 +363,12 @@ R_API int r_line_set_hist_callback(RLine *line, RLineHistoryUpCb up, RLineHistor
 	return 1;
 }
 
-static inline bool match_hist_line(char *hist_line, char *cur_line) {
+static inline bool match_hist_line(RLine *line, int i) {
+	const char *hist_line = line->history.data[i];
+	char *cur_line = line->history.match;
+	if (!line->histfilter) {
+		return true;
+	}
 	// Starts with but not equal to
 	return r_str_startswith (hist_line, cur_line) && strcmp (hist_line, cur_line);
 }
@@ -362,15 +387,15 @@ R_API int r_line_hist_cmd_up(RLine *line) {
 	if (line->hist_up) {
 		return line->hist_up (line->user);
 	}
-	if (!line->history.data) {
-		inithist ();
+	if (!inithist ()) {
+		return false;
 	}
 	if (line->history.index > 0 && line->history.data) {
 		setup_hist_match (line);
 		if (line->history.match) {
 			int i;
 			for (i= line->history.index - 1; i >= 0; i--) {
-				if (match_hist_line (line->history.data[i], line->history.match)) {
+				if (match_hist_line (line, i)) {
 					line->history.index = i;
 					break;
 				}
@@ -399,7 +424,7 @@ R_API int r_line_hist_cmd_down(RLine *line) {
 	if (line->history.match) {
 		int i;
 		for (i = line->history.index + 1; i < line->history.top; i++) {
-			if (match_hist_line (line->history.data[i], line->history.match)) {
+			if (match_hist_line (line, i)) {
 				break;
 			}
 		}
@@ -466,11 +491,17 @@ static int r_line_hist_down(void) {
 	return I.cb_history_down (&I);
 }
 
+R_API void r_line_hist_set_size(int size) {
+	I.hist_size = R_MIN (size, 65536);
+}
+
+R_API int r_line_hist_get_size(void) {
+	return I.history.size;
+}
+
 R_API const char *r_line_hist_get(int n) {
 	int i = 0;
-	if (!I.history.data) {
-		inithist ();
-	}
+	inithist ();
 	n--;
 	if (I.history.data) {
 		for (i = 0; i < I.history.size && I.history.data[i]; i++) {
@@ -484,9 +515,7 @@ R_API const char *r_line_hist_get(int n) {
 
 R_API int r_line_hist_list(void) {
 	int i = 0;
-	if (!I.history.data) {
-		inithist ();
-	}
+	inithist ();
 	if (I.history.data) {
 		for (i = 0; i < I.history.size && I.history.data[i]; i++) {
 			const char *pad = r_str_pad (' ', 32 - strlen (I.history.data[i]));
@@ -509,58 +538,54 @@ R_API void r_line_hist_free(void) {
 }
 
 /* load history from file. TODO: if file == NULL load from ~/.<prg>.history or so */
-R_API int r_line_hist_load(const char *file) {
-	FILE *fd;
-	char buf[R_LINE_BUFSIZE], *path = r_str_home (file);
-	if (!path) {
+R_API bool r_line_hist_load(const char *file) {
+	r_return_val_if_fail (file, false);
+	char *buf = calloc (1, R_LINE_BUFSIZE);
+	FILE *fd = r_sandbox_fopen (file, "rb");
+	if (!fd) {
+		free (buf);
 		return false;
 	}
-	if (!(fd = r_sandbox_fopen (path, "r"))) {
-		free (path);
-		return false;
-	}
-	while (fgets (buf, sizeof (buf), fd) != NULL) {
+	memset (buf, 0, R_LINE_BUFSIZE);
+	while (fgets (buf, R_LINE_BUFSIZE - 1, fd)) {
 		r_str_trim_tail (buf);
-		r_line_hist_add (buf);
+		if (*buf) {
+			r_line_hist_add (buf);
+		}
+		memset (buf, 0, R_LINE_BUFSIZE);
 	}
 	fclose (fd);
-	free (path);
+	free (buf);
 	return true;
 }
 
-R_API int r_line_hist_save(const char *file) {
-	FILE *fd;
-	int i, ret = false;
-	if (!file || !*file) {
-		return false;
+R_API bool r_line_hist_save(const char *file) {
+	r_return_val_if_fail (file && *file, false);
+	int i;
+	bool ret = false;
+	char *p = (char *) r_str_lastbut (file, R_SYS_DIR[0], NULL);
+	if (p) {
+		*p = 0;
+		if (!r_sys_mkdirp (file)) {
+			if (r_sandbox_check (R_SANDBOX_GRAIN_FILES)) {
+				R_LOG_ERROR ("Could not save history into %s", file);
+			}
+			goto end;
+		}
+		*p = R_SYS_DIR[0];
 	}
-	char *p, *path = r_str_home (file);
-	if (path != NULL) {
-		p = (char *) r_str_lastbut (path, R_SYS_DIR[0], NULL);	// TODO: use fs
-		if (p) {
-			*p = 0;
-			if (!r_sys_mkdirp (path)) {
-				eprintf ("could not save history into %s\n", path);
-				goto end;
+	FILE *fd = r_sandbox_fopen (file, "w");
+	if (fd) {
+		if (I.history.data) {
+			for (i = 0; i < I.history.index; i++) {
+				fputs (I.history.data[i], fd);
+				fputs ("\n", fd);
 			}
-			*p = R_SYS_DIR[0];
+			ret = true;
 		}
-		fd = r_sandbox_fopen (path, "w");
-		if (fd != NULL) {
-			if (I.history.data) {
-				for (i = 0; i < I.history.index; i++) {
-					fputs (I.history.data[i], fd);
-					fputs ("\n", fd);
-				}
-				fclose (fd);
-				ret = true;
-			} else {
-				fclose (fd);
-			}
-		}
+		fclose (fd);
 	}
 end:
-	free (path);
 	return ret;
 }
 
@@ -664,10 +689,7 @@ static void selection_widget_down(int steps) {
 }
 
 static void print_rline_task(void *_core) {
-	RCore *core =(RCore *)_core;
-	if (core->cons->context->color_mode) {
-		r_cons_clear_line (0);
-	}
+	r_cons_clear_line (0);
 	r_cons_printf ("%s%s%s", Color_RESET, I.prompt,  I.buffer.data);
 	r_cons_flush ();
 }
@@ -711,7 +733,7 @@ static void selection_widget_select(void) {
 }
 
 static void selection_widget_update(void) {
-	int argc = r_pvector_len (&I.completion.args);
+	int argc = r_pvector_length (&I.completion.args);
 	const char **argv = (const char **)r_pvector_data (&I.completion.args);
 	if (argc == 0 || (argc == 1 && I.buffer.length >= strlen (argv[0]))) {
 		selection_widget_erase ();
@@ -749,7 +771,7 @@ R_API void r_line_autocomplete(void) {
 	if (I.completion.run) {
 		I.completion.opt = false;
 		I.completion.run (&I.completion, &I.buffer, I.prompt_type, I.completion.run_user);
-		argc = r_pvector_len (&I.completion.args);
+		argc = r_pvector_length (&I.completion.args);
 		argv = (const char **)r_pvector_data (&I.completion.args);
 		opt = I.completion.opt;
 	}
@@ -777,11 +799,11 @@ R_API void r_line_autocomplete(void) {
 	if (argc == 1) {
 		const char *end_word = r_sub_str_rchr (I.buffer.data,
 			I.buffer.index, strlen (I.buffer.data), ' ');
-		const char *t = end_word != NULL?
+		const char *t = end_word?
 				end_word: I.buffer.data + I.buffer.index;
 		int largv0 = strlen (r_str_get (argv[0]));
 		size_t len_t = strlen (t);
-		p[largv0]='\0';
+		p[largv0] = '\0';
 
 		if ((p - I.buffer.data) + largv0 + 1 + len_t < plen) {
 			if (len_t > 0) {
@@ -848,7 +870,7 @@ R_API void r_line_autocomplete(void) {
 	if (argc > 1 && I.echo) {
 		const int sep = 3;
 		int slen, col = 10;
-#ifdef __WINDOWS__
+#ifdef R2__WINDOWS__
 		r_cons_win_printf (false, "%s%s\n", I.prompt, I.buffer.data);
 #else
 		printf ("%s%s\n", I.prompt, I.buffer.data);
@@ -933,24 +955,60 @@ static inline void delete_till_end(void) {
 	I.buffer.index = I.buffer.index > 0 ? I.buffer.index - 1 : 0;
 }
 
+static const char *promptcolor (void) {
+	if (I.demo) {
+		return r_cons_singleton ()->context->pal.prompt;
+	}
+	return Color_RESET;
+}
+
+static R_TH_LOCAL int count = 0;
 static void __print_prompt(void) {
-        RCons *cons = r_cons_singleton ();
+	RCons *cons = r_cons_singleton ();
 	int columns = r_cons_get_size (NULL) - 2;
 	int len, i, cols = R_MAX (1, columns - r_str_ansi_len (I.prompt) - 2);
 	if (cons->line->prompt_type == R_LINE_PROMPT_OFFSET) {
-                r_cons_gotoxy (0,  cons->rows);
-                r_cons_flush ();
+		r_cons_gotoxy (0,  cons->rows);
+		r_cons_flush ();
 	}
+	printf ("%s", promptcolor ());
+	r_cons_clear_line (0);
 	if (cons->context->color_mode > 0) {
-		r_cons_clear_line (0);
-		printf ("\r%s%s", Color_RESET, I.prompt);
+		printf ("\r%s%s%s", Color_RESET, promptcolor (), I.prompt);
 	} else {
 		printf ("\r%s", I.prompt);
 	}
+#if 1
 	if (I.buffer.length > 0) {
-		fwrite (I.buffer.data, I.buffer.length, 1, stdout);
+		int maxlen = R_MIN (I.buffer.length, cols);
+		fwrite (I.buffer.data, maxlen, 1, stdout);
+		if (I.buffer.length > cols) {
+			fwrite (" >", 2, 1, stdout);
+		}
 	}
-	printf ("\r%s", I.prompt);
+#endif
+	if (I.demo) {
+		// 15% cpu usage, but yeah its fancy demoscene. may be good to optimize
+		int pos = (count > 0)? count % strlen (I.prompt) : 0;
+		char *a = strdup (I.prompt);
+		char *kb = (char *)r_str_ansi_chrn (a, pos);
+		char *kc = (char *)r_str_ansi_chrn (kb, 3);
+		char *b = r_str_ndup (kb, kc - kb);
+		char *c = strdup (kc);
+		char *rb = r_str_newf (Color_WHITE"%s%s", b, promptcolor ());
+		*kb = 0;
+		printf ("\r%s%s%s%s%s", promptcolor (), a, rb, c, Color_RESET);
+		free (a);
+		free (b);
+		free (rb);
+		free (c);
+		count += 1;
+		if (count > strlen (I.prompt)) {
+			count = 0;
+		}
+	} else {
+		printf ("\r%s%s%s", promptcolor (), I.prompt, promptcolor ());
+	}
 	if (I.buffer.index > cols) {
 		printf ("< ");
 		i = I.buffer.index - cols;
@@ -1074,7 +1132,7 @@ static inline void vi_cmd_e(void) {
 	}
 }
 
-static void __update_prompt_color (void) {
+static void __update_prompt_color(void) {
 	RCons *cons = r_cons_singleton ();
 	const char *BEGIN = "", *END = "";
 	if (cons->context->color_mode) {
@@ -1091,7 +1149,7 @@ static void __update_prompt_color (void) {
 		} else {
 			BEGIN = cons->context->pal.prompt;
 		}
-		END = cons->context->pal.reset;
+	//	END = cons->context->pal.reset;
 	}
 	char *prompt = r_str_escape (I.prompt);		// remote the color
 	free (I.prompt);
@@ -1103,13 +1161,13 @@ static void __vi_mode(void) {
 	I.vi_mode = CONTROL_MODE;
 	__update_prompt_color ();
 	const char *gcomp_line = "";
-	static int gcomp = 0;
+	static R_TH_LOCAL int gcomp = 0;
 	for (;;) {
 		int rep = 0;
 		if (I.echo) {
 			__print_prompt ();
 		}
-		if (I.vi_mode != CONTROL_MODE) {	// exit if insert mode is selected
+		if (I.vi_mode != CONTROL_MODE) { // exit if insert mode is selected
 			__update_prompt_color ();
 			break;
 		}
@@ -1201,7 +1259,8 @@ static void __vi_mode(void) {
 					I.buffer.length -= I.buffer.index;
 					I.buffer.index = 0;
 					break;
-				} __print_prompt ();
+				}
+				__print_prompt ();
 			} // end of while (rep--)
 			break;
 		} // end of case 'd'
@@ -1314,12 +1373,36 @@ static void __vi_mode(void) {
 	}
 }
 
+static void dietline_print_risprompt(const char *gcomp_line) {
+	RCons *cons = r_cons_singleton ();
+	if (cons->context->color_mode && *gcomp_line && I.buffer.length > 0) {
+		printf ("\r (ri-search): ");
+		const char *line = gcomp_line;
+		while (line) {
+			char *m = strstr (line, I.buffer.data);
+			if (m) {
+				fwrite (line, m - line, 1, stdout);
+				printf (Color_INVERT);
+				fwrite (m, I.buffer.length, 1, stdout);
+				printf (Color_RESET);
+				line = m + I.buffer.length;
+			} else {
+				printf ("%s", line);
+				line = NULL;
+			}
+		}
+		printf ("\r");
+	} else {
+		printf ("\r(ri-search (%s)): %s\r", I.buffer.data, gcomp_line);
+	}
+}
+
 R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 	int rows;
 	const char *gcomp_line = "";
-	static int gcomp_idx = 0;
-	static bool yank_flag = 0;
-	static int gcomp = 0;
+	static R_TH_LOCAL int gcomp_idx = 0;
+	static R_TH_LOCAL bool yank_flag = 0;
+	static R_TH_LOCAL int gcomp = 0;
 	signed char buf[10];
 #if USE_UTF8
 	int utflen;
@@ -1351,7 +1434,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		if (!fgets (I.buffer.data, R_LINE_BUFSIZE, stdin)) {
 			return NULL;
 		}
-		return (*I.buffer.data)? I.buffer.data: r_line_nullstr;
+		return (*I.buffer.data)? I.buffer.data: "";
 	}
 
 	memset (&buf, 0, sizeof buf);
@@ -1367,6 +1450,14 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		if (r_cons_is_breaked ()) {
 			break;
 		}
+#if 0
+		// detect truncation
+		if (I.buffer.length > I.length) {
+			I.buffer.data[0] = 0;
+			I.buffer.length = 0;
+			return NULL;
+		}
+#endif
 		I.buffer.data[I.buffer.length] = '\0';
 		if (cb) {
 			int cbret = cb (user, I.buffer.data);
@@ -1377,13 +1468,19 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		}
 #if USE_UTF8
 		utflen = r_line_readchar_utf8 ((ut8 *) buf, sizeof (buf));
-		if (utflen < 1) {
+		if (utflen < (I.demo?0:1)) {
 			r_cons_break_pop ();
 			return NULL;
 		}
 		buf[utflen] = 0;
+		if (I.demo && utflen == 0) {
+			// refresh
+			__print_prompt ();
+			count++;
+			continue;
+		}
 #else
-#if __WINDOWS__
+#if R2__WINDOWS__
 		{
 			int len = r_line_readchar_win ((ut8 *)buf, sizeof (buf));
 			if (len < 1) {
@@ -1463,7 +1560,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 		case 4:	// ^D
 			if (!I.buffer.data[0]) {/* eof */
 				if (I.echo) {
-					printf ("^D\n");
+					eprintf ("^D\n");
 				}
 				r_cons_set_raw (false);
 				r_cons_break_pop ();
@@ -1508,7 +1605,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 			I.buffer.length = 0;
 			I.buffer.index = 0;
 			break;
-#if __WINDOWS__
+#if R2__WINDOWS__
 		case 22:// ^V - Paste from windows clipboard
 		{
 			HANDLE hClipBoard;
@@ -1524,7 +1621,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 					if (clipText) {
 						char *txt = r_sys_conv_win_to_utf8 (clipText);
 						if (!txt) {
-							R_LOG_ERROR ("Failed to allocate memory\n");
+							R_LOG_ERROR ("Failed to allocate memory");
 							break;
 						}
 						int len = strlen (txt);
@@ -1601,17 +1698,25 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 			}
 			break;
 		case 27: // esc-5b-41-00-00 alt/meta key
-#if __WINDOWS__
+#if R2__WINDOWS__
+			// always skip escape
+			memmove (buf, buf + 1, strlen ((char *)buf));
+#if 0
 			if (I.vtmode != 2) {
-				memmove (buf, buf + 1, strlen (buf));
+				if (buf[1] == '[') {
+					memmove (buf, buf + 2, strlen (buf));
+				} else {
+					memmove (buf, buf + 1, strlen (buf));
+				}
 				if (!buf[0]) {
 					buf[0] = -1;
 				}
 			} else {
-#endif
 				buf[0] = r_cons_readchar_timeout (50);
-#if __WINDOWS__
 			}
+#endif
+#else
+			buf[0] = r_cons_readchar_timeout (50);
 #endif
 			switch (buf[0]) {
 			case 127: // alt+bkspace
@@ -1666,6 +1771,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 				}
 				break;
 			default:
+#if !R2__WINDOWS__
 				if (I.vtmode == 2) {
 					buf[1] = r_cons_readchar_timeout (50);
 					if (buf[1] == -1) { // alt+e
@@ -1673,16 +1779,35 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 						__print_prompt ();
 						continue;
 					}
+				} else {
+					buf[1] = r_cons_readchar_timeout (50);
 				}
-				if (buf[0] == 0x5b) {	// [
+#endif
+				if (buf[0] == '[') { // [
 					switch (buf[1]) {
-					case '3': // supr
+					case '3': // supr or mouse click
 						__delete_next_char ();
 						if (I.vtmode == 2) {
 							buf[1] = r_cons_readchar ();
+							if (buf[1] == 126) {
+								// handle SUPR key
+								r_cons_break_pop ();
+								__print_prompt ();
+								continue;
+							}
 							if (buf[1] == -1) {
 								r_cons_break_pop ();
 								return NULL;
+							}
+						}
+						for (;;) {
+							ch = r_cons_readchar ();
+							if (ch < 20) {
+								r_cons_break_pop ();
+								return NULL;
+							}
+							if (isupper (ch)) { // read until 'M'
+								break;
 							}
 						}
 						break;
@@ -1783,9 +1908,10 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 								I.buffer.index = 0;
 								break;
 							}
-							r_cons_readchar ();
+							r_cons_readchar (); // should be '5'
+							ch = r_cons_readchar ();
 						}
-#if __WINDOWS__
+#if R2__WINDOWS__
 						else {
 							ch = buf[2];
 						}
@@ -1798,15 +1924,11 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 							break;
 						case 0x44:
 							// previous word
-							for (i = I.buffer.index; i > 0; i--) {
-								if (I.buffer.data[i] == ' ') {
-									I.buffer.index = i - 1;
-									break;
-								}
-							}
-							if (I.buffer.data[i] != ' ') {
-								I.buffer.index = 0;
-							}
+							i = I.buffer.index;
+							do {
+								i--;
+							} while (i > 0 && I.buffer.data[i-1] != ' ');
+							I.buffer.index = i;
 							break;
 						case 0x42:
 							// end
@@ -1832,12 +1954,12 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 							}
 							break;
 						}
-						r_cons_set_raw (1);
+						r_cons_set_raw (true);
 						break;
-					case 0x37:	// HOME xrvt-unicode
+					case 0x37: // HOME xrvt-unicode
 						r_cons_readchar ();
 						break;
-					case 0x48:	// HOME
+					case 0x48: // HOME
 						if (I.sel_widget) {
 							selection_widget_up (I.sel_widget->options_len - 1);
 							selection_widget_draw ();
@@ -1845,10 +1967,10 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 						}
 						I.buffer.index = 0;
 						break;
-					case 0x34:	// END
-					case 0x38:	// END xrvt-unicode
+					case 0x34: // END
+					case 0x38: // END xrvt-unicode
 						r_cons_readchar ();
-					case 0x46:	// END
+					case 0x46: // END
 						if (I.sel_widget) {
 							selection_widget_down (I.sel_widget->options_len - 1);
 							selection_widget_draw ();
@@ -1937,7 +2059,7 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 #endif
 			} else {
 #if USE_UTF8
-				if ((I.buffer.length + utflen) < sizeof (I.buffer.data)) {
+				if ((I.buffer.length + utflen + 1) < sizeof (I.buffer.data)) {
 					memcpy (I.buffer.data + I.buffer.length, buf, utflen);
 					I.buffer.length += utflen;
 				}
@@ -1971,8 +2093,8 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 			if (gcomp) {
 				gcomp_line = "";
 				int counter = 0;
-				if (I.history.data != NULL) {
-					for (i = I.history.size-1; i >= 0; i--) {
+				if (I.history.data) {
+					for (i = I.history.size - 1; i >= 0; i--) {
 						if (!I.history.data[i]) {
 							continue;
 						}
@@ -1987,9 +2109,9 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 						}
 					}
 				}
-				printf ("\r (reverse-i-search (%s)): %s\r", I.buffer.data, gcomp_line);
+				dietline_print_risprompt (gcomp_line);
 			} else {
-			        __print_prompt ();
+				__print_prompt ();
 			}
 			fflush (stdout);
 		}
@@ -2000,20 +2122,27 @@ R_API const char *r_line_readline_cb(RLineReadCallback cb, void *user) {
 	}
 _end:
 	r_cons_break_pop ();
-	r_cons_set_raw (0);
+	r_cons_set_raw (false);
 	r_cons_enable_mouse (mouse_status);
+#if 0
+	if (I.buffer.length > 1024) { // R2_590 - use I.maxlength
+		I.buffer.data[0] = 0;
+		I.buffer.length = 0;
+		R_LOG_WARN ("Input is too large");
+		return I.buffer.data;
+	}
+#endif
 	if (I.echo) {
-		printf ("\r%s%s\n", I.prompt, I.buffer.data);
+		printf ("\r%s%s%s%s\n", I.prompt, promptcolor (), I.buffer.data, Color_RESET);
 		fflush (stdout);
 	}
 
 	R_FREE (I.sel_widget);
 
-	// should be here or not?
-	if (!memcmp (I.buffer.data, "!history", 8)) {
-		// if (I.buffer.data[0]=='!' && I.buffer.data[1]=='\0') {
+	// shouldnt be here
+	if (r_str_startswith (I.buffer.data, "!history")) {
 		r_line_hist_list ();
-		return r_line_nullstr;
+		return "";
 	}
-	return I.buffer.data[0] != '\0'? I.buffer.data: r_line_nullstr;
+	return I.buffer.data[0] != '\0'? I.buffer.data: "";
 }

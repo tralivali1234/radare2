@@ -10,11 +10,16 @@
 .Op Fl o Ar outfile
 .Ar file
 .Sh DESCRIPTION
-radiff2 implements many binary diffing algorithms for data and code.
+rasign2 collects signatures into a database file
 .Pp
 .Bl -tag -width Fl
 .It Fl a
 Analyze binary after loading it with RCore and use -AA to run aaaa instead of aaa.
+.It Fl A
+Treat the provided input file as an ar archive of .o files, and create
+signatures for all functions in the .o files.
+.It Fl c
+After finding all signatures, find all signature collisions.
 .It Fl f
 Interpret the input file as a flirt database and dump the signatures.
 .It Fl h
@@ -34,12 +39,7 @@ Show version information.
 .El
 .Sh SEE ALSO
 .Pp
-.Xr radare2(1) ,
-.Xr rafind2(1) ,
-.Xr rahash2(1) ,
-.Xr rabin2(1) ,
-.Xr rasm2(1) ,
-.Xr ragg2(1) ,
-.Xr rarun2(1) ,
-.Xr rax2(1) ,
-.Xr radiff2(1) ,
+.Xr radare2(1)
+.Sh AUTHORS
+.Pp
+Written by pancake <pancake@nopcode.org>

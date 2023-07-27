@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2011-2014 - pancake */
+/* radare - LGPL - Copyright 2011-2022 - pancake */
 
 #ifndef R2_MAGIC_H
 #define R2_MAGIC_H
@@ -9,15 +9,9 @@
 extern "C" {
 #endif
 
-R_LIB_VERSION_HEADER(r_magic);
+R_LIB_VERSION_HEADER (r_magic);
 
 #ifdef R_API
-
-#ifdef __EMX__
-#define PATHSEP	';'
-#else
-#define PATHSEP	':'
-#endif
 
 /* limits */
 #ifndef HOWMANY
@@ -264,6 +258,9 @@ struct r_magic_set {
 	/* FIXME: Make the string dynamically allocated so that e.g.
 	   strings matched in files can be longer than MAXstring */
 	union VALUETYPE ms_value;	/* either number or string */
+	int magic_file_formats[FILE_NAMES_SIZE];
+	const char *magic_file_names[FILE_NAMES_SIZE];
+	ut32 last_cont_level;
 };
 
 #if USE_LIB_MAGIC
@@ -282,9 +279,10 @@ R_API const char *r_magic_buffer(RMagic*, const void *, size_t);
 
 R_API const char *r_magic_error(RMagic*);
 R_API void r_magic_setflags(RMagic*, int);
+R_API void r_magic_from_ebcdic(const ut8 *, size_t, ut8 *);
 
 R_API bool r_magic_load(RMagic*, const char *);
-R_API bool r_magic_load_buffer(RMagic*, const char *);
+R_API bool r_magic_load_buffer(RMagic*, const ut8 *, size_t);
 R_API bool r_magic_compile(RMagic*, const char *);
 R_API bool r_magic_check(RMagic*, const char *);
 R_API int r_magic_errno(RMagic*);

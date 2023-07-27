@@ -17,7 +17,7 @@ aae
 aflc
 EOF
 EXPECT=<<EOF
-428
+421
 EOF
 RUN
 
@@ -46,7 +46,7 @@ axt str.busybox
 EOF
 EXPECT=<<EOF
             0x00406228      fcc38424       addiu a0, a0, -0x3c04       ; 0x44c3fc ; "busybox" ; str.busybox
-(nofunc); str.busybox 0x406228 [DATA] addiu a0, a0, -str.busybox
+(nofunc); str.busybox 0x406228 [DATA:r--] addiu a0, a0, -str.busybox
 EOF
 RUN
 
@@ -83,14 +83,14 @@ aae @entry0
 axt str.Hello_World
 EOF
 EXPECT=<<EOF
-(nofunc); str.Hello_World 0x805c4 [DATA] addiu a0, v0, str.Hello_World
+(nofunc); str.Hello_World 0x805c4 [DATA:r--] addiu a0, v0, str.Hello_World
 EOF
 RUN
 
 NAME=assembler
 FILE=-
 CMDS=<<EOF
-e asm.arch=mips.gnu
+e asm.arch=mips
 e asm.bits=32
 e cfg.bigendian=0
 pa lui t9, 0x41
@@ -112,7 +112,7 @@ RUN
 NAME=with-spaces
 FILE=-
 CMDS=<<EOF
-e asm.arch=mips.gnu
+e asm.arch=mips
 e asm.bits=32
 e cfg.bigendian=0
 pa addiu v0, v1, 33
@@ -252,12 +252,12 @@ EXPECT=<<EOF
 0x80100014      00000000   nop
 0x80100018      40040408   j 0x80101100
 0x8010001c      00000000   nop
-  ; CALL XREF from fcn.80100000 @ 0x80100000
+  ; CALL XREF from fcn.80100000 @ 0x80100000(x)
 (fcn) fcn.80100020 8
 0x80100020      0800e003   jr ra
 0x80100024      00000000   nop
-0x80100000    1 32           fcn.80100000
-0x80100020    1 8            fcn.80100020
+0x80100000    1     32 fcn.80100000
+0x80100020    1      8 fcn.80100020
 EOF
 RUN
 
@@ -492,6 +492,8 @@ EXPECT=<<EOF
 0x8060b570      000080a0   sb zero, (a0)
 0x8060b574      00000000   nop
 (fcn) fcn.8060b578 20
+; arg int32_t arg1 @ a0
+; arg int32_t arg2 @ a1
 0x8060b578      e0ffbd27   addiu sp, sp, -0x20
 0x8060b57c      542d180c   jal fcn.8060b550
 0x8060b580      00000000   nop
@@ -572,9 +574,9 @@ ARGS=-m 0x8060b4f8
 CMDS=<<EOF
 e io.va=true
 e asm.calls=false
+e anal.in=io.maps
 e asm.bits=32
 e asm.arch=mips
-e anal.noncode=1
 e asm.comments=0
 e anal.hasnext=1
 e anal.nopskip=1
@@ -627,6 +629,8 @@ EXPECT=<<EOF
 0x8060b570      000080a0   sb zero, (a0)
 0x8060b574      00000000   nop
 (fcn) fcn.8060b578 20
+; arg int32_t arg1 @ a0
+; arg int32_t arg2 @ a1
 0x8060b578      e0ffbd27   addiu sp, sp, -0x20
 0x8060b57c      542d180c   jal fcn.8060b550
 0x8060b580      00000000   nop
@@ -643,8 +647,8 @@ CMDS=<<EOF
 e io.va=true
 e asm.calls=false
 e asm.bits=32
+e anal.in=io.maps
 e asm.arch=mips
-e anal.noncode=1
 e asm.comments=0
 e anal.hasnext=1
 e anal.nopskip=1
@@ -697,6 +701,8 @@ EXPECT=<<EOF
 \ 0x8060b570      000080a0   sb zero, (a0)
   0x8060b574      00000000   nop
 / (fcn) fcn.8060b578 20
+| ; arg int32_t arg1 @ a0
+| ; arg int32_t arg2 @ a1
 | 0x8060b578      e0ffbd27   addiu sp, sp, -0x20
 | 0x8060b57c      542d180c   jal fcn.8060b550
 | 0x8060b580      00000000   nop
@@ -725,3 +731,53 @@ EXPECT=<<EOF
             0x004020ac      afa20014       sw v0, 0x14(sp)
 EOF
 RUN
+
+NAME=aac on mips be
+FILE=bins/elf/analysis/mipsbe-busybox
+CMDS=<<EOF
+aac
+afl~?
+EOF
+EXPECT=<<EOF
+1268
+EOF
+RUN
+
+NAME=raw aac with maps (less because of wrong map address)
+FILE=bins/elf/analysis/mipsbe-busybox
+ARGS=-n -m 0x80000 -a mips -b32 -e cfg.bigendian=true
+CMDS=<<EOF
+aac
+afl~?
+EOF
+EXPECT=<<EOF
+4
+EOF
+RUN
+
+NAME=aav without vinfun
+FILE=bins/elf/analysis/mipsbe-busybox
+CMDS=<<EOF
+af @ 0x0040dea4
+e anal.vinfun=false
+aav
+pd 1 @ 0x0040decc~?andi
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
+NAME=aav with vinfun
+FILE=bins/elf/analysis/mipsbe-busybox
+CMDS=<<EOF
+af @ 0x0040ddb0
+e anal.vinfun=true
+aav
+pd 1 @ 0x00463508~?dword
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+

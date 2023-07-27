@@ -1,5 +1,4 @@
 r_core_sources = [
-  'rvc.c',
   'anal_tp.c',
   'anal_objc.c',
   'casm.c',
@@ -14,7 +13,6 @@ r_core_sources = [
   'cmd.c',
   #'cmd_anal.c',
   'cmd_api.c',
-  'cmd_helps.c',
   #'cmd_cmp.c',
   #'cmd_debug.c',
   #'cmd_egg.c',
@@ -48,7 +46,10 @@ r_core_sources = [
   'agraph.c',
   'hack.c',
   'libs.c',
-  #'linux_heap_glibc.c',
+  #'dmh_glibc.c',
+  #'dmh_jemalloc.c',
+  #'dmh_macos.c',
+  #'dmh_windows.c',
   'corelog.c',
   'panels.c',
   'patch.c',
@@ -61,23 +62,18 @@ r_core_sources = [
   'task.c',
   'vasm.c',
   'visual.c',
+  'vslides.c',
   'vmarks.c',
   'vmenus.c',
   'vmenus_graph.c',
   'vmenus_zigns.c',
   'yank.c',
-  'p/core_a2f.c',
-  'p/core_sixref.c',
-  'p/core_java.c'
+  join_paths('p','core_a2f.c'),
+  join_paths('p','core_sixref.c'),
+  join_paths('p','core_java.c')
 ]
 
 r_core_inc = []
-if host_machine.system() != 'windows'
-  r_core_inc += ['../../shlr/heap/include']
-else
-	r_core_sources += 'windows_heap.c'
-	r_core_inc += ['../../shlr/heap/include/r_windows']
-endif
 r_core_inc = [platform_inc, include_directories(r_core_inc)]
 
 r_core_deps = [
@@ -85,6 +81,8 @@ r_core_deps = [
   r_reg_dep,
   r_syscall_dep,
   r_search_dep,
+  r_arch_dep,
+  r_esil_dep,
   r_cons_dep,
   r_anal_dep,
   r_socket_dep,
@@ -92,9 +90,7 @@ r_core_deps = [
   r_fs_dep,
   r_lang_dep,
   r_magic_dep,
-  r_hash_dep,
   r_flag_dep,
-  r_parse_dep,
   r_egg_dep,
   r_debug_dep,
   r_crypto_dep,
@@ -122,8 +118,47 @@ r_core = library('r_core', r_core_sources,
   soversion: r2_libversion
 )
 
-r_core_dep = declare_dependency(link_with: r_core,
-                                include_directories: r_core_inc)
+r_core_dep = declare_dependency(link_with: r_core, include_directories: r_core_inc)
+
+if get_option('blob')
+
+r_core_static_deps = [
+  gdb_static_dep,
+  java_static_dep,
+  lrt,
+  platform_deps,
+  r_anal_static_dep,
+  r_arch_static_dep,
+  r_asm_static_dep,
+  r_bin_static_dep,
+  r_bp_static_dep,
+  r_config_static_dep,
+  r_cons_static_dep,
+  r_crypto_static_dep,
+  r_debug_static_dep,
+  r_egg_static_dep,
+  r_esil_static_dep,
+  r_flag_static_dep,
+  r_fs_static_dep,
+  r_io_static_dep,
+  r_lang_static_dep,
+  r_magic_static_dep,
+  r_reg_static_dep,
+  r_search_static_dep,
+  r_socket_static_dep,
+  r_syscall_static_dep,
+  r_util_static_dep,
+]
+r_core_static = static_library('r_core_static', r_core_sources,
+  include_directories: r_core_inc,
+  c_args: library_cflags,
+  dependencies: r_core_static_deps,
+  install: true,
+  implicit_include_directories: false,
+)
+r_core_static_dep = declare_dependency(link_with: r_core_static,
+  include_directories: r_core_inc)
+endif
 
 pkgconfig_mod.generate(
   r_core,
@@ -133,26 +168,26 @@ pkgconfig_mod.generate(
   filebase: 'r_core',
   libraries: pkgcfg_sanitize_libs,
   requires: pkgconfig_magic_requires + [
-    'r_util',
-    'r_reg',
-    'r_syscall',
-    'r_search',
-    'r_cons',
     'r_anal',
-    'r_socket',
-    'r_io',
-    'r_fs',
-    'r_lang',
-    'r_hash',
-    'r_flag',
-    'r_parse',
-    'r_egg',
-    'r_debug',
-    'r_crypto',
-    'r_config',
-    'r_bin',
+    'r_arch',
     'r_asm',
-    'r_bp'
+    'r_bin',
+    'r_bp',
+    'r_config',
+    'r_cons',
+    'r_crypto',
+    'r_debug',
+    'r_egg',
+    'r_esil',
+    'r_flag',
+    'r_fs',
+    'r_io',
+    'r_lang',
+    'r_reg',
+    'r_search',
+    'r_socket',
+    'r_syscall',
+    'r_util',
   ],
   description: 'radare foundation libraries'
 )

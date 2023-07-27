@@ -61,7 +61,7 @@ extern "C" {
 #define DW_TAG_member                   0x0d
 #define DW_TAG_pointer_type             0x0f
 #define DW_TAG_reference_type           0x10
-#define DW_TAG_compile_unit             0x11 // 
+#define DW_TAG_compile_unit             0x11
 #define DW_TAG_string_type              0x12
 #define DW_TAG_structure_type           0x13
 #define DW_TAG_subroutine_type          0x15
@@ -202,8 +202,8 @@ extern "C" {
 #define DW_AT_description               0x5a
 #define DW_AT_binary_scale              0x5b
 #define DW_AT_decimal_scale             0x5c
-#define DW_AT_small                     0x5d 
-#define DW_AT_decimal_sign              0x5e 
+#define DW_AT_small                     0x5d
+#define DW_AT_decimal_sign              0x5e
 #define DW_AT_digit_count               0x5f
 #define DW_AT_picture_string            0x60
 #define DW_AT_mutable                   0x61
@@ -303,7 +303,7 @@ extern "C" {
 #define DW_FORM_ref_sup4                0x1c
 #define DW_FORM_strp_sup                0x1d
 #define DW_FORM_data16                  0x1e
-#define DW_FORM_line_ptr                0x1f
+#define DW_FORM_line_strp               0x1f
 #define DW_FORM_ref_sig8                0x20
 #define DW_FORM_implicit_const          0x21
 #define DW_FORM_loclistx                0x22
@@ -623,6 +623,14 @@ extern "C" {
 #define DW_UT_lo_user                   0x80
 #define DW_UT_hi_user                   0xff
 
+#define DW_LNCT_path            0x0001
+#define DW_LNCT_directory_index 0x0002
+#define DW_LNCT_timestamp       0x0003
+#define DW_LNCT_size            0x0004
+#define DW_LNCT_MD5             0x0005
+#define DW_LNCT_lo_user         0x2000
+#define DW_LNCT_hi_user         0x3fff
+
 typedef struct {
 	ut32 total_length;
 	ut16 version;
@@ -636,7 +644,7 @@ typedef struct {
 	const char **incdirs;
 	const char *file[128];
 } RBinDwarfInfoHeader;
-#define R_BIN_DWARF_INFO_HEADER_FILE_LENGTH(x) (sizeof (x->file)/sizeof(*(x->file)))
+#define R_BIN_DWARF_INFO_HEADER_FILE_LENGTH(x) (sizeof (x->file)/sizeof (*(x->file)))
 
 typedef struct {
 	ut64 address;
@@ -708,19 +716,19 @@ typedef struct dwarf_attr_kind {
 	ut64 attr_name;
 	ut64 attr_form;
 	RBinDwarfAttrKind kind;
-	/* This is subideal, as dw_form_data can be anything 
-	   we could lose information example: encoding signed 
+	/* This is subideal, as dw_form_data can be anything
+	   we could lose information example: encoding signed
 	   2 byte int into ut64 and then interpreting it as st64 TODO*/
-	union { 
+	union {
 		ut64 address;
-		RBinDwarfBlock block;
 		ut64 uconstant;
 		st64 sconstant;
 		ut8 flag;
 		ut64 reference;
+		RBinDwarfBlock block;
 		struct {
-			const char *content;
 			ut64 offset;
+			const char *content;
 		} string;
 	};
 } RBinDwarfAttrValue;
@@ -847,7 +855,7 @@ typedef struct r_bin_dwarf_loc_list_t {
 
 #define r_bin_dwarf_line_new(o,a,f,l) o->address=a, o->file = strdup (r_str_get (f)), o->line = l, o->column =0,o
 
-R_API RList *r_bin_dwarf_parse_aranges(RBin *a, int mode);
+R_API void r_bin_dwarf_parse_aranges(RBin *a, int mode);
 R_API RList *r_bin_dwarf_parse_line(RBin *a, int mode);
 R_API RBinDwarfDebugAbbrev *r_bin_dwarf_parse_abbrev(RBin *a, int mode);
 R_API RBinDwarfDebugInfo *r_bin_dwarf_parse_info(RBinDwarfDebugAbbrev *da, RBin *a, int mode);

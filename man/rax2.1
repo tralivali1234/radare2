@@ -1,4 +1,4 @@
-.Dd Dec 28, 2020
+.Dd Dec 28, 2023
 .Dt RAX2 1
 .Sh NAME
 .Nm rax2
@@ -29,6 +29,9 @@ Convert LONG to/from IP ADDRESS
 Append newline to the decoded output for human friendly-ness
 .It Fl K
 Show randomart key asciiart for values or hexpairs
+.It Fl r
+Show the same output as the r2's `? 0x804` command.
+When combined with -S (-rS) it will print r2 commands to write the actual binary into radare2
 .It Fl s
 Convert from hex string to character (rax2 \-s 43 4a 50)
 .It Fl S
@@ -97,14 +100,7 @@ It is a very useful tool for scripting, so you can read floating point values, o
 .Pp
 .Sh SEE ALSO
 .Pp
-.Xr radare2(1) ,
-.Xr rahash2(1) ,
-.Xr rafind2(1) ,
-.Xr rabin2(1) ,
-.Xr radiff2(1) ,
-.Xr ragg2(1) ,
-.Xr rarun2(1) ,
-.Xr rasm2(1)
+.Xr radare2(1)
 .Sh AUTHORS
 .Pp
 Written by pancake <pancake@nopcode.org>.

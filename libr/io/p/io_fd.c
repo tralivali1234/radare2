@@ -1,13 +1,10 @@
-/* radare - LGPL - Copyright 2020 - pancake */
+/* radare - LGPL - Copyright 2020-2022 - pancake */
 
-#include "r_io.h"
-#include "r_lib.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <r_cons.h>
+#include <r_io.h>
+#include <r_lib.h>
 #include <sys/types.h>
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define FDURI "handle://"
 #else
 #define FDURI "fd://"
@@ -44,9 +41,9 @@ static int __read(RIO *io, RIODesc *desc, ut8 *buf, int count) {
 	return -1;
 }
 
-static int __close(RIODesc *desc) {
+static bool __close(RIODesc *desc) {
 	R_FREE (desc->data);
-	return 0;
+	return true;
 }
 
 static ut64 __lseek(RIO* io, RIODesc *desc, ut64 offset, int whence) {
@@ -58,12 +55,12 @@ static ut64 __lseek(RIO* io, RIODesc *desc, ut64 offset, int whence) {
 }
 
 static bool __check(RIO *io, const char *pathname, bool many) {
-	return !strncmp (pathname, FDURI, strlen (FDURI));
+	return r_str_startswith (pathname, FDURI);
 }
 
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	if (r_sandbox_enable (false)) {
-		eprintf ("Do not permit " FDURI " in sandbox mode.\n");
+		R_LOG_ERROR ("Do not permit " FDURI " in sandbox mode");
 		return NULL;
 	}
 	if (!__check (io, pathname, 0)) {
@@ -72,12 +69,12 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 	RIOFdata *fdd = R_NEW0 (RIOFdata);
 	if (fdd) {
 		fdd->fd = r_num_math (NULL, pathname + strlen (FDURI));
-#if __WINDOWS__
+#if R2__WINDOWS__
 		fdd->fd = _open_osfhandle (fdd->fd, 0);
 #endif
 		if (fdd->fd < 0) {
 			free (fdd);
-			eprintf ("Invalid filedescriptor.\n");
+			R_LOG_ERROR ("Invalid filedescriptor");
 			return NULL;
 		}
 	}
@@ -85,7 +82,7 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 }
 
 RIOPlugin r_io_plugin_fd = {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	.name = "handle",
 	.desc = "Local process file handle IO",
 #else
@@ -98,7 +95,7 @@ RIOPlugin r_io_plugin_fd = {
 	.close = __close,
 	.read = __read,
 	.check = __check,
-	.lseek = __lseek,
+	.seek = __lseek,
 	.write = __write,
 	.resize = __resize,
 };

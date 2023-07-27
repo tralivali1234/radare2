@@ -1,20 +1,23 @@
-/* radare - LGPL - Copyright 2008-2018 - pancake */
+/* radare - LGPL - Copyright 2008-2022 - pancake */
 
-#include "r_io.h"
+#include <r_io.h>
 #include "config.h"
-#include <stdio.h>
-
-static volatile RIOPlugin *default_plugin = NULL;
 
 static RIOPlugin *io_static_plugins[] = {
 	R_IO_STATIC_PLUGINS
 };
 
 R_API bool r_io_plugin_add(RIO *io, RIOPlugin *plugin) {
-	if (!io || !io->plugins || !plugin || !plugin->name) {
+	r_return_val_if_fail (io && plugin && io->plugins, false);
+	if (!plugin->name) {
 		return false;
 	}
 	ls_append (io->plugins, plugin);
+	return true;
+}
+
+R_API bool r_io_plugin_remove(RIO *io, RIOPlugin *plugin) {
+	// R2_590 TODO
 	return true;
 }
 
@@ -34,30 +37,29 @@ R_API bool r_io_plugin_init(RIO *io) {
 			return false;
 		}
 		memcpy (static_plugin, io_static_plugins[i], sizeof (RIOPlugin));
-		r_io_plugin_add (io, static_plugin);
+		if (!r_io_plugin_add (io, static_plugin)) {
+			free (static_plugin);
+			return false;
+		}
 	}
 	return true;
 }
 
-R_API RIOPlugin *r_io_plugin_get_default(RIO *io, const char *filename, bool many) {
-	if (!default_plugin || !default_plugin->check || !default_plugin->check (io, filename, many) ) {
-		return NULL;
-	}
-	return (RIOPlugin*) default_plugin;
-}
-
 R_API RIOPlugin *r_io_plugin_resolve(RIO *io, const char *filename, bool many) {
-	SdbListIter *iter;
-	RIOPlugin *ret;
-	ls_foreach (io->plugins, iter, ret) {
-		if (!ret || !ret->check) {
-			continue;
-		}
-		if (ret->check (io, filename, many)) {
-			return ret;
+	// TODO: optimization
+	if (strstr (filename, "://")) {
+		RIOPlugin *ret;
+		SdbListIter *iter;
+		ls_foreach (io->plugins, iter, ret) {
+			if (!ret || !ret->check) {
+				continue;
+			}
+			if (ret->check (io, filename, many)) {
+				return ret;
+			}
 		}
 	}
-	return r_io_plugin_get_default (io, filename, many);
+	return &r_io_plugin_default;
 }
 
 R_API RIOPlugin *r_io_plugin_byname(RIO *io, const char *name) {
@@ -68,7 +70,7 @@ R_API RIOPlugin *r_io_plugin_byname(RIO *io, const char *name) {
 			return iop;
 		}
 	}
-	return r_io_plugin_get_default (io, name, false);
+	return NULL;
 }
 
 R_API int r_io_plugin_list(RIO *io) {
@@ -82,17 +84,10 @@ R_API int r_io_plugin_list(RIO *io) {
 		str[1] = plugin->write ? 'w' : '_';
 		str[2] = plugin->isdbg ? 'd' : '_';
 		str[3] = 0;
-		io->cb_printf ("%s  %-8s %s (%s)",
-				str, plugin->name,
-			plugin->desc, plugin->license);
+		io->cb_printf ("%s  %-8s %-6s %s.", str,
+			r_str_get (plugin->name), r_str_get (plugin->license), r_str_get (plugin->desc));
 		if (plugin->uris) {
 			io->cb_printf (" %s", plugin->uris);
-		}
-		if (plugin->version) {
-			io->cb_printf (" v%s", plugin->version);
-		}
-		if (plugin->author) {
-			io->cb_printf (" %s", plugin->author);
 		}
 		io->cb_printf ("\n");
 		n++;
@@ -107,7 +102,7 @@ R_API int r_io_plugin_list_json(RIO *io) {
 	if (!pj) {
 		return 0;
 	}
-	
+
 	char str[4];
 	int n = 0;
 	pj_a (pj);
@@ -119,10 +114,15 @@ R_API int r_io_plugin_list_json(RIO *io) {
 
 		pj_o (pj);
 		pj_ks (pj, "permissions", str);
-		pj_ks (pj, "name", plugin->name);
-		pj_ks (pj, "description", plugin->desc);
-		pj_ks (pj, "license", plugin->license);
-
+		if (plugin->name) {
+			pj_ks (pj, "name", plugin->name);
+		}
+		if (plugin->desc) {
+			pj_ks (pj, "description", plugin->desc);
+		}
+		if (plugin->license) {
+			pj_ks (pj, "license", plugin->license);
+		}
 		if (plugin->uris) {
 			char *uri;
 			char *uris = strdup (plugin->uris);

@@ -1,49 +1,59 @@
-/* debugbochs  - LGPL - Copyright 2016 - SkUaTeR */
+/* debugbochs  - LGPL - Copyright 2016-2023 - SkUaTeR */
 
 #include <r_asm.h>
 #include <r_debug.h>
 #include <libbochs.h>
 
-static bool bCapturaRegs = true;
-static bool bStep = false;
-static bool bBreak = false;
-static bool bAjusta = true;
-static char *saveRegs;
-static ut64 ripStop = 0LL;
-
 typedef struct {
 	libbochs_t desc;
 } RIOBochs;
 
-static libbochs_t *desc = NULL;
+typedef struct plugin_data_t {
+	bool bCapturaRegs;
+	bool bStep;
+	bool bBreak;
+	bool bAjusta;
+	char *saveRegs;
+	ut64 ripStop;
+	libbochs_t *desc;
+} PluginData;
 
-static bool isBochs(RDebug *dbg) {
-	RIODesc *d = dbg->iob.io->desc;
-	if (d && d->plugin && d->plugin->name) {
-		if (!strcmp ("bochs", d->plugin->name)) {
-			return true;
+static bool is_bochs(RDebug *dbg) {
+	if (dbg && dbg->iob.io) {
+		RIODesc *d = dbg->iob.io->desc;
+		if (d && d->plugin && d->plugin->name) {
+			if (!strcmp ("bochs", d->plugin->name)) {
+				return true;
+			}
 		}
 	}
-	eprintf ("error: the iodesc data is not bochs friendly\n");
+	R_LOG_ERROR ("the iodesc data is not bochs friendly");
 	return false;
 }
 
-static int r_debug_bochs_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool set) {
+static int r_debug_bochs_breakpoint(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	char cmd[64];
 	char num[4];
 	char addr[19];
 	char bufcmd[100];
 	ut64 a;
 	int  n,i,lenRec;
-	//eprintf ("bochs_breakpoint\n");
-	if (!b) {
+	R_LOG_DEBUG ("bochs_breakpoint");
+	if (!bp || !b) {
 		return false;
 	}
+
+	RDebug *dbg = bp->user;
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return false;
+	}
+
 	if (set) {
 		//eprintf("[set] bochs_breakpoint %016"PFMT64x"\n",bp->addr);
-		sprintf (cmd, "lb 0x%x", (ut32)b->addr);
-		bochs_send_cmd (desc, cmd, true);
-		bCapturaRegs = true;
+		snprintf (cmd, sizeof (cmd), "lb 0x%x", (ut32)b->addr);
+		bochs_send_cmd (pd->desc, cmd, true);
+		pd->bCapturaRegs = true;
 	} else {
 		//eprintf("[unset] bochs_breakpoint %016"PFMT64x"\n",bp->addr);
 		/*
@@ -52,17 +62,17 @@ static int r_debug_bochs_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool s
 		  2 lbreakpoint    keep y   0x0000000000007c00
 		<bochs:39>
 		*/
-		bochs_send_cmd (desc,"blist",true);
-		lenRec = strlen (desc->data);
+		bochs_send_cmd (pd->desc, "blist", true);
+		lenRec = strlen (pd->desc->data);
 		a = -1;
 		n = 0;
-		if (!strncmp (desc->data, "Num Type", 8)) {
+		if (!strncmp (pd->desc->data, "Num Type", 8)) {
 			i = 37;
 			do {
-				if (desc->data[i + 24] == 'y') {
-					strncpy(num, &desc->data[i], 3);
+				if (pd->desc->data[i + 24] == 'y') {
+					strncpy(num, &pd->desc->data[i], 3);
 					num[3] = 0;
-					strncpy(addr, &desc->data[i + 28], 18);
+					strncpy(addr, &pd->desc->data[i + 28], 18);
 					addr[18] = 0;
 					n = r_num_get (NULL,num);
 					a = r_num_get (NULL,addr);
@@ -72,44 +82,48 @@ static int r_debug_bochs_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool s
 					}
 				}
 				i += 48;
-			} while (desc->data[i] != '<' && i<lenRec-4);
+			} while (pd->desc->data[i] != '<' && i < lenRec - 4);
 		}
 		if (a == b->addr) {
 			snprintf (bufcmd, sizeof (bufcmd), "d %i", n);
 			//eprintf("[unset] Break point localizado indice = %x (%x) %s \n",n,(DWORD)a,bufcmd);
-			bochs_send_cmd (desc, bufcmd, true);
+			bochs_send_cmd (pd->desc, bufcmd, true);
 		}
 
 	}
 	return true;
 }
 
-static int r_debug_bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
+static bool bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	char strReg[19];
 	char regname[4];
 	char strBase[19];
 	char strLimit[19];
 	int i = 0, pos = 0, lenRec = 0;
 	ut64 val = 0, valRIP = 0; //, posRIP = 0;
-	if (!isBochs (dbg)) {
-		return 0;
+	if (!is_bochs (dbg)) {
+		return false;
 	}
 
-	//eprintf ("bochs_reg_read\n");
-	if (bCapturaRegs == true) {
-		bochs_send_cmd (desc, "regs", true);
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return false;
+	}
+
+	if (pd->bCapturaRegs == true) {
+		bochs_send_cmd (pd->desc, "regs", true);
 		//r14: 00000000_00000000 r15: 00000000_00000000
 		//rip: 00000000_0000e07b
-		//eflags 0x00000046: id vip vif ac vm rf nt IOPL=0 of df if tf sf ZF af PF cf
+		//"eflags 0x00000046: id vip vif ac vm rf nt IOPL=0 of df if tf sf ZF af PF cf"
 		//<bochs:109>return -1;
 		pos = 0x78;
-		lenRec = strlen (desc->data);
-		while (desc->data[i] != 0 && i < lenRec -4 ) {
-			if ( (desc->data[i] == (ut8)'r' && desc->data[i + 3] == (ut8)':')) {
-				strncpy (regname, &desc->data[i], 3);
+		lenRec = strlen (pd->desc->data);
+		while (pd->desc->data[i] != 0 && i < lenRec -4) {
+			if ((pd->desc->data[i] == (ut8)'r' && pd->desc->data[i + 3] == (ut8)':')) {
+				strncpy (regname, &pd->desc->data[i], 3);
 				regname[3] = 0;
-				strncpy (&strReg[2], &desc->data[i + 5], 8);
-				strncpy (&strReg[10], &desc->data[i + 14], 8);
+				strncpy (&strReg[2], &pd->desc->data[i + 5], 8);
+				strncpy (&strReg[10], &pd->desc->data[i + 14], 8);
 				strReg[0]='0';
 				strReg[1]='x';
 				strReg[18] = 0;
@@ -129,18 +143,18 @@ static int r_debug_bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 			}
 		}
 
-		bochs_send_cmd (desc, "info cpu", true);
-		if (strstr (desc->data,"PC_32")) {
-			bAjusta = true;
+		bochs_send_cmd (pd->desc, "info cpu", true);
+		if (strstr (pd->desc->data,"PC_32")) {
+			pd->bAjusta = true;
 			//eprintf("[modo PC_32]\n");
-		} else if (strstr (desc->data,"PC_80")) {
-			bAjusta = false;
+		} else if (strstr (pd->desc->data,"PC_80")) {
+			pd->bAjusta = false;
 			//eprintf("[modo PC_80]\n");
-		} else if (strstr (desc->data,"PC_64")) {
-			bAjusta = false;
+		} else if (strstr (pd->desc->data,"PC_64")) {
+			pd->bAjusta = false;
 			//eprintf("[modo PC_64]\n");
 		} else {
-			eprintf ("[unknown mode]\n%s\n", desc->data);
+			R_LOG_ERROR ("unknown mode: %s", pd->desc->data);
 		}
 		/*
 		   es:0x0000, dh=0x00009300, dl=0x0000ffff, valid=7
@@ -155,19 +169,19 @@ static int r_debug_bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 		   Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
 		   gs:0x0000, dh=0x00009300, dl=0x0000ffff, valid=7
 		   Data segment, base=0x00000000, limit=0x0000ffff, Read/Write, Accessed
-		   ldtr:0x0000, dh=0x00008200, dl=0x0000ffff, valid=1
-		   tr:0x0000, dh=0x00008b00, dl=0x0000ffff, valid=1
+		   ldtr:0x0000, dh=0x00008200, dl=0x0000ffff, valid = 1
+		   tr:0x0000, dh=0x00008b00, dl=0x0000ffff, valid = 1
 		   gdtr:base=0x0000000000000000, limit=0xffff
 		   idtr:base=0x0000000000000000, limit=0xffff
 		*/
-		bochs_send_cmd (desc, "sreg", true);
+		bochs_send_cmd (pd->desc, "sreg", true);
 
 		pos = 0x38;
 		char * s [] = { "es:0x", "cs:0x","ss:0x","ds:0x","fs:0x","gs:0x",0};
 		const char *x;
 		int n;
 		for (n = 0; s[n] != 0; n++) {
-			if ((x = strstr (desc->data,s[n]))) {
+			if ((x = strstr (pd->desc->data,s[n]))) {
 				strncpy (&strReg[0], x+3, 7);
 				strReg[6] = 0;
 				val = r_num_get (NULL, strReg);
@@ -184,7 +198,7 @@ static int r_debug_bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 				//eprintf("%s localizado %s %04x base = %s limit = %s\n",regname,strReg,(WORD)val,strBase,strLimit);
 				memcpy (&buf[pos], &val, 2);
 				pos += 2;
-				if (bAjusta) {
+				if (pd->bAjusta) {
 					if (!strncmp (regname,"cs",2)) {
 						valRIP += (val*0x10); // desplazamos CS y lo añadimos a RIP
 					//eprintf("%016"PFMT64x"\n",valRIP);
@@ -193,43 +207,40 @@ static int r_debug_bochs_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 			}
 		}
 		// Cheat para evitar traducciones de direcciones
-		if (ripStop != 0) {
-			memcpy (&buf[0], &ripStop, 8);
+		if (pd->ripStop != 0) {
+			memcpy (&buf[0], &pd->ripStop, 8);
 		} else {
 			memcpy (&buf[0], &valRIP, 8);	// guardamos el valor cs:ip en el registro virtual "vip"
 		}
-		//eprintf("guardando regs procesados%x\n",size);
-		memcpy (saveRegs,buf,size);
-		bCapturaRegs = false;
-		//eprintf("bochs_reg_read\n");
+		memcpy (pd->saveRegs, buf, size);
+		pd->bCapturaRegs = false;
 	} else {
-		memcpy (buf, saveRegs, size);
-		//eprintf("[cache] bochs_reg_read\n");
+		memcpy (buf, pd->saveRegs, size);
 	}
-	return size;
+	return true; // size
 }
 
-static int r_debug_bochs_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
-	//eprintf("bochs_reg_write\n");
-	return -1;
+static bool bochs_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
+	return false;
 }
 
 void map_free(RDebugMap *map) {
-	free (map->name);
-	free (map);
+	if (map) {
+		free (map->name);
+		free (map);
+	}
 }
 
 static RList *r_debug_bochs_map_get(RDebug* dbg) { //TODO
-	if (!isBochs (dbg)) {
+	if (!is_bochs (dbg)) {
 		return NULL;
 	}
 	//eprintf("bochs_map_getdebug:\n");
-	RDebugMap *mr;
 	RList *list = r_list_newf ((RListFree)map_free);
 	if (!list) {
 		return NULL;
 	}
-	mr = R_NEW0 (RDebugMap);
+	RDebugMap *mr = R_NEW0 (RDebugMap);
 	if (!mr) {
 		r_list_free (list);
 		return NULL;
@@ -244,86 +255,97 @@ static RList *r_debug_bochs_map_get(RDebug* dbg) { //TODO
 	return list;
 }
 
-static int r_debug_bochs_step(RDebug *dbg) {
-	if (!isBochs (dbg)) {
-		return false;
+static bool r_debug_bochs_step(RDebug *dbg) {
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (is_bochs (dbg) && pd) {
+		bochs_send_cmd (pd->desc, "s", true);
+		pd->bCapturaRegs = true;
+		pd->bStep = true;
+		return true;
 	}
-	//eprintf ("bochs_step\n");
-	bochs_send_cmd (desc,"s",true);
-	bCapturaRegs = true;
-	bStep = true;
-	return true;
+	return false;
 }
 
-static int r_debug_bochs_continue(RDebug *dbg, int pid, int tid, int sig) {
+static bool r_debug_bochs_continue(RDebug *dbg, int pid, int tid, int sig) {
 	//eprintf ("bochs_continue:\n");
-	bochs_send_cmd (desc, "c", false);
-	bCapturaRegs = true;
-	bBreak = false;
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return false;
+	}
+
+	bochs_send_cmd (pd->desc, "c", false);
+	pd->bCapturaRegs = true;
+	pd->bBreak = false;
 	return true;
 }
 
-static void bochs_debug_break(void *u) {
-	eprintf("bochs_debug_break: Sending break...\n");
-	bochs_cmd_stop (desc);
-	bBreak = true;
+static void bochs_debug_break(void *user) {
+	R_LOG_INFO ("bochs_debug_break: Sending break");
+	RDebug *dbg = user;
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return;
+	}
+
+	bochs_cmd_stop (pd->desc);
+	pd->bBreak = true;
 }
 
-static int r_debug_bochs_wait(RDebug *dbg, int pid) {
-	if (!isBochs (dbg)) {
+static RDebugReasonType r_debug_bochs_wait(RDebug *dbg, int pid) {
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!is_bochs (dbg) || !pd) {
 		return false;
 	}
+
 	char strIP[19];
 	int i = 0;
 	const char *x;
 	char *ini = 0, *fin = 0;
 
-	//eprintf ("bochs_wait:\n");
-
-	if (bStep) {
-		bStep = false;
+	if (pd->bStep) {
+		pd->bStep = false;
 	} else {
 		r_cons_break_push (bochs_debug_break, dbg);
 		i = 500;
 		do {
-			bochs_wait (desc);
-			if (bBreak) {
-				if (desc->data[0]) {
-					eprintf ("ctrl+c %s\n", desc->data);
-					bBreak = false;
+			bochs_wait (pd->desc);
+			if (pd->bBreak) {
+				if (pd->desc->data[0]) {
+					R_LOG_INFO ("ctrl+c %s", pd->desc->data);
+					pd->bBreak = false;
 					break;
 				}
 				i--;
 				if (!i) {
-					bBreak = false;
-					eprintf ("empty ctrl+c.\n");
+					pd->bBreak = false;
+					R_LOG_INFO ("empty ctrl+c");
 					break;
 				}
-			} else if (desc->data[0]) {
-				//eprintf("stop on breakpoint%s\n",desc->data);
+			} else if (pd->desc->data[0]) {
+				//eprintf("stop on breakpoint%s\n",pd->desc->data);
 				break;
 			}
-		} while(1);
+		} while (1);
 		r_cons_break_pop ();
 	}
 	//eprintf ("bochs_wait: loop done\n");
 	// Next at t=394241428
 	// (0) [0x000000337635] 0020:0000000000337635 (unk. ctxt): add eax, esi              ; 03c6
-	ripStop = 0;
-	if ((x = strstr (desc->data, "Next at"))) {
+	pd->ripStop = 0;
+	if ((x = strstr (pd->desc->data, "Next at"))) {
 		if ((ini = strstr (x, "[0x"))) {
 			if ((fin = strchr (ini, ']'))) {
 				int len = fin - ini - 1;
 				strncpy (strIP, ini+1, len);
 				strIP[len] = 0;
 				//eprintf(" parada EIP = %s\n",strIP);
-				ripStop = r_num_get (NULL, strIP);
+				pd->ripStop = r_num_get (NULL, strIP);
 			}
 		}
 	}
-	desc->data[0] = 0;
+	pd->desc->data[0] = 0;
 
-	return true;
+	return R_DEBUG_REASON_NONE;
 }
 
 static int r_debug_bochs_stop(RDebug *dbg) {
@@ -334,7 +356,12 @@ static int r_debug_bochs_stop(RDebug *dbg) {
 	return true;
 }
 
-static int r_debug_bochs_attach(RDebug *dbg, int pid) {
+static bool r_debug_bochs_attach(RDebug *dbg, int pid) {
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return false;
+	}
+
 	RIODesc *d = dbg->iob.io->desc;
 	//eprintf ("bochs_attach:\n");
 	dbg->swstep = false;
@@ -343,26 +370,31 @@ static int r_debug_bochs_attach(RDebug *dbg, int pid) {
 			RIOBochs *g = d->data;
 			//int arch = r_sys_arch_id (dbg->arch);
 			// int bits = dbg->anal->bits;
-			if (( desc = &g->desc )) {
-				eprintf("bochs attach: ok\n");
-				saveRegs = malloc(1024);
-				bCapturaRegs = true;
-				bStep = false;
-				bBreak = false;
+			if ((pd->desc = &g->desc)) {
+				R_LOG_INFO ("bochs attach: ok");
+				pd->saveRegs = malloc(1024);
+				pd->bCapturaRegs = true;
+				pd->bStep = false;
+				pd->bBreak = false;
 			}
 		}
 	}
 	return true;
 }
 
-static int r_debug_bochs_detach(RDebug *dbg, int pid) {
+static bool r_debug_bochs_detach(RDebug *dbg, int pid) {
 	//eprintf ("bochs_detach:\n");
-	free (saveRegs);
+	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
+	if (!pd) {
+		return false;
+	}
+
+	free (pd->saveRegs);
 	return true;
 }
 
-static const char *r_debug_bochs_reg_profile(RDebug *dbg) {
-	int bits = dbg->anal->bits;
+static char *r_debug_bochs_reg_profile(RDebug *dbg) {
+	int bits = dbg->anal->config->bits;
 
 	if (bits == 16 || bits == 32 || bits == 64) {
 		return strdup (
@@ -381,6 +413,7 @@ static const char *r_debug_bochs_reg_profile(RDebug *dbg) {
 				"seg	fs	2	0x040	0	\n"
 				"seg	gs	2	0x042	0	\n"
 
+				"gpr	riz	8	?	0	\n"
 				"gpr	rax	8	0x078	0	\n"
 				"gpr	eax	4	0x078	0	\n"
 				"gpr	ax	2	0x078	0	\n"
@@ -543,23 +576,57 @@ static const char *r_debug_bochs_reg_profile(RDebug *dbg) {
 	return NULL;
 }
 
+static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
+	r_return_val_if_fail (dbg && ds, false);
+
+	PluginData *pd = R_NEW0 (PluginData);
+	if (!pd) {
+		return false;
+	}
+
+	pd->bCapturaRegs = true;
+	pd->bAjusta = true;
+	ds->plugin_data = pd;
+	return true;
+}
+
+static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
+	r_return_val_if_fail (dbg && ds, false);
+
+	PluginData *pd = ds->plugin_data;
+	if (!pd) {
+		return false;
+	}
+
+	R_FREE (pd->saveRegs);
+	R_FREE (ds->plugin_data);
+	// no need to free desc? owned by other code?
+	return true;
+}
+
 RDebugPlugin r_debug_plugin_bochs = {
-	.name = "bochs",
-	.license = "LGPL3",
+	.meta = {
+		.name = "bochs",
+		.author = "SkUaTeR",
+		.desc = "bochs debug plugin",
+		.license = "LGPL3",
+	},
 	.arch = "x86",
 	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
+	.init_plugin = init_plugin,
+	.fini_plugin = fini_plugin,
 	.step = r_debug_bochs_step,
 	.cont = r_debug_bochs_continue,
-	.attach = &r_debug_bochs_attach,
-	.detach = &r_debug_bochs_detach,
+	.attach = r_debug_bochs_attach,
+	.detach = r_debug_bochs_detach,
 	.canstep = 1,
-	.stop = &r_debug_bochs_stop,
-	.wait = &r_debug_bochs_wait,
+	.stop = r_debug_bochs_stop,
+	.wait = r_debug_bochs_wait,
 	.map_get = r_debug_bochs_map_get,
 	.breakpoint = r_debug_bochs_breakpoint,
-	.reg_read = &r_debug_bochs_reg_read,
-	.reg_write = &r_debug_bochs_reg_write,
-	.reg_profile = (void *)r_debug_bochs_reg_profile,
+	.reg_read = bochs_reg_read,
+	.reg_write = bochs_reg_write,
+	.reg_profile = r_debug_bochs_reg_profile,
 };
 
 #ifndef R2_PLUGIN_INCORE

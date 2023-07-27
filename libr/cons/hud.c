@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2018 - pancake */
+/* radare - LGPL - Copyright 2008-2023 - pancake */
 
 #include <r_cons.h>
 #include <ctype.h>
@@ -9,6 +9,7 @@
 R_API char *r_cons_hud_file(const char *f) {
 	char *s = r_file_slurp (f, NULL);
 	if (s) {
+		r_str_ansi_strip (s);
 		char *ret = r_cons_hud_string (s);
 		free (s);
 		return ret;
@@ -16,17 +17,60 @@ R_API char *r_cons_hud_file(const char *f) {
 	return NULL;
 }
 
+static char *r_cons_hud_line(RList *list, const char *prompt);
+
 // Display a buffer in the hud (splitting it line-by-line and ignoring
 // the lines starting with # )
-R_API char *r_cons_hud_string(const char *s) {
+R_API char *r_cons_hud_line_string(const char *s) {
 	if (!r_cons_is_interactive ()) {
-		eprintf ("Hud mode requires scr.interactive=true.\n");
+		R_LOG_ERROR ("Hud mode requires scr.interactive=true");
 		return NULL;
 	}
 	char *os, *track, *ret, *o = strdup (s);
 	if (!o) {
 		return NULL;
 	}
+	r_str_replace_ch (o, '\r', 0, true);
+	r_str_replace_ch (o, '\t', 0, true);
+	r_str_ansi_strip (o);
+	RList *fl = r_list_new ();
+	int i;
+	if (!fl) {
+		free (o);
+		return NULL;
+	}
+	fl->free = free;
+	for (os = o, i = 0; o[i]; i++) {
+		if (o[i] == '\n') {
+			o[i] = 0;
+			if (*os && *os != '#') {
+				track = strdup (os);
+				if (!r_list_append (fl, track)) {
+					free (track);
+					break;
+				}
+			}
+			os = o + i + 1;
+		}
+	}
+	ret = r_cons_hud_line (fl, NULL);
+	free (o);
+	r_list_free (fl);
+	return ret;
+}
+
+// Display a buffer in the hud (splitting it line-by-line and ignoring
+// the lines starting with # )
+R_API char *r_cons_hud_string(const char *s) {
+	if (!r_cons_is_interactive ()) {
+		R_LOG_ERROR ("Hud mode requires scr.interactive=true");
+		return NULL;
+	}
+	char *os, *track, *ret, *o = strdup (s);
+	if (!o) {
+		return NULL;
+	}
+	r_str_ansi_strip (o);
 	r_str_replace_ch (o, '\r', 0, true);
 	r_str_replace_ch (o, '\t', 0, true);
 	RList *fl = r_list_new ();
@@ -56,10 +100,10 @@ R_API char *r_cons_hud_string(const char *s) {
 }
 
 /* Match a filter on a line. A filter can contain multiple words
-   separated by spaces, which are all matched *in any order* over the target
-   entry. If all words are present, the function returns true.
-   The mask is a character buffer which is filled by 'x' to mark those characters
-   that match the filter */
+ * separated by spaces, which are all matched *in any order* over the target
+ * entry. If all words are present, the function returns true.
+ * The mask is a character buffer which is filled by 'x' to mark those characters
+ * that match the filter */
 static bool __matchString(char *entry, char *filter, char *mask, const int mask_size) {
 	char *p, *current_token = filter;
 	const char *filter_end = filter + strlen (filter);
@@ -108,8 +152,7 @@ static bool __matchString(char *entry, char *filter, char *mask, const int mask_
 	return true;
 }
 
-
-static RList *hud_filter(RList *list, char *user_input, int top_entry_n, int *current_entry_n, char **selected_entry) {
+static RList *hud_filter(RList *list, char *user_input, int top_entry_n, int *current_entry_n, char **selected_entry, bool simple) {
 	RListIter *iter;
 	char *current_entry;
 	char mask[HUD_BUF_SIZE];
@@ -136,7 +179,14 @@ static RList *hud_filter(RList *list, char *user_input, int top_entry_n, int *cu
 			}
 			p = strdup (current_entry);
 			// if the filter is empty, print the entry and move on
-			if (!user_input[0]) {
+			if (simple) {
+				for (j = 0; p[j] && user_input[0]; j++) {
+					if (mask[j]) {
+						p[j] = toupper ((unsigned char) p[j]);
+					}
+				}
+				r_list_append (res, strdup (p));
+			} else if (!user_input[0]) {
 				r_list_append (res, r_str_newf (" %c %s", first_line? '-': ' ', p));
 			} else {
 				// otherwise we need to emphasize the matching part
@@ -201,6 +251,7 @@ static void mht_free_kv(HtPPKv *kv) {
 
 #define HUD_CACHE 0
 R_API char *r_cons_hud(RList *list, const char *prompt) {
+	bool demo = r_cons_singleton ()->context->demo;
 	char user_input[HUD_BUF_SIZE + 1];
 	char *selected_entry = NULL;
 	RListIter *iter;
@@ -216,6 +267,7 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 	hud->top_entry_n = 0;
 	r_cons_show_cursor (false);
 	r_cons_enable_mouse (false);
+	r_cons_set_raw (true);
 	r_cons_clear ();
 
 	// Repeat until the user exits the hud
@@ -227,10 +279,20 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 			hud->top_entry_n = 0;
 		}
 		selected_entry = NULL;
+		char *p = NULL;
 		if (prompt && *prompt) {
-			r_cons_printf (">> %s\n", prompt);
+			p = r_str_appendf (p, ">> %s\n", prompt);
 		}
-		r_cons_printf ("%d> %s|\n", hud->top_entry_n, user_input);
+		p = r_str_appendf (p, "%d> %s|\n", hud->top_entry_n, user_input);
+		if (p) {
+			if (demo) {
+				char *q = r_str_ss (p, NULL, 0);
+				free (p);
+				p = q;
+			}
+			r_cons_printf ("%s", p);
+			free (p);
+		}
 		char *row;
 		RList *filtered_list = NULL;
 
@@ -238,7 +300,7 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 		filtered_list = ht_pp_find (ht, user_input, &found);
 		if (!found) {
 			filtered_list = hud_filter (list, user_input,
-				hud->top_entry_n, &(hud->current_entry_n), &selected_entry);
+				hud->top_entry_n, &(hud->current_entry_n), &selected_entry, false);
 #if HUD_CACHE
 			ht_pp_insert (ht, user_input, filtered_list);
 #endif
@@ -253,6 +315,92 @@ R_API char *r_cons_hud(RList *list, const char *prompt) {
 		r_list_free (filtered_list);
 #endif
 		r_cons_visual_flush ();
+		(void) r_line_readline ();
+		r_str_ncpy (user_input, I(line)->buffer.data, HUD_BUF_SIZE);
+
+		if (!hud->activate) {
+			hud->top_entry_n = 0;
+			if (hud->current_entry_n >= 1 ) {
+				if (selected_entry) {
+					R_FREE (I(line)->hud);
+					I(line)->echo = true;
+					r_cons_enable_mouse (false);
+					r_cons_show_cursor (true);
+					r_cons_set_raw (false);
+					return strdup (selected_entry);
+				}
+			} else {
+				goto _beach;
+			}
+		}
+	}
+_beach:
+	R_FREE (I(line)->hud);
+	I(line)->echo = true;
+	r_cons_show_cursor (true);
+	r_cons_enable_mouse (false);
+	r_cons_set_raw (false);
+	ht_pp_free (ht);
+	return NULL;
+}
+
+static char *r_cons_hud_line(RList *list, const char *prompt) {
+	char user_input[HUD_BUF_SIZE + 1];
+	char *selected_entry = NULL;
+	RListIter *iter;
+
+	HtPP *ht = ht_pp_new (NULL, (HtPPKvFreeFunc)mht_free_kv, (HtPPCalcSizeV)strlen);
+	RLineHud *hud = (RLineHud*) R_NEW (RLineHud);
+	hud->activate = 0;
+	hud->vi = 0;
+	I(line)->echo = false;
+	I(line)->hud = hud;
+	user_input [0] = 0;
+	user_input[HUD_BUF_SIZE] = 0;
+	hud->top_entry_n = 0;
+	r_cons_show_cursor (false);
+	r_cons_enable_mouse (false);
+	r_cons_set_raw (true);
+
+	r_cons_reset ();
+	// Repeat until the user exits the hud
+	for (;;) {
+		hud->current_entry_n = 0;
+
+		if (hud->top_entry_n < 0) {
+			hud->top_entry_n = 0;
+		}
+		selected_entry = NULL;
+		r_cons_printf ("\r%s", R_CONS_CLEAR_LINE);
+		if (prompt && *prompt) {
+			r_cons_printf (">> %s [ ", prompt);
+		}
+		char *row;
+
+		bool found = false;
+		RList *filtered_list = ht_pp_find (ht, user_input, &found);
+		if (!found) {
+			filtered_list = hud_filter (list, user_input,
+				hud->top_entry_n, &(hud->current_entry_n), &selected_entry, true);
+#if HUD_CACHE
+			ht_pp_insert (ht, user_input, filtered_list);
+#endif
+		}
+		r_cons_printf ("(%d)> %s [", r_list_length (filtered_list), user_input);
+		int slen = 0;
+		int w = r_cons_get_size (NULL);
+		r_list_foreach (filtered_list, iter, row) {
+			slen += strlen (row);
+			if (slen >= w) {
+				break;
+			}
+			r_cons_printf (" %s,", row);
+		}
+#if !HUD_CACHE
+		r_list_free (filtered_list);
+#endif
+		r_cons_printf ("]");
+		r_cons_flush ();
 		(void) r_line_readline ();
 		r_str_ncpy (user_input, I(line)->buffer.data, HUD_BUF_SIZE);
 
@@ -310,7 +458,7 @@ R_API char *r_cons_hud_path(const char *path, int dir) {
 		}
 		r_list_free (files);
 	} else {
-		eprintf ("No files found\n");
+		R_LOG_ERROR ("No files found");
 	}
 	if (!ret) {
 		free (tmp);

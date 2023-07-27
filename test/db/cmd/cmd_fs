@@ -28,12 +28,16 @@ FILE=-
 CMDS=<<EOF
 m r2 /r2
 mc /r2/seek
+s
 mw /r2/seek 123
+s
 mc /r2/seek
 EOF
 EXPECT=<<EOF
 0x0
 
+0x0
+0x7b
 0x7b
 
 EOF
@@ -94,6 +98,19 @@ FILE=bins/fs/hfs.img
 CMDS=m
 EXPECT=<<EOF
 hfs	0x0	/root
+EOF
+RUN
+
+NAME=m hfs oobread
+FILE=bins/fs/hfs-oobread.img
+CMDS=<<EOF
+m
+md /
+EOF
+EXPECT=
+EXPECT_ERR=<<EOF
+Cannot find the HFS root directory
+ERROR: Cannot mount /root
 EOF
 RUN
 
@@ -879,6 +896,7 @@ CMDS=<<EOF
 mg /root/bin/ls
 o ./ls
 i~size
+rm ls
 EOF
 EXPECT=<<EOF
 size     0x1ee78
@@ -893,6 +911,7 @@ cd /tmp/fsfat
 mg /root/bin/ls 0x0 5
 o ./ls
 i~size
+rm ls
 EOF
 EXPECT=<<EOF
 size     0x5

@@ -1,8 +1,8 @@
-.Dd May 17, 2020
+.Dd May 20, 2022
 .Dt RADARE2 1
 .Sh NAME
 .Nm radare2
-.Nd Advanced commandline hexadecimal editor, disassembler and debugger
+.Nd Advanced command-line hexadecimal editor, disassembler and debugger
 .Sh SYNOPSIS
 .Nm radare2
 .Op Fl a Ar arch
@@ -19,10 +19,10 @@
 .Op Fl r Ar rarun2
 .Op Fl R Ar rr2rule
 .Op Fl s Ar addr
-.Op Fl 0AdDwntLquvVxX
+.Op Fl 0AdDjwntLquvVxX
 .Ar -|--|=|file
 .Sh DESCRIPTION
-radare2 is a commandline hexadecimal editor.
+radare2 is a command-line hexadecimal editor.
 .Pp
 "r2" is the alias program name for radare2.
 .Pp
@@ -53,9 +53,11 @@ Start in debugger mode
 .It Fl D Ar dbg.backend
 Enable debug mode. Set cfg.debug=true
 .It Fl e Ar k=v
-Set configuration eval variable key=value. For example \-e scr.color=false
+Set configuration eval variable key=value. For example \-e scr.color=false. When -e is passed after -j, it will set the script source to run instead of setting eval vars.
 .It Fl f
 Blocksize = file size
+.It Fl j
+Run QJS script if an argument is passed or enter the qjs shell if no file is specified. You can evaluate expressions when passing the -e flag after the -j.
 .It Fl i Ar file
 Run script file. After the file is loaded
 .It Fl I Ar file
@@ -65,7 +67,9 @@ Select kernel (asm.os) for syscall resolution
 .It Fl l Ar plugfile
 Load given plugin file
 .It Fl L
-List supported IO plugins.
+List loaded IO plugins.
+.It Fl LL
+List loaded core plugins.
 .It Fl m Ar addr
 map file at given address
 .It Fl M
@@ -97,7 +101,7 @@ Start seeking at this address
 .It Fl S
 Enable sandboxed mode (same as \-e cfg.sandbox=true)
 .It Fl t
-Get binary information using a thread
+Get binary information and analyze binary in a background thread
 .It Fl T
 Avoid computing the file hashes
 .It Fl u
@@ -105,7 +109,7 @@ Set bin.filter=false to load rbin info without filtering names
 .It Fl v
 Show version information and exit (Use -qv to get just the version number)
 .It Fl V
-Show radare2 library versions
+Show radare2 library versions (prints JSON format if -j is used)
 .It Fl w
 Open in write mode
 .It Fl h
@@ -125,7 +129,6 @@ To enter visual mode use the 'V' command. Then press '?' for help
 .Sh DEBUGGER
 In r2 the debugger commands are implemented under the 'd' command. Type 'd?' for help
 .Sh ENVIRONMENT
- R2_CFG_NEWSHELL sets cfg.newshell=true
  R2_IGNVER     load plugins ignoring the specified version. (be careful)
  R2_DEBUG      if defined, show error messages and crash signal
  R2_DEBUG_ASSERT=1 set a breakpoint when hitting an assert
@@ -144,6 +147,7 @@ path to the current working file.
 .Xr radiff2(1) ,
 .Xr rasm2(1) ,
 .Xr rax2(1) ,
+.Xr ravc2(1) ,
 .Xr ragg2(1) ,
 .Xr rarun2(1) ,
 .Sh AUTHORS

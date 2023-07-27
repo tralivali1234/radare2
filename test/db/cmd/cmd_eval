@@ -1,3 +1,24 @@
+NAME=e,
+FILE=-
+CMDS=<<EOF
+e,key/cols/value,key/str/color
+EOF
+EXPECT=<<EOF
+key               value
+-----------------------
+asm.bytes.opcolor false
+asm.trace.color   true
+log.color         false
+scr.color         0
+scr.color.args    true
+scr.color.bytes   true
+scr.color.grep    false
+scr.color.ophex   false
+scr.color.ops     true
+scr.color.pipe    false
+
+EOF
+RUN
 NAME=et
 FILE=-
 CMDS=<<EOF
@@ -62,6 +83,25 @@ micro
 r6
 v3
 v2
+EOF
+RUN
+
+NAME=e asm.cpu
+FILE=--
+CMDS=<<EOF
+-a v850
+-b 32
+e asm.cpu=?
+EOF
+EXPECT=<<EOF
+e0
+0
+e
+e1
+e2
+e2v3
+e3v5
+all
 EOF
 RUN
 

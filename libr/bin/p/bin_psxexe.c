@@ -7,7 +7,7 @@
 #include "../i/private.h"
 #include "psxexe/psxexe.h"
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut8 magic[PSXEXE_ID_LEN];
 	if (r_buf_read_at (b, 0, magic, sizeof (magic)) == PSXEXE_ID_LEN) {
 		return !memcmp (magic, PSXEXE_ID, PSXEXE_ID_LEN);
@@ -16,15 +16,15 @@ static bool check_buffer(RBuffer *b) {
 }
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (b);
+	return check_buffer (bf, b);
 }
 
 static RBinInfo* info(RBinFile* bf) {
 	RBinInfo* ret = NULL;
-	psxexe_header psxheader;
+	psxexe_header psxheader = {{0}};
 
-	if (r_buf_read_at (bf->buf, 0, (ut8*)&psxheader, sizeof(psxexe_header)) < sizeof(psxexe_header)) {
-		eprintf ("Truncated Header\n");
+	if (r_buf_read_at (bf->buf, 0, (ut8*)&psxheader, sizeof (psxexe_header)) < sizeof (psxexe_header)) {
+		R_LOG_ERROR ("Truncated Header");
 		return NULL;
 	}
 
@@ -45,7 +45,7 @@ static RBinInfo* info(RBinFile* bf) {
 static RList* sections(RBinFile* bf) {
 	RList* ret = NULL;
 	RBinSection* sect = NULL;
-	psxexe_header psxheader;
+	psxexe_header psxheader = {0};
 	ut64 sz = 0;
 
 	if (!(ret = r_list_new ())) {
@@ -57,8 +57,8 @@ static RList* sections(RBinFile* bf) {
 		return NULL;
 	}
 
-	if (r_buf_fread_at (bf->buf, 0, (ut8*)&psxheader, "8c17i", 1) < sizeof (psxexe_header)) {
-		eprintf ("Truncated Header\n");
+	if (r_buf_fread_at (bf->buf, 0, (ut8*)&psxheader, "8c17i", 1) != sizeof (psxexe_header)) {
+		R_LOG_ERROR ("Truncated Header");
 		free (sect);
 		r_list_free (ret);
 		return NULL;
@@ -93,8 +93,8 @@ static RList* entries(RBinFile* bf) {
 		return NULL;
 	}
 
-	if (r_buf_fread_at (bf->buf, 0, (ut8*)&psxheader, "8c17i", 1) < sizeof (psxexe_header)) {
-		eprintf ("PSXEXE Header truncated\n");
+	if (r_buf_fread_at (bf->buf, 0, (ut8*)&psxheader, "8c17i", 1) != sizeof (psxexe_header)) {
+		R_LOG_ERROR ("PSXEXE Header truncated");
 		r_list_free (ret);
 		free (addr);
 		return NULL;

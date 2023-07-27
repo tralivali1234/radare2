@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2016-2017 - pancake */
+/* radare - LGPL - Copyright 2016-2022 - pancake */
 
 #include <r_bin.h>
 #include <r_lib.h>
@@ -18,7 +18,7 @@
 		return false;             \
 	}
 
-static ut64 tmp_entry = UT64_MAX;
+static R_TH_LOCAL ut64 tmp_entry = UT64_MAX;
 
 static bool rjmp(RBuffer* b, ut64 addr) {
 	return (r_buf_read8_at (b, addr + 1) & 0xf0) == 0xc0;
@@ -59,7 +59,7 @@ static bool check_buffer_jmp(RBuffer *b) {
 	return true;
 }
 
-static bool check_buffer(RBuffer *buf) {
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	if (r_buf_size (buf) < 32) {
 		return false;
 	}
@@ -70,7 +70,7 @@ static bool check_buffer(RBuffer *buf) {
 }
 
 static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (buf);
+	return check_buffer (bf, buf);
 }
 
 static void destroy(RBinFile *bf) {
@@ -124,9 +124,13 @@ static void addsym(RList *ret, const char *name, ut64 addr) {
 
 static void addptr(RList *ret, const char *name, ut64 addr, RBuffer *b) {
 	if (b && rjmp (b, 0)) {
-		addsym (ret, sdb_fmt ("vector.%s", name), addr);
+		char *k = r_str_newf ("vector.%s", name);
+		addsym (ret, k, addr);
+		free (k);
 		ut64 ptr_addr = rjmp_dest (addr, b);
-		addsym (ret, sdb_fmt ("syscall.%s", name), ptr_addr);
+		k = r_str_newf ("syscall.%s", name);
+		addsym (ret, k, ptr_addr);
+		free (k);
 	}
 }
 
@@ -156,13 +160,13 @@ RBinPlugin r_bin_plugin_avr = {
 	.name = "avr",
 	.desc = "ATmel AVR MCUs",
 	.license = "LGPL3",
-	.load_buffer = &load_buffer,
-	.destroy = &destroy,
-	.entries = &entries,
-	.symbols = &symbols,
-	.check_buffer = &check_buffer,
-	.info = &info,
-	.strings = &strings,
+	.load_buffer = load_buffer,
+	.destroy = destroy,
+	.entries = entries,
+	.strings = strings,
+	.symbols = symbols,
+	.check_buffer = check_buffer,
+	.info = info,
 };
 
 #ifndef R2_PLUGIN_INCORE

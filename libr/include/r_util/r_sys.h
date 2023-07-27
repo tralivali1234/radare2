@@ -3,9 +3,10 @@
 
 #include <r_list.h>
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define R_SYS_DEVNULL "nul"
 #else
+#include <errno.h>
 #define R_SYS_DEVNULL "/dev/null"
 #endif
 
@@ -14,10 +15,32 @@
 extern "C" {
 #endif
 
-#define R_SYS_BITS_8 1
-#define R_SYS_BITS_16 2
-#define R_SYS_BITS_32 4
-#define R_SYS_BITS_64 8
+// no need for an enum or type here, its just 1:1
+// XXX deprecate because it's confusing, we can use the new RSYS_BITS_PACK macros
+#define R_SYS_BITS_8	1
+#define R_SYS_BITS_16	2
+#define R_SYS_BITS_32	4
+#define R_SYS_BITS_64	8
+#define R_SYS_BITS_24	24
+#define R_SYS_BITS_27	16
+#define R_SYS_BITS_4	32
+#define R_SYS_BITS_12	64
+
+typedef ut64 RSysBits;
+
+#define R_SYS_BITS_SIZE 8
+#define R_SYS_BITS_MASK 0xff
+#define R_SYS_BITS_PACK(x) (RSysBits)(x)
+#define R_SYS_BITS_PACK1(x) (RSysBits)(x)
+#define R_SYS_BITS_PACK2(x,y) (RSysBits)((x) | ((y)<<R_SYS_BITS_SIZE))
+#define R_SYS_BITS_PACK3(x,y,z) (RSysBits)((x) | ((y)<<R_SYS_BITS_SIZE) | ((z) << (R_SYS_BITS_SIZE*2)))
+#define R_SYS_BITS_PACK4(x,y,z,q) (RSysBits)((x) | ((y)<<R_SYS_BITS_SIZE) | ((z) << (R_SYS_BITS_SIZE*2)) | ((q) << (R_SYS_BITS_SIZE*3)) )
+#define R_SYS_BITS_CHECK(x, y) (bool)( \
+	(((x) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> R_SYS_BITS_SIZE) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> (R_SYS_BITS_SIZE*2)) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> (R_SYS_BITS_SIZE*3)) & R_SYS_BITS_MASK) == (y)) \
+)
 
 typedef struct {
 	char *sysname;
@@ -30,8 +53,9 @@ typedef struct {
 R_API RSysInfo *r_sys_info(void);
 R_API void r_sys_info_free(RSysInfo *si);
 
-R_API int r_sys_sigaction(int *sig, void (*handler) (int));
-R_API int r_sys_signal(int sig, void (*handler) (int));
+R_API int r_sys_sigaction(int *sig, void(*handler)(int));
+R_API int r_sys_signal(int sig, void(*handler)(int));
+R_API void r_sys_signable(bool v);
 R_API void r_sys_env_init(void);
 R_API char **r_sys_get_environ(void);
 R_API void r_sys_set_environ(char **e);
@@ -50,29 +74,32 @@ R_API int r_sys_arch_id(const char *arch);
 R_API bool r_sys_arch_match(const char *archstr, const char *arch);
 R_API RList *r_sys_dir(const char *path);
 R_API void r_sys_perror_str(const char *fun);
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define r_sys_mkdir_failed() (GetLastError () != ERROR_ALREADY_EXISTS)
 #else
 #define r_sys_mkdir_failed() (errno != EEXIST)
 #endif
+R_API int r_sys_tem(const char *s);
 R_API const char *r_sys_prefix(const char *pfx);
+R_API bool r_sys_mktemp(const char *dir);
 R_API bool r_sys_mkdir(const char *dir);
 R_API bool r_sys_mkdirp(const char *dir);
 R_API int r_sys_sleep(int secs);
 R_API int r_sys_usleep(int usecs);
 R_API char *r_sys_getenv(const char *key);
 R_API bool r_sys_getenv_asbool(const char *key);
+R_API int r_sys_getenv_asint(const char *key);
 R_API int r_sys_setenv(const char *key, const char *value);
 R_API int r_sys_clearenv(void);
 R_API char *r_sys_whoami(void);
 R_API int r_sys_uid(void);
 R_API char *r_sys_getdir(void);
-R_API int r_sys_chdir(const char *s);
+R_API bool r_sys_chdir(const char *s);
 R_API bool r_sys_aslr(int val);
 R_API int r_sys_thp_mode(void);
 R_API int r_sys_cmd_str_full(const char *cmd, const char *input, int ilen, char **output, int *len, char **sterr);
-#if __WINDOWS__
-#if UNICODE
+#if R2__WINDOWS__
+#ifdef UNICODE
 #define W32_TCHAR_FSTR "%S"
 #define W32_TCALL(name) name"W"
 #define r_sys_conv_utf8_to_win(buf) r_utf8_to_utf16 (buf)
@@ -101,10 +128,10 @@ R_API char *r_sys_cmd_strf(const char *cmd, ...) R_PRINTF_CHECK(1, 2);
 R_API void r_sys_backtrace(void);
 R_API bool r_sys_tts(const char *txt, bool bg);
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #  define r_sys_breakpoint() { __debugbreak  (); }
 #else
-#if __GNUC__
+#if __GNUC__ && !defined(__TINYC__)
 #  define r_sys_breakpoint() __builtin_trap()
 #elif __i386__ || __x86_64__
 #   define r_sys_breakpoint() __asm__ volatile ("int3");
@@ -119,6 +146,8 @@ R_API bool r_sys_tts(const char *txt, bool bg);
 #  endif
 #elif __mips__
 #  define r_sys_breakpoint() __asm__ volatile ("break");
+#elif __loongarch__
+#  define r_sys_breakpoint() __asm__ volatile ("break");
 // #  define r_sys_breakpoint() __asm__ volatile ("teq $0, $0");
 #elif __EMSCRIPTEN__
 // TODO: cannot find a better way to breakpoint in wasm/asm.js
@@ -131,9 +160,13 @@ R_API bool r_sys_tts(const char *txt, bool bg);
 #endif
 
 /* syscmd */
-R_API char *r_syscmd_ls(const char *input);
+R_API char *r_syscmd_ls(const char *input, int w);
 R_API char *r_syscmd_cat(const char *file);
-R_API char *r_syscmd_mkdir(const char *dir);
+R_API bool r_syscmd_pushd(const char *dir);
+R_API bool r_syscmd_popd(void);
+R_API bool r_syscmd_popalld(void);
+R_API bool r_syscmd_mkdir(const char *dir);
+R_API char *r_syscmd_mktemp(const char *dir);
 R_API bool r_syscmd_mv(const char *input);
 R_API char *r_syscmd_uniq(const char *file);
 R_API char *r_syscmd_head(const char *file, int count);
@@ -141,7 +174,8 @@ R_API char *r_syscmd_tail(const char *file, int count);
 R_API char *r_syscmd_join(const char *file1, const char *file2);
 R_API char *r_syscmd_sort(const char *file);
 
-R_API ut8 *r_sys_unxz (const ut8 *data, size_t len, size_t *olen);
+R_API ut8 *r_sys_unxz(const ut8 *data, size_t len, size_t *olen);
+R_API bool r_w32_init(void);
 
 #ifdef __cplusplus
 }

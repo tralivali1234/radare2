@@ -1,15 +1,12 @@
-/* radare - LGPL - Copyright 2009-2021 - pancake */
+/* radare - LGPL - Copyright 2009-2023 - pancake */
 
 #include <r_reg.h>
-#include <r_util.h>
 #include <r_lib.h>
 
 static const char *parse_alias(RReg *reg, char **tok, const int n) {
 	if (n == 2) {
-		int role = r_reg_get_name_idx (tok[0] + 1);
-		return r_reg_set_name (reg, role, tok[1])
-			? NULL
-			: "Invalid alias";
+		const int role = r_reg_get_name_idx (tok[0] + 1);
+		return r_reg_set_name (reg, role, tok[1]) ? NULL : "Invalid alias";
 	}
 	return "Invalid syntax";
 }
@@ -33,7 +30,7 @@ static ut64 parse_size(char *s, char **end) {
 
 //TODO: implement bool r_reg_set_def_string()
 static const char *parse_def(RReg *reg, char **tok, const int n) {
-	char *end;
+	char *end = "";
 	int type, type2;
 
 	if (n != 5 && n != 6) {
@@ -57,44 +54,62 @@ static const char *parse_def(RReg *reg, char **tok, const int n) {
 	if (type < 0 || type2 < 0) {
 		return "Invalid register type";
 	}
-#if 1
-	if (r_reg_get (reg, tok[1], R_REG_TYPE_ALL)) {
-		eprintf ("Ignoring duplicated register definition '%s'\n", tok[1]);
+	RRegItem *ri = r_reg_get (reg, tok[1], R_REG_TYPE_ALL);
+	if (ri) {
+		R_LOG_WARN ("Duplicated register definition for '%s' has been ignored", tok[1]);
 		return NULL;
-		//return "Duplicate register definition";
 	}
-#endif
+	r_unref (ri);
 
 	RRegItem *item = R_NEW0 (RRegItem);
 	if (!item) {
 		return "Unable to allocate memory";
 	}
-
 	item->type = type;
 	item->name = strdup (tok[1]);
 	// All the numeric arguments are strictly checked
 	item->size = parse_size (tok[2], &end);
-	if (*end != '\0' || !item->size) {
+	if (*end || !item->size) {
 		r_reg_item_free (item);
+		r_unref (ri);
 		return "Invalid size";
 	}
 	if (!strcmp (tok[3], "?")) {
 		item->offset = -1;
+	} else if (!strcmp (tok[3], "?0")) {
+		item->offset = -1;
+	} else if (!strcmp (tok[3], "?1")) {
+		item->offset = -2; // TODO: use an enum here
+	} else if (!strcmp (tok[3], "$")) {
+		RRegItem *ri;
+		RListIter *iter;
+		int last = 0;
+		r_list_foreach (reg->regset[type].regs, iter, ri) {
+			if (ri->size >= 8 && ri->offset >= 0) {
+				int pos = ri->offset + ri->size;
+				if (pos > last) {
+					last = pos;
+				}
+			}
+		}
+		item->offset = last;
 	} else {
 		item->offset = parse_size (tok[3], &end);
 	}
-	if (*end != '\0') {
+	if (*end) {
 		r_reg_item_free (item);
 		return "Invalid offset";
 	}
 	item->packed_size = parse_size (tok[4], &end);
-	if (*end != '\0') {
+	if (*end) {
 		r_reg_item_free (item);
 		return "Invalid packed size";
 	}
 
-	// Dynamically update the list of supported bit sizes
-	reg->bits |= item->size;
+	// Update the list of supported bit sizes
+	if (!r_reg_hasbits_use (reg, item->size)) {
+		R_LOG_DEBUG ("r_reg_hasbits_use failed with %d", item->size);
+	}
 
 	// This is optional
 	if (n == 6) {
@@ -110,10 +125,12 @@ static const char *parse_def(RReg *reg, char **tok, const int n) {
 	if (!reg->regset[type2].regs) {
 		reg->regset[type2].regs = r_list_newf ((RListFree)r_reg_item_free);
 	}
+	r_ref (item);
 	r_list_append (reg->regset[type2].regs, item);
 	if (!reg->regset[type2].ht_regs) {
 		reg->regset[type2].ht_regs = ht_pp_new0 ();
 	}
+	// r_ref (item);
 	ht_pp_insert (reg->regset[type2].ht_regs, item->name, item);
 
 	// Update the overall profile size
@@ -121,25 +138,32 @@ static const char *parse_def(RReg *reg, char **tok, const int n) {
 		reg->size = item->offset + item->size;
 	}
 	// Update the overall type of registers into a regset
-	reg->regset[type2].maskregstype |= ((int)1 << type);
+	reg->regset[type2].maskregstype |= (1ULL << type);
 	return NULL;
 }
 
 #define PARSER_MAX_TOKENS 8
 R_API bool r_reg_set_profile_string(RReg *reg, const char *str) {
+	r_return_val_if_fail (reg && str, false);
+//	eprintf ("@SET PROFIL strin%c", 10);
+//	r_sys_backtrace ();
 	char *tok[PARSER_MAX_TOKENS];
 	char tmp[128];
 	int i, j, l;
 	const char *p = str;
 
-	r_return_val_if_fail (reg && str, false);
+	if (R_STR_ISEMPTY (str)) {
+		return true;
+	}
 
 	// Same profile, no need to change
 	if (reg->reg_profile_str && !strcmp (reg->reg_profile_str, str)) {
+		// R_LOG_WARN ("is the same do nothing");
 	//	r_reg_free_internal (reg, false);
 	//	r_reg_init (reg);
 		return true;
 	}
+	// eprintf ("OLD (%s) NEW (%s)\n", reg->reg_profile_str, str);
 
 	// we should reset all the arenas before setting the new reg profile
 	r_reg_arena_pop (reg);
@@ -225,9 +249,7 @@ R_API bool r_reg_set_profile_string(RReg *reg, const char *str) {
 				}
 				// Warn the user if something went wrong
 				if (r) {
-					eprintf ("%s: Parse error @ line %d (%s)\n",
-							__FUNCTION__, l, r);
-					//eprintf ("(%s)\n", str);
+					R_LOG_ERROR ("Parse error @ line %d (%s)", l, r);
 					// Clean up
 					r_reg_free_internal (reg, false);
 					r_reg_init (reg);
@@ -237,14 +259,13 @@ R_API bool r_reg_set_profile_string(RReg *reg, const char *str) {
 		}
 	} while (*p++);
 	if (!have_a0) {
-		eprintf ("Warning: =A0 not defined\n");
+		R_LOG_ERROR ("=A0 is not defined");
 		//r_reg_free_internal (reg, false);
 		///return false;
 	}
 	reg->size = 0;
 	for (i = 0; i < R_REG_TYPE_LAST; i++) {
 		RRegSet *rs = &reg->regset[i];
-		//eprintf ("* arena %s size %d\n", r_reg_get_type (i), rs->arena->size);
 		if (rs && rs->arena) {
 			reg->size += rs->arena->size;
 		}
@@ -258,12 +279,15 @@ R_API bool r_reg_set_profile_string(RReg *reg, const char *str) {
 	// dup the last arena to allow regdiffing
 	r_reg_arena_push (reg);
 	r_reg_reindex (reg);
+	r_reg_ro_reset (reg, reg->roregs);
 	// reset arenas
 	return true;
 }
 
+// read profile from file
 R_API bool r_reg_set_profile(RReg *reg, const char *profile) {
-	r_return_val_if_fail (reg && profile, NULL);
+	// eprintf ("@SET PROFIL%c", 10);
+	r_return_val_if_fail (reg && profile, false);
 	char *str = r_file_slurp (profile, NULL);
 	if (!str) {
 		char *base = r_sys_getenv (R_LIB_ENV);
@@ -274,7 +298,7 @@ R_API bool r_reg_set_profile(RReg *reg, const char *profile) {
 		}
 	}
 	if (!str) {
-		eprintf ("r_reg_set_profile: Cannot find '%s'\n", profile);
+		R_LOG_WARN ("Cannot find '%s'", profile);
 		return false;
 	}
 	bool ret = r_reg_set_profile_string (reg, str);
@@ -315,7 +339,7 @@ static char *gdb_to_r2_profile(const char *gdb) {
 		if ((ptr1 = strchr (ptr, '\n'))) {
 			*ptr1 = '\0';
 		} else {
-			eprintf ("Could not parse line: %s (missing \\n)\n", ptr);
+			R_LOG_WARN ("Could not parse line: %s (missing newline)", ptr);
 			r_strbuf_free (sb);
 			return false;
 		}
@@ -324,7 +348,7 @@ static char *gdb_to_r2_profile(const char *gdb) {
 		// Groups is optional, others not
 		if (ret < 6) {
 			if (*ptr != '*') {
-				eprintf ("Could not parse line: %s\n", ptr);
+				R_LOG_WARN ("Could not parse line: %s", ptr);
 				r_strbuf_free (sb);
 				return false;
 			}
@@ -364,9 +388,9 @@ static char *gdb_to_r2_profile(const char *gdb) {
 				type_bits |= restore;
 			} else if (r_str_startswith (gptr, "float")) {
 				type_bits |= float_;
-			} else if (r_str_startswith (gptr, "sse")) {
+			} else if (r_str_startswith (gptr, "sse")) { // this is vector
 				type_bits |= sse;
-			} else if (r_str_startswith (gptr, "mmx")) {
+			} else if (r_str_startswith (gptr, "mmx")) { // this is vector too
 				type_bits |= mmx;
 			} else if (r_str_startswith (gptr, "vector")) {
 				type_bits |= vector;
@@ -390,11 +414,13 @@ static char *gdb_to_r2_profile(const char *gdb) {
 		if (!(type_bits & sse) && !(type_bits & float_)) {
 			type_bits |= gpr;
 		}
-		// Print line
-		r_strbuf_appendf (sb, "%s\t%s\t.%d\t%d\t0\n",
-			// Ref: Comment above about more register type mappings
-			((type_bits & mmx) || (type_bits & float_) || (type_bits & sse)) ? "fpu" : "gpr",
-			name, size * 8, offset);
+		const char *type = ((type_bits & mmx) || (type_bits & float_) || (type_bits & sse)) ? "fpu" : "gpr";
+		if (isupper (*name)) {
+			// assume uppercase register names are only used for privileged registers
+			type = "pri"; // family=priv
+			r_str_case (name, false);
+		}
+		r_strbuf_appendf (sb, "%s\t%s\t.%d\t%d\t0\n", type, name, size * 8, offset);
 		// Go to next line
 		if (!ptr1) {
 			break;
@@ -422,7 +448,7 @@ R_API char *r_reg_parse_gdb_profile(const char *profile_file) {
 		free (str);
 		return ret;
 	}
-	eprintf ("r_reg_parse_gdb_profile: Cannot find '%s'\n", profile_file);
+	R_LOG_WARN ("r_reg_parse_gdb_profile: Cannot find '%s'", profile_file);
 	return NULL;
 }
 
@@ -433,11 +459,13 @@ R_API char *r_reg_profile_to_cc(RReg *reg) {
 	const char *a2 = r_reg_get_name_by_type (reg, "A2");
 	const char *a3 = r_reg_get_name_by_type (reg, "A3");
 
-	// it is mandatory to have at least =A0 defined in the reg profile
-	// this will be enforced in reg/profile at parsing time
-	r_return_val_if_fail (a0, NULL);
 	if (!r0) {
 		r0 = a0;
+	}
+	if (!r0) {
+		// it is mandatory to have at least =A0 defined in the reg profile
+		// this will be enforced in reg/profile at parsing time
+		return NULL;
 	}
 	if (a3 && a2 && a1) {
 		return r_str_newf ("%s reg(%s, %s, %s, %s)", r0, a0, a1, a2, a3);
@@ -450,4 +478,3 @@ R_API char *r_reg_profile_to_cc(RReg *reg) {
 	}
 	return r_str_newf ("%s reg(%s)", r0, a0);
 }
-

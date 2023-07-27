@@ -1,3 +1,4 @@
+ecd
 ec comment rgb:0ff
 ec usrcmt rgb:f0f
 ec mov white
@@ -55,7 +56,7 @@ ec graph.traced rgb:f0f
 ec gui.cflow rgb:0ff
 ec gui.dataoffset rgb:0ff
 ec gui.background rgb:0ff
-ec gui.alt_background rgb:0ff
+ec gui.background2 rgb:0ff
 ec gui.border rgb:0ff
 
 ec ai.read rgb:0ff
@@ -64,9 +65,10 @@ ec ai.exec rgb:f0f
 ec ai.seq rgb:f0f
 ec ai.ascii rgb:f0f
 
-ec func_var rgb:f0f
-ec func_var_type rgb:f0f
-ec func_var_addr rgb:0ff
+ec var rgb:f0f
+ec var.type rgb:f0f
+ec var.addr rgb:0ff
+ec var.name rgb:f0f
 
-ec widget_bg rgb:f0f rgb:000
-ec widget_sel rgb:0ff rgb:000
+ec widget.bg rgb:f0f rgb:000
+ec widget.sel rgb:0ff rgb:000

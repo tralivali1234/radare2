@@ -3,12 +3,25 @@
 
 uname -a
 
+ARG=$1
+
+if [ "$ARG" = "arm64" ]; then
+  ARCH=arm64
+  CFGARGS="--with-compiler=aarch64-linux-gnu-gcc"
+  export CC="aarch64-linux-gnu-gcc"
+else
+  CFGARGS=$*
+fi
+
 if [ -z "${ARCH}" ]; then
   ARCH=`uname -m`
 fi
 
 if [ "${ARCH}" = "x86_64" ]; then
   ARCH=amd64
+fi
+if [ "${ARCH}" = "aarch64" ]; then
+  ARCH=arm64
 fi
 
 echo "[debian] preparing radare2 package..."
@@ -18,18 +31,22 @@ DEVDIR=dist/debian/radare2-dev/root
 # clean
 rm -rf "${PKGDIR}" "${DEVDIR}"
 
-if [ -z "$CFLAGS" ]; then
-  export CFLAGS="-O2 -Werror -Wno-cpp"
-  export CFLAGS="${CFLAGS} -Wno-unused-result"
-## export CFLAGS="${CFLAGS} -Wno-stringop-truncation"
+. `dirname $0`/make-jobs.inc.sh
+
+type fakeroot > /dev/null 2>&1
+if [ $? = 0 ]; then
+FAKEROOT=fakeroot
+else
+FAKEROOT=
 fi
+
+export CFLAGS="-Wno-cpp -Wno-unused-result ${CFLAGS} -O2"
 # build
-export
-./configure --prefix=/usr --with-checks-level=0
+./configure --prefix=/usr --with-checks-level=0 ${CFGARGS}
 [ $? != 0 ] && exit 1
 make -j4
 [ $? != 0 ] && exit 1
-make install DESTDIR="${PWD}/${PKGDIR}"
+$FAKEROOT make install DESTDIR="${PWD}/${PKGDIR}"
 [ $? != 0 ] && exit 1
 
 # dev-split
@@ -48,12 +65,16 @@ for a in ${PKGDIR}/usr/lib/libr*.so.* ; do
   echo "[debian] strip $a"
   strip --strip-unneeded "$a" 2> /dev/null || true
 done
+for a in ${PKGDIR}/usr/lib/radare2/*/* ; do
+  echo "[debian] strip $a"
+  strip --strip-unneeded "$a" 2> /dev/null || true
+done
 
 # packages
 echo "[debian] building radare2 package..."
-make -C dist/debian/radare2 ARCH=${ARCH}
+$FAKEROOT make -C dist/debian/radare2 ARCH=${ARCH}
 cp -f dist/debian/radare2/*.deb .
 
 echo "[debian] building radare2-dev package..."
-make -C dist/debian/radare2-dev ARCH=${ARCH}
+$FAKEROOT make -C dist/debian/radare2-dev ARCH=${ARCH}
 cp -f dist/debian/radare2-dev/*.deb .

@@ -290,7 +290,7 @@ static RTable *__create_window_table(void) {
 
 static void __add_window_to_table(RTable *tbl, window *win) {
 	r_return_if_fail (tbl && win);
-	char *handle = r_str_newf ("0x%08"PFMT64x"", (ut64)win->h);
+	char *handle = r_str_newf ("0x%08"PFMT64x, (ut64)win->h);
 	char *pid = r_str_newf ("%lu", win->pid);
 	char *tid = r_str_newf ("%lu", win->tid);
 	r_table_add_row (tbl, handle, pid, tid, win->name, NULL);
@@ -316,7 +316,7 @@ R_API void r_w32_identify_window(void) {
 		return;
 	}
 	if (!win) {
-		eprintf ("Error trying to get information from 0x%08"PFMT64x"\n", (ut64)hwnd);
+		R_LOG_ERROR ("trying to get information from 0x%08"PFMT64x, (ut64)hwnd);
 		return;
 	}
 	RTable *tbl = __create_window_table ();
@@ -359,7 +359,7 @@ static RList *__get_windows(RDebug *dbg) {
 			}
 			r_list_push (windows, win);
 		}
-	} while (hCurWnd != NULL);
+	} while (hCurWnd);
 	return windows;
 }
 
@@ -377,12 +377,13 @@ static ut64 __get_dispatchmessage_offset(RDebug *dbg) {
 	if (!found) {
 		return 0;
 	}
-	char *res = dbg->corebind.cmdstr (dbg->corebind.core, "f~DispatchMessageW");
+	char *res = dbg->coreb.cmdstr (dbg->coreb.core, "f~DispatchMessageW");
 	if (!*res) {
 		free (res);
 		return 0;
 	}
-	char *line = strtok (res, "\n");
+	char *save_ptr = NULL;
+	char *line = r_str_tok_r (res, "\n", &save_ptr);
 	ut64 offset = 0;
 	do  {
 		char *sym = strrchr (line, ' ');
@@ -391,7 +392,7 @@ static ut64 __get_dispatchmessage_offset(RDebug *dbg) {
 			dbg->iob.read_at (dbg->iob.io, offset, (ut8 *)&offset, sizeof (offset));
 			break;
 		}
-	} while ((line = strtok (NULL, "\n")));
+	} while ((line = r_str_tok_r (NULL, "\n", &save_ptr)));
 	free (res);
 	return offset;
 }
@@ -501,7 +502,7 @@ R_API bool r_w32_add_winmsg_breakpoint(RDebug *dbg, const char *input) {
 		}
 		cond = r_str_newf ("?= `ae %lu,%s,%d,+,[4],-`", type, reg, dbg->bits);
 	}
-	dbg->corebind.cmdf (dbg->corebind.core, "\"dbC 0x%"PFMT64x" %s\"", offset, cond);
+	dbg->coreb.cmdf (dbg->coreb.core, "\"dbC 0x%"PFMT64x" %s\"", offset, cond);
 	free (name);
 	return true;
 }

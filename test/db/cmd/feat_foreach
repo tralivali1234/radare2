@@ -11,8 +11,9 @@ RUN
 NAME=@@c:/c fs:
 FILE=bins/mach0/mac-ls
 CMDS=<<EOF
+e asm.bytes=0
 e search.in = bin.sections
-?v $$ @@c:/ad fs:[ra
+?v $$ @@c:/adq fs:[ra
 EOF
 EXPECT=<<EOF
 0x100005078
@@ -22,8 +23,9 @@ RUN
 NAME=@@c:/c/a fs:
 FILE=bins/mach0/mac-ls
 CMDS=<<EOF
+e asm.bytes=0
 e search.in = bin.sections
-?v $$ @@c:/ao fs:[ra
+?v $$ @@c:/aoq fs:[ra
 EOF
 EXPECT=<<EOF
 0x100004cd7
@@ -58,5 +60,15 @@ EXPECT=<<EOF
             0x00000004      3320           xor esp, dword [rax]
 EOF
 EXPECT_ERR=<<EOF
+EOF
+RUN
+
+NAME=@@== foo bar cow
+FILE=-
+CMDS=?e hello @@== world joe cow
+EXPECT=<<EOF
+hello world
+hello joe
+hello cow
 EOF
 RUN

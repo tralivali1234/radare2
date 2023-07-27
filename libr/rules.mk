@@ -13,11 +13,9 @@ LINK+=-g
 endif
 
 LIBR:=$(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-# /libr
 
 ALL?=
-CFLAGS+=-I$(LIBR)
-CFLAGS+=-I$(LIBR)/include
+CFLAGS:=-I$(LIBR) -I$(LIBR)/include $(CFLAGS)
 
 -include $(SHLR)/sdb.mk
 
@@ -34,7 +32,10 @@ SRC=$(subst .o,.c,$(OBJ))
 BEXE=$(BIN)$(EXT_EXE)
 
 ifeq ($(USE_RPATH),1)
-LINK+=-Wl,-rpath "${LIBDIR}"
+ifeq ($(OSTYPE),android)
+LINK+=-Wl,--enable-new-dtags
+endif
+LINK+=-Wl,-rpath,"${LIBDIR}"
 endif
 
 ifeq (${OSTYPE},gnulinux)
@@ -46,7 +47,7 @@ endif
 else
 ifeq (${OSTYPE},darwin)
 ifeq (${HAVE_LIBVERSION},1)
-LIBNAME=${LDFLAGS_SONAME}${LIB}.${LIBVERSION}.${EXT_SO}
+LIBNAME=${LDFLAGS_SONAME}${LIB}.${ABIVERSION}.${EXT_SO}
 else
 LIBNAME=${LDFLAGS_SONAME}${LIB}.${EXT_SO}
 endif
@@ -63,24 +64,31 @@ ifeq (${OSTYPE},solaris)
 LINK+=-lproc
 endif
 
-ifneq ($(EXTRA_PRE),)
+ifeq ($(EXTRA_PRE),)
+all: $(LIBSO) ${LIBAR} ${EXTRA_TARGETS}
+else
 all: $(EXTRA_PRE)
 	$(MAKE) all2
 
-all2: ${LIBSO} ${LIBAR} ${EXTRA_TARGETS}
-else
-all: ${LIBSO} ${LIBAR} ${EXTRA_TARGETS}
+all2: ${LIBSO} ${LIBAR}
+	$(MAKE) ${EXTRA_TARGETS}
 endif
 ifneq ($(SILENT),)
-	@-if [ -f p/Makefile ]; then (cd p && ${MAKE}) ; fi
+	@-if [ -f p/Makefile ]; then ${MAKE} -C p ; fi
+	@-if [ -f d/Makefile ]; then ${MAKE} -C d ; fi
 else
-	@-if [ -f p/Makefile ] ; then (echo "DIR ${NAME}/p"; cd p && ${MAKE}) ; fi
+	@-if [ -f p/Makefile ] ; then (echo "DIR ${NAME}/p"; ${MAKE} -C p) ; fi
+	@-if [ -f d/Makefile ] ; then (echo "DIR ${NAME}/d"; ${MAKE} -C d) ; fi
 endif
 
+prelib-build: $(EXTRA_TARGETS)
+	$(MAKE) $(OBJS)
+
 ifeq ($(WITH_LIBS),1)
-$(LIBSO): $(EXTRA_TARGETS) ${WFD} ${OBJS} ${SHARED_OBJ}
+
+$(LIBSO): prelib-build ${SHARED_OBJ}
 	@for a in ${OBJS} ${SHARED_OBJ} ${SRC}; do \
-	  do=0 ; [ ! -e "${LIBSO}" ] && do=1 ; \
+	  do=0; [ ! -e "${LIBSO}" ] && do=1 ; \
 	  test "$$a" -nt "${LIBSO}" && do=1 ; \
 	  if [ $$do = 1 ]; then \
 	    [ -n "${SILENT}" ] && \
@@ -95,7 +103,8 @@ $(LIBSO): ;
 endif
 
 ifeq ($(WITH_LIBR),1)
-$(LIBAR): ${OBJS}
+
+$(LIBAR): prelib-build
 	@[ "${SILENT}" = 1 ] && echo "CC_AR $(LIBAR)" || true
 	rm -f $(LIBAR)
 	${CC_AR} ${OBJS} ${SHARED_OBJ}
@@ -130,7 +139,7 @@ mrproper: clean
 	-rm -f *.d
 	@true
 
-.PHONY: all install pkgcfg clean deinstall uninstall echodir
+.PHONY: all install pkgcfg clean deinstall uninstall echodir prelib-build
 
 # autodetect dependencies object
 -include $(OBJS:.o=.d)

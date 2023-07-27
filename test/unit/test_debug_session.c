@@ -3,7 +3,7 @@
 #include <r_reg.h>
 #include "minunit.h"
 
-Sdb *ref_db() {
+static Sdb *ref_db() {
 	Sdb *db = sdb_new0 ();
 
 	sdb_num_set (db, "maxcnum", 1, 0);
@@ -25,7 +25,9 @@ Sdb *ref_db() {
 			"{\"arena\":4,\"bytes\":\"BAQEBAQEBAQEBAQEBAQEBA==\",\"size\":16},"
 			"{\"arena\":5,\"bytes\":\"BQUFBQUFBQUFBQUFBQUFBQ==\",\"size\":16},"
 			"{\"arena\":6,\"bytes\":\"BgYGBgYGBgYGBgYGBgYGBg==\",\"size\":16},"
-			"{\"arena\":7,\"bytes\":\"BwcHBwcHBwcHBwcHBwcHBw==\",\"size\":16}"
+			"{\"arena\":7,\"bytes\":\"BwcHBwcHBwcHBwcHBwcHBw==\",\"size\":16},"
+			"{\"arena\":8,\"bytes\":\"CAgICAgICAgICAgICAgICA==\",\"size\":16},"
+			"{\"arena\":9,\"bytes\":\"CQkJCQkJCQkJCQkJCQkJCQ==\",\"size\":16}"
 		"],"
 		"\"snaps\":["
 			"{\"name\":\"[stack]\",\"addr\":8796092882944,\"addr_end\":8796092883200,\"size\":256,\"data\":\"8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8PDw8A==\",\"perm\":7,\"user\":0,\"shared\":true}"
@@ -35,10 +37,12 @@ Sdb *ref_db() {
 	return db;
 }
 
-RDebugSession *ref_session() {
+static RDebugSession *ref_session() {
 	size_t i;
 	RDebugSession *s = r_debug_session_new ();
-
+	if (!s) {
+		return NULL;
+	}
 	// Registers & Memory
 	r_debug_session_add_reg_change (s, 0, 0x100, 0x41424344);
 	r_debug_session_add_mem_change (s, 0x7ffffffff000, 0xaa);
@@ -51,24 +55,28 @@ RDebugSession *ref_session() {
 	r_debug_session_add_mem_change (s, 0x7ffffffff001, 0x01);
 
 	// Checkpoints
-	RDebugCheckpoint checkpoint = { 0 };
+	RDebugCheckpoint checkpoint = {0};
 	for (i = 0; i < R_REG_TYPE_LAST; i++) {
 		RRegArena *a = r_reg_arena_new (0x10);
-		memset (a->bytes, i, a->size);
-		checkpoint.arena[i] = a;
+		if (a) {
+			memset (a->bytes, i, a->size);
+			checkpoint.arena[i] = a;
+		}
 	}
 	checkpoint.snaps = r_list_newf ((RListFree)r_debug_snap_free);
 	RDebugSnap *snap = R_NEW0 (RDebugSnap);
-	snap->name = strdup ("[stack]");
-	snap->addr = 0x7fffffde000;
-	snap->addr_end = 0x7fffffde100;
-	snap->size = 0x100;
-	snap->perm = 7;
-	snap->user = 0;
-	snap->shared = true;
-	snap->data = malloc (snap->size);
-	memset (snap->data, 0xf0, snap->size);
-	r_list_append (checkpoint.snaps, snap);
+	if (snap) {
+		snap->name = strdup ("[stack]");
+		snap->addr = 0x7fffffde000;
+		snap->addr_end = 0x7fffffde100;
+		snap->size = 0x100;
+		snap->perm = 7;
+		snap->user = 0;
+		snap->shared = true;
+		snap->data = malloc (snap->size);
+		memset (snap->data, 0xf0, snap->size);
+		r_list_append (checkpoint.snaps, snap);
+	}
 	r_vector_push (s->checkpoints, &checkpoint);
 
 	return s;
@@ -76,7 +84,7 @@ RDebugSession *ref_session() {
 
 static void diff_cb(const SdbDiff *diff, void *user) {
 	char buf[2048];
-	if (sdb_diff_format (buf, sizeof(buf), diff) < 0) {
+	if (sdb_diff_format (buf, sizeof (buf), diff) < 0) {
 		return;
 	}
 	printf ("%s\n", buf);
@@ -172,7 +180,7 @@ static bool test_session_load(void) {
 		// Registers
 		for (i = 0; i < R_REG_TYPE_LAST; i++) {
 			arena_eq (chkpt->arena[i], ref_chkpt->arena[i]);
-		}	
+		}
 		// Snaps
 		RListIter *actual_snaps_iter = r_list_iterator (chkpt->snaps);
 		RListIter *expected_snaps_iter = r_list_iterator (ref_chkpt->snaps);

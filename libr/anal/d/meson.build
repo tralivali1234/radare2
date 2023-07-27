@@ -10,6 +10,7 @@ sdb_files = [
   'cc-ppc-64',
   'cc-riscv-64',
   'cc-sparc-32',
+  'cc-hexagon-32',
   'cc-v850-32',
   'cc-s390-64',
   'cc-x86-16',
@@ -69,21 +70,32 @@ win_types_extra = [
   'ws2spi',
 ]
 
+r_anal_d_sources = []
+
 foreach file : sdb_files
-  outfile = '@0@.sdb'.format(file)
+  if get_option('sdb_cgen')
+    outfile = '@0@.c'.format(file)
+    gen_cmd = sdb_gen_cmd_cgen
+  else
+    outfile = '@0@.sdb'.format(file)
+    gen_cmd = sdb_gen_cmd
+  endif
   infiles = ['@0@.sdb.txt'.format(file)]
   if file == 'types-windows'
     foreach f : win_types_extra
       infiles += 'types-windows_@0@.sdb.txt'.format(f)
     endforeach
   endif
-  custom_target(outfile,
+  ct = custom_target(outfile,
     input: infiles,
     output: outfile,
-    command: sdb_gen_cmd,
+    command: gen_cmd,
     depends: sdb_exe,
     build_by_default: true,
     install: true,
     install_dir: join_paths(r2_sdb, 'fcnsign')
   )
+  if get_option('sdb_cgen')
+    r_anal_d_sources += ct
+  endif
 endforeach

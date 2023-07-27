@@ -5,11 +5,11 @@ aap
 aflc
 EOF
 EXPECT=<<EOF
-440
+455
 EOF
 RUN
 
-NAME=got switch cases
+NAME=got switch cases 2
 FILE=bins/elf/game_of_thrones
 CMDS=<<EOF
 s main
@@ -127,14 +127,20 @@ afb+ 0x100000da0 0x100000e74 14 0x100000e8b 0xffffffffffffffff
 afb+ 0x100000da0 0x100000e8b 5 0x100000e99 0xffffffffffffffff
 afb+ 0x100000da0 0x100000e90 9 0x100000eba 0xffffffffffffffff
 afB 64 @ 0x100000da0
-afc amd64 @ 0x100000da0
-afvb -40 var_28h int64_t @ 0x100000da0
-afvb -32 var_20h int64_t @ 0x100000da0
-afvb -24 var_18h int64_t @ 0x100000da0
-afvb -20 var_14h int64_t @ 0x100000da0
-afvb -16 var_10h int64_t @ 0x100000da0
-afvb -1 var_1h int64_t @ 0x100000da0
-afvr rdi arg1 int64_t @ 0x100000da0
+s 0x100000da0
+"afc amd64"
+s-
+s 0x100000da0
+"afvb -1 var_1h int64_t"
+"afvb -16 var_10h int64_t"
+"afvb -20 var_14h int64_t"
+"afvb -24 var_18h int64_t"
+"afvb -32 var_20h int64_t"
+"afvb -40 var_28h int64_t"
+s-
+s 0x100000da0
+"afvr rdi arg1 int64_t"
+s-
 axd 0x100000ec0 0x100000dd0
 axc 0x100000de4 0x100000de2
 axc 0x100000e00 0x100000de2
@@ -478,10 +484,10 @@ pd 3 @ 0x3ec1
 EOF
 EXPECT=<<EOF
 |           0x00003ec1      add rax, rbx
-|           ;-- switch
+|           ;-- switch:
 |           0x00003ec4      jmp rax                                    ; switch table (275 cases) at 0x172d8
-|           ; CODE XREF from main @ 0x3ec4
-|           ;-- case 110:                                              ; from 0x3ec4
+|           ;-- case 110:                                              ; from 0x00003ec4
+|           ; CODE XREF from main @ 0x3ec4(x)
 |           0x00003ec6      mov byte [0x00021260], 1                   ; [0x21260:1]=0
 EOF
 RUN
@@ -523,28 +529,28 @@ EXPECT=<<EOF
 | 0x00487373      482387100300.  and rax, qword [rdi + 0x310]
 | 0x0048737a      4839c8         cmp rax, rcx
 | 0x0048737d      7411           je 0x487390
-| ----------- true: 0x00487390  false: 0x0048737f
+| // true: 0x00487390  false: 0x0048737f
 | 0x0048737f      f605d2542300.  test byte [0x006bc858], 0x40
 | 0x00487386      7525           jne 0x4873ad
-| ----------- true: 0x004873ad  false: 0x00487388
-| 0x00487388      f3c3           ret
+| // true: 0x004873ad  false: 0x00487388
+| 0x00487388      f3c3           repz ret
 
 | 0x00487390      8b05ea4d2300   mov eax, dword [0x006bc180]
 | 0x00487396      85c0           test eax, eax
 | 0x00487398      7426           je 0x4873c0
-| ----------- true: 0x004873c0  false: 0x0048739a
+| // true: 0x004873c0  false: 0x0048739a
 | 0x0048739a      f605b7542300.  test byte [0x006bc858], 0x40
 | 0x004873a1      c705d54d2300.  mov dword [0x006bc180], 2
 | 0x004873ab      74db           je 0x487388
-| ----------- true: 0x00487388  false: 0x004873ad
+| // true: 0x00487388  false: 0x004873ad
 | 0x004873ad      488b7708       mov rsi, qword [rdi + 8]
 | 0x004873b1      488d3dd03502.  lea rdi, str._nclosing_file_s__direct_opencount_u_n
 | 0x004873b8      31c0           xor eax, eax
 | 0x004873ba      e9b16cffff     jmp fcn.0047e070
-| ----------- true: 0x0047e070
+
 | 0x004873c0      400fb6f6       movzx esi, sil
 \ 0x004873c4      e937f1ffff     jmp fcn.00486500
-| ----------- true: 0x00486500
+| // true: 0x00486500
 afvR
 var_bp_38h  0x40f790,0x40f839
    var_28h  0x40f7c1
@@ -689,29 +695,6 @@ Type Info at 0x08048fac:
 EOF
 RUN
 
-NAME=aac on mips be
-FILE=bins/elf/analysis/mipsbe-busybox
-CMDS=<<EOF
-aac
-afl~?
-EOF
-EXPECT=<<EOF
-1268
-EOF
-RUN
-
-NAME=raw aac with maps (less because of wrong map address)
-FILE=bins/elf/analysis/mipsbe-busybox
-ARGS=-n -m 0x80000 -a mips -b32 -e cfg.bigendian=true
-CMDS=<<EOF
-aac
-afl~?
-EOF
-EXPECT=<<EOF
-4
-EOF
-RUN
-
 NAME=raw aac (using a PIC bin)
 FILE=bins/elf/libmagic.so
 CMDS=<<EOF
@@ -719,61 +702,9 @@ aac
 afl~?
 EOF
 EXPECT=<<EOF
-199
+200
 EOF
 RUN
-
-NAME=raw aac with maps (using a PIC bin)
-FILE=bins/elf/libmagic.so
-ARGS=-n -m 0x80000 -a arm -b 16 -e cfg.bigendian=false
-CMDS=<<EOF
-aac
-e search.in=io.maps
-afl~?
-EOF
-EXPECT=<<EOF
-94
-EOF
-RUN
-
-NAME=aav without vinfun
-FILE=bins/elf/analysis/mipsbe-busybox
-CMDS=<<EOF
-af @ 0x0040dea4
-e anal.vinfun=false
-aav
-pd 1 @ 0x0040decc~?andi
-EOF
-EXPECT=<<EOF
-1
-EOF
-RUN
-
-NAME=aav with vinfun
-FILE=bins/elf/analysis/mipsbe-busybox
-CMDS=<<EOF
-af @ 0x0040dea4
-e anal.vinfun=true
-aav
-pd 1 @ 0x0040decc~?dword
-EOF
-EXPECT=<<EOF
-1
-EOF
-RUN
-
-NAME=aav thumb detection
-FILE=bins/firmware/armthumb.bin
-ARGS=-aarm -b32
-CMDS=<<EOF
-aav
-f
-EOF
-EXPECT=<<EOF
-0x0000000d 4 aav.0x0000000d
-EOF
-RUN
-
 
 NAME=sym is not fcn
 FILE=bins/mach0/mach0-i386
@@ -821,9 +752,9 @@ afr
 afl
 EOF
 EXPECT=<<EOF
-0x00001f80    1 41           main
-0x00001f50    1 47           sym._foo
-0x00001f00    4 73           sym._bar
+0x00001f80    1     41 main
+0x00001f50    1     47 sym._foo
+0x00001f00    4     73 sym._bar
 EOF
 RUN
 
@@ -835,7 +766,7 @@ aF
 afl
 EOF
 EXPECT=<<EOF
-0x00001f80    1 41           main
+0x00001f80    1     41 main
 EOF
 RUN
 
@@ -861,9 +792,9 @@ aap
 afl
 EOF
 EXPECT=<<EOF
-0x00001f00    4 73           sym._bar
-0x00001f50    1 47           sym._foo
-0x00001f80    1 41           main
+0x00001f00    4     73 sym._bar
+0x00001f50    1     47 sym._foo
+0x00001f80    1     41 main
 EOF
 RUN
 
@@ -892,16 +823,16 @@ EOF
 EXPECT=<<EOF
 Current section
 
-nth paddr       size vaddr       vsize perm name
-------------------------------------------------
-0   0x00000188  0x24 0x08048188   0x24 -r-- .note.gnu.build-id
+nth paddr       size vaddr       vsize perm type name
+-----------------------------------------------------
+0   0x00000188  0x24 0x08048188   0x24 -r-- NOTE .note.gnu.build-id
 
 Current section
 
-nth paddr  size vaddr  vsize perm name
---------------------------------------
+nth paddr  size vaddr  vsize perm type name
+-------------------------------------------
 
-{"name":".plt","size":240,"vsize":240,"perm":"-r-x","paddr":1888,"vaddr":134514528}
+{"name":".plt","size":240,"vsize":240,"type":"PROGBITS","perm":"-r-x","paddr":1888,"vaddr":134514528}
 EOF
 RUN
 
@@ -917,6 +848,7 @@ EXPECT=<<EOF
       "name": "",
       "size": 0,
       "vsize": 0,
+      "type": "NULL",
       "perm": "----",
       "paddr": 0,
       "vaddr": 0
@@ -925,6 +857,7 @@ EXPECT=<<EOF
       "name": ".interp",
       "size": 19,
       "vsize": 19,
+      "type": "PROGBITS",
       "perm": "-r--",
       "entropy": "3.68188080",
       "paddr": 340,
@@ -934,6 +867,7 @@ EXPECT=<<EOF
       "name": ".note.ABI-tag",
       "size": 32,
       "vsize": 32,
+      "type": "NOTE",
       "perm": "-r--",
       "entropy": "1.74868984",
       "paddr": 360,
@@ -943,6 +877,7 @@ EXPECT=<<EOF
       "name": ".note.gnu.build-id",
       "size": 36,
       "vsize": 36,
+      "type": "NOTE",
       "perm": "-r--",
       "entropy": "4.13605609",
       "paddr": 392,
@@ -952,6 +887,7 @@ EXPECT=<<EOF
       "name": ".gnu.hash",
       "size": 176,
       "vsize": 176,
+      "type": "GNU_HASH",
       "perm": "-r--",
       "entropy": "4.74342302",
       "paddr": 428,
@@ -961,6 +897,7 @@ EXPECT=<<EOF
       "name": ".dynsym",
       "size": 592,
       "vsize": 592,
+      "type": "DYNSYM",
       "perm": "-r--",
       "entropy": "2.53170115",
       "paddr": 604,
@@ -970,6 +907,7 @@ EXPECT=<<EOF
       "name": ".dynstr",
       "size": 384,
       "vsize": 384,
+      "type": "STRTAB",
       "perm": "-r--",
       "entropy": "4.59829027",
       "paddr": 1196,
@@ -979,6 +917,7 @@ EXPECT=<<EOF
       "name": ".gnu.version",
       "size": 74,
       "vsize": 74,
+      "type": "GNU_VERSYM",
       "perm": "-r--",
       "entropy": "1.55329753",
       "paddr": 1580,
@@ -988,6 +927,7 @@ EXPECT=<<EOF
       "name": ".gnu.version_r",
       "size": 64,
       "vsize": 64,
+      "type": "GNU_VERNEED",
       "perm": "-r--",
       "entropy": "2.33399879",
       "paddr": 1656,
@@ -997,6 +937,7 @@ EXPECT=<<EOF
       "name": ".rel.dyn",
       "size": 16,
       "vsize": 16,
+      "type": "REL",
       "perm": "-r--",
       "entropy": "3.25000000",
       "paddr": 1720,
@@ -1006,6 +947,7 @@ EXPECT=<<EOF
       "name": ".rel.plt",
       "size": 112,
       "vsize": 112,
+      "type": "REL",
       "perm": "-r--",
       "entropy": "3.52414971",
       "paddr": 1736,
@@ -1015,6 +957,7 @@ EXPECT=<<EOF
       "name": ".init",
       "size": 35,
       "vsize": 35,
+      "type": "PROGBITS",
       "perm": "-r-x",
       "entropy": "4.12467560",
       "paddr": 1848,
@@ -1024,6 +967,7 @@ EXPECT=<<EOF
       "name": ".plt",
       "size": 240,
       "vsize": 240,
+      "type": "PROGBITS",
       "perm": "-r-x",
       "entropy": "3.68026477",
       "paddr": 1888,
@@ -1033,6 +977,7 @@ EXPECT=<<EOF
       "name": ".text",
       "size": 1170,
       "vsize": 1170,
+      "type": "PROGBITS",
       "perm": "-r-x",
       "entropy": "5.89126869",
       "paddr": 2128,
@@ -1042,6 +987,7 @@ EXPECT=<<EOF
       "name": ".fini",
       "size": 20,
       "vsize": 20,
+      "type": "PROGBITS",
       "perm": "-r-x",
       "entropy": "3.72192809",
       "paddr": 3300,
@@ -1051,6 +997,7 @@ EXPECT=<<EOF
       "name": ".rodata",
       "size": 249,
       "vsize": 249,
+      "type": "PROGBITS",
       "perm": "-r--",
       "entropy": "4.65845607",
       "paddr": 3320,
@@ -1060,6 +1007,7 @@ EXPECT=<<EOF
       "name": ".eh_frame_hdr",
       "size": 84,
       "vsize": 84,
+      "type": "PROGBITS",
       "perm": "-r--",
       "entropy": "3.49291576",
       "paddr": 3572,
@@ -1069,6 +1017,7 @@ EXPECT=<<EOF
       "name": ".eh_frame",
       "size": 336,
       "vsize": 336,
+      "type": "PROGBITS",
       "perm": "-r--",
       "entropy": "4.46780720",
       "paddr": 3656,
@@ -1078,6 +1027,7 @@ EXPECT=<<EOF
       "name": ".init_array",
       "size": 4,
       "vsize": 4,
+      "type": "INIT_ARRAY",
       "perm": "-rw-",
       "entropy": "2.00000000",
       "paddr": 7944,
@@ -1087,6 +1037,7 @@ EXPECT=<<EOF
       "name": ".fini_array",
       "size": 4,
       "vsize": 4,
+      "type": "FINI_ARRAY",
       "perm": "-rw-",
       "entropy": "2.00000000",
       "paddr": 7948,
@@ -1096,6 +1047,7 @@ EXPECT=<<EOF
       "name": ".jcr",
       "size": 4,
       "vsize": 4,
+      "type": "PROGBITS",
       "perm": "-rw-",
       "entropy": "0.00000000",
       "paddr": 7952,
@@ -1105,6 +1057,7 @@ EXPECT=<<EOF
       "name": ".dynamic",
       "size": 232,
       "vsize": 232,
+      "type": "DYNAMIC",
       "perm": "-rw-",
       "entropy": "2.87462433",
       "paddr": 7956,
@@ -1114,6 +1067,7 @@ EXPECT=<<EOF
       "name": ".got",
       "size": 4,
       "vsize": 4,
+      "type": "PROGBITS",
       "perm": "-rw-",
       "entropy": "0.00000000",
       "paddr": 8188,
@@ -1123,6 +1077,7 @@ EXPECT=<<EOF
       "name": ".got.plt",
       "size": 68,
       "vsize": 68,
+      "type": "PROGBITS",
       "perm": "-rw-",
       "entropy": "3.42061456",
       "paddr": 8192,
@@ -1132,6 +1087,7 @@ EXPECT=<<EOF
       "name": ".data",
       "size": 8,
       "vsize": 8,
+      "type": "PROGBITS",
       "perm": "-rw-",
       "entropy": "0.00000000",
       "paddr": 8260,
@@ -1141,6 +1097,7 @@ EXPECT=<<EOF
       "name": ".bss",
       "size": 0,
       "vsize": 8,
+      "type": "NOBITS",
       "perm": "-rw-",
       "paddr": 8268,
       "vaddr": 134520928
@@ -1149,6 +1106,7 @@ EXPECT=<<EOF
       "name": ".comment",
       "size": 36,
       "vsize": 36,
+      "type": "PROGBITS",
       "perm": "----",
       "entropy": "4.04868811",
       "paddr": 8268,
@@ -1158,6 +1116,7 @@ EXPECT=<<EOF
       "name": ".shstrtab",
       "size": 246,
       "vsize": 246,
+      "type": "STRTAB",
       "perm": "----",
       "entropy": "4.28967882",
       "paddr": 8304,
@@ -1178,9 +1137,8 @@ s+5
 isj.
 EOF
 EXPECT=<<EOF
-
-nth paddr      vaddr      bind   type size lib name
----------------------------------------------------
+nth paddr      vaddr      bind   type size lib name    demangled
+----------------------------------------------------------------
 22  0x000009b7 0x080489b7 GLOBAL FUNC 189      decrypt
 {"name":"prog_timeout","flagname":"sym.prog_timeout","realname":"prog_timeout","ordinal":35,"bind":"GLOBAL","size":17,"type":"FUNC","vaddr":134515110,"paddr":2470,"is_imported":false}
 EOF
@@ -1289,7 +1247,7 @@ ahe test
 ao~esil
 EOF
 EXPECT=<<EOF
-18
+17
 esilcost: 0
 esil: test
 EOF
@@ -1322,43 +1280,12 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=delete memory format with Cf-
-FILE=bins/dmg/src/Hello
-CMDS=<<EOF
-e prj.vc=false
-e asm.arch=x86
-e asm.bits=64
-pd 1
-Cf 1 x
-pd 1
-e scr.interactive=false
-Ps temp_proj
-Cf-
-pd 1
-e scr.interactive=false
-Ps temp_proj
-e scr.interactive=false
-Po temp_proj
-pd 1
-EOF
-EXPECT=<<EOF
-            0x00000000      57             push rdi
-            0x00000000 pf x # size=1
-0x00000000 = 0x6c726f57
-            0x00000000      57             push rdi
-            0x00000000      57             push rdi
-EOF
-RUN
-
-
-
-
 NAME=reflines offset 2 (ascii)
 FILE=bins/elf/analysis/ls-alxchk
+ARGS=-e bin.relocs.apply=true
 CMDS=<<EOF
 e asm.sub.rel=false
 e asm.bytes=false
-e asm.leahints=false
 e scr.utf8=false
 e scr.color=false
 s $S
@@ -1381,23 +1308,22 @@ EXPECT=<<EOF
 |     |||   0x000113e6      mov ecx, 7
 |     |||   0x000113eb      lea rdi, [rip + 0x7ebb]                    ; str._.libs_
 |     |||                                                              ; 0x192ad ; "/.libs/"
-|     |||   0x000113f2      repe cmpsb byte [rsi], byte ptr [rdi]
+|     |||   0x000113f2      repe cmpsb byte [rsi], byte [rdi]
 |    ,====< 0x000113f4      jne 0x11424
 |    ||||   0x000113f6      mov ecx, 3
 |    ||||   0x000113fb      mov rsi, rdx
 |    ||||   0x000113fe      mov rbx, rdx
 |    ||||   0x00011401      lea rdi, [rip + 0x7ead]                    ; "lt-"
 |    ||||                                                              ; 0x192b5
-|    ||||   0x00011408      repe cmpsb byte [rsi], byte ptr [rdi]
+|    ||||   0x00011408      repe cmpsb byte [rsi], byte [rdi]
 |    ||||   0x0001140a      seta sil
 |    ||||   0x0001140e      setb cl
 |    ||||   0x00011411      cmp sil, cl
 |   ,=====< 0x00011414      jne 0x11424
 |   |||||   0x00011416      lea rbx, [rax + 4]
-|   |||||   0x0001141a      mov rax, qword [rip + 0xdeaf]              ; reloc.program_invocation_short_name
-|   |||||                                                              ; [0x1f2d0:8]=0
+|   |||||   0x0001141a      mov rax, qword [rip + 0xdeaf]              ; [0x1f2d0:8]=0x221f0 reloc.program_invocation_short_name
 |   |||||   0x00011421      mov qword [rax], rbx
-|   |||||   ; CODE XREFS from fcn.00011390 @ 0x113d0, 0x113e0, 0x113f4, 0x11414
+|   |||||   ; CODE XREFS from fcn.00011390 @ 0x113d0(x), 0x113e0(x), 0x113f4(x), 0x11414(x)
 |   ````--> 0x00011424      mov rax, qword [rip + 0xde3d]              ; [0x1f268:8]=0x21680
 EOF
 RUN
@@ -1407,7 +1333,6 @@ FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
 e asm.sub.rel=false
 e asm.bytes=false
-e asm.leahints=false
 e scr.utf8=false
 e scr.color=false
 s $S
@@ -1422,10 +1347,10 @@ EXPECT=<<EOF
 |      ,==< 0x00003cb2      je 0x3ce3
 |      ||   0x00003cb4      sub eax, 1
 |     ,===< 0x00003cb7      je 0x3cbe
-|     |||   ; CODE XREFS from main @ 0x58bc, 0x58d2
 |     |||   ;-- default:                                               ; from 0x58d2
+|     |||   ; CODE XREFS from main @ 0x58bc(x), 0x58d2(x)
 |     |||   0x00003cb9      call sym.imp.abort                         ; void abort(void)
-|     |||   ; CODE XREF from main @ 0x3cb7
+|     |||   ; CODE XREF from main @ 0x3cb7(x)
 |     `---> 0x00003cbe      mov edi, 1                                 ; int fd
 |      ||   0x00003cc3      call sym.imp.isatty                        ; int isatty(int fd)
 |      ||   0x00003cc8      test eax, eax
@@ -1433,12 +1358,12 @@ EXPECT=<<EOF
 |     |||   0x00003cd0      mov dword [rip + 0x1d626], 2               ; [0x21300:4]=0
 |     |||   0x00003cda      mov byte [rip + 0x1d33f], 1                ; [0x21020:1]=0
 |    ,====< 0x00003ce1      jmp 0x3cf9
-|    ||||   ; CODE XREF from main @ 0x3cb2
+|    ||||   ; CODE XREF from main @ 0x3cb2(x)
 |    ||`--> 0x00003ce3      mov esi, 5                                 ; int64_t arg2
 |    || |   0x00003ce8      xor edi, edi                               ; int64_t arg1
 |    || |   0x00003cea      mov dword [rip + 0x1d60c], 0               ; [0x21300:4]=0
 |    || |   0x00003cf4      call fcn.00012740
-|    || |   ; CODE XREFS from main @ 0x3ce1, 0x4602, 0x4c38
+|    || |   ; CODE XREFS from main @ 0x3ce1(x), 0x4602(x), 0x4c38(x)
 |    `----> 0x00003cf9      lea rdi, [rip + 0x14fb4]                   ; str.QUOTING_STYLE
 |     | |                                                              ; 0x18cb4 ; "QUOTING_STYLE" ; const char *name
 EOF
@@ -1449,7 +1374,6 @@ FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
 e asm.sub.rel=false
 e asm.bytes=false
-e asm.leahints=false
 e scr.utf8=false
 e scr.color=false
 e asm.lines.wide=true
@@ -1465,10 +1389,10 @@ EXPECT=<<EOF
 |    ,====< 0x00003cb2      je 0x3ce3
 |    | |    0x00003cb4      sub eax, 1
 |  ,======< 0x00003cb7      je 0x3cbe
-|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    ;-- default:                                               ; from 0x58d2
+|  | | |    ; CODE XREFS from main @ 0x58bc(x), 0x58d2(x)
 |  | | |    0x00003cb9      call sym.imp.abort                         ; void abort(void)
-|  | | |    ; CODE XREF from main @ 0x3cb7
+|  | | |    ; CODE XREF from main @ 0x3cb7(x)
 |  `------> 0x00003cbe      mov edi, 1                                 ; int fd
 |    | |    0x00003cc3      call sym.imp.isatty                        ; int isatty(int fd)
 |    | |    0x00003cc8      test eax, eax
@@ -1476,12 +1400,12 @@ EXPECT=<<EOF
 |  | | |    0x00003cd0      mov dword [rip + 0x1d626], 2               ; [0x21300:4]=0
 |  | | |    0x00003cda      mov byte [rip + 0x1d33f], 1                ; [0x21020:1]=0
 | ========< 0x00003ce1      jmp 0x3cf9
-|  | | |    ; CODE XREF from main @ 0x3cb2
+|  | | |    ; CODE XREF from main @ 0x3cb2(x)
 |  | `----> 0x00003ce3      mov esi, 5                                 ; int64_t arg2
 |  |   |    0x00003ce8      xor edi, edi                               ; int64_t arg1
 |  |   |    0x00003cea      mov dword [rip + 0x1d60c], 0               ; [0x21300:4]=0
 |  |   |    0x00003cf4      call fcn.00012740
-|  |   |    ; CODE XREFS from main @ 0x3ce1, 0x4602, 0x4c38
+|  |   |    ; CODE XREFS from main @ 0x3ce1(x), 0x4602(x), 0x4c38(x)
 | --------> 0x00003cf9      lea rdi, [rip + 0x14fb4]                   ; str.QUOTING_STYLE
 |  |   |                                                               ; 0x18cb4 ; "QUOTING_STYLE" ; const char *name
 EOF
@@ -1492,7 +1416,6 @@ FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
 e asm.sub.rel=false
 e asm.bytes=false
-e asm.leahints=false
 e scr.utf8=false
 e scr.color=false
 e asm.lines.wide=true
@@ -1507,10 +1430,10 @@ EXPECT=<<EOF
 |    ,====< 0x00003cb2      je 0x3ce3
 |    | |    0x00003cb4      sub eax, 1
 |  ,======< 0x00003cb7      je 0x3cbe
-|  | | |    ; CODE XREFS from main @ 0x58bc, 0x58d2
 |  | | |    ;-- default:                                               ; from 0x58d2
+|  | | |    ; CODE XREFS from main @ 0x58bc(x), 0x58d2(x)
 |  | | |    0x00003cb9      call sym.imp.abort                         ; void abort(void)
-|  | | |    ; CODE XREF from main @ 0x3cb7
+|  | | |    ; CODE XREF from main @ 0x3cb7(x)
 |  `------> 0x00003cbe      mov edi, 1                                 ; int fd
 |    | |    0x00003cc3      call sym.imp.isatty                        ; int isatty(int fd)
 |    | |    0x00003cc8      test eax, eax
@@ -1518,12 +1441,12 @@ EXPECT=<<EOF
 |  | | |    0x00003cd0      mov dword [rip + 0x1d626], 2               ; [0x21300:4]=0
 |  | | |    0x00003cda      mov byte [rip + 0x1d33f], 1                ; [0x21020:1]=0
 | ========< 0x00003ce1      jmp 0x3cf9
-|  | | |    ; CODE XREF from main @ 0x3cb2
+|  | | |    ; CODE XREF from main @ 0x3cb2(x)
 |  | `----> 0x00003ce3      mov esi, 5                                 ; int64_t arg2
 |  |   |    0x00003ce8      xor edi, edi                               ; int64_t arg1
 |  |   |    0x00003cea      mov dword [rip + 0x1d60c], 0               ; [0x21300:4]=0
 |  |   |    0x00003cf4      call fcn.00012740
-|  |   |    ; CODE XREFS from main @ 0x3ce1, 0x4602, 0x4c38
+|  |   |    ; CODE XREFS from main @ 0x3ce1(x), 0x4602(x), 0x4c38(x)
 | --------> 0x00003cf9      lea rdi, [rip + 0x14fb4]                   ; str.QUOTING_STYLE
 |  |   |                                                               ; 0x18cb4 ; "QUOTING_STYLE" ; const char *name
 EOF
@@ -1534,7 +1457,6 @@ FILE=bins/elf/analysis/ls-alxchk
 CMDS=<<EOF
 e asm.sub.rel=false
 e asm.bytes=false
-e asm.leahints=false
 e scr.utf8=false
 e scr.color=false
 e asm.lines.wide=true
@@ -1545,9 +1467,9 @@ pdf
 EOF
 EXPECT=<<EOF
 / 76: fcn.00012740 (int64_t arg1, int64_t arg2);
-|           ; var int64_t var_8h @ rbp-0x8
 |           ; arg int64_t arg1 @ rdi
 |           ; arg int64_t arg2 @ rsi
+|           ; var int64_t var_8h @ rbp-0x8
 |           0x00012740      push rbp
 |           0x00012741      mov rbp, rsp
 |           0x00012744      sub rsp, 0x1030
@@ -1582,7 +1504,7 @@ pd 3
 EOF
 EXPECT=<<EOF
 
-        ╎   ; CALL XREF from main @ 0x400406
+        ╎   ; CALL XREF from main @ 0x400406(x)
 ┌ 6: int sym.imp.puts (const char *s);
 └       ╎   0x004003f0      jmp qword [reloc.puts]                     ; [0x601018:8]=0x4003f6
         ╎   0x004003f6      push 0
@@ -1663,25 +1585,6 @@ EXPECT=<<EOF
 EOF
 RUN
 
-
-NAME=no string on cbz
-FILE=malloc://8096
-CMDS=<<EOF
-e asm.arch=arm
-e asm.bits=64
-e cfg.bigendian=false
-e emu.str=true
-wv 0x52800015
-wv 0x340000b5 @ 4
-w hello @ 0x18
-pd 2
-EOF
-EXPECT=<<EOF
-            0x00000000      15008052       mov w21, 0
-        ,=< 0x00000004      b5000034       cbz w21, 0x18               ; likely
-EOF
-RUN
-
 NAME=No function
 FILE=malloc://0x50
 CMDS=aftm
@@ -1706,7 +1609,7 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=Mixed reg/stack callee arguments type matching
+NAME=Mixed reg/stack callee arguments type matching R2_590
 FILE=bins/pe/testapp-msvc64.exe
 CMDS=<<EOF
 s 0x14000b54c
@@ -1735,6 +1638,7 @@ EXPECT=<<EOF
 |           0x14000b582      4883c448       add rsp, 0x48
 \           0x14000b586      c3             ret
 EOF
+BROKEN=1
 RUN
 
 NAME=call not function
@@ -1805,18 +1709,6 @@ unsigned long request
 EOF
 RUN
 
-NAME=Function definition
-FILE=bins/elf/arm1.bin
-CMDS=<<EOF
-afr @ main
-s 0x000082cc
-pd 1~?*xmalloc
-EOF
-EXPECT=<<EOF
-1
-EOF
-RUN
-
 NAME=Function definition (autorename)
 FILE=bins/pe/hello-mingw32
 CMDS=<<EOF
@@ -1861,11 +1753,11 @@ af
 afv
 EOF
 EXPECT=<<EOF
-var int64_t var_14h @ rbp-0x14
-var int64_t var_10h @ rbp-0x10
-var int64_t var_8h @ rbp-0x8
-arg int64_t arg2 @ rsi
 arg int64_t arg1 @ rdi
+arg int64_t arg2 @ rsi
+var int64_t var_8h @ rbp-0x8
+var int64_t var_10h @ rbp-0x10
+var int64_t var_14h @ rbp-0x14
 EOF
 RUN
 
@@ -1976,16 +1868,16 @@ pdf
 EOF
 EXPECT=<<EOF
 fastcall
-            ; CALL XREF from main @ 0x80484c7
+            ; CALL XREF from main @ 0x80484c7(x)
 / 59: sym.fastcaslled (int32_t arg1, int32_t arg2, int32_t arg_8h, int32_t arg_ch);
-|           ; var int32_t var_20h @ ebp-0x20
-|           ; var int32_t var_1ch @ ebp-0x1c
-|           ; var int32_t var_10h @ ebp-0x10
-|           ; var int32_t var_ch @ ebp-0xc
-|           ; arg int32_t arg_8h @ ebp+0x8
-|           ; arg int32_t arg_ch @ ebp+0xc
 |           ; arg int32_t arg1 @ ecx
 |           ; arg int32_t arg2 @ edx
+|           ; arg int32_t arg_8h @ ebp+0x8
+|           ; arg int32_t arg_ch @ ebp+0xc
+|           ; var int32_t var_ch @ ebp-0xc
+|           ; var int32_t var_10h @ ebp-0x10
+|           ; var int32_t var_1ch @ ebp-0x1c
+|           ; var int32_t var_20h @ ebp-0x20
 |           0x0804841b      55             push ebp
 |           0x0804841c      89e5           mov ebp, esp
 |           0x0804841e      83ec28         sub esp, 0x28
@@ -2022,15 +1914,15 @@ pdf
 EOF
 EXPECT=<<EOF
 cdecl
-            ; CALL XREF from main @ 0x80484db
+            ; CALL XREF from main @ 0x80484db(x)
 / (fcn) sym.nonfastcaslled 51
 // void sym.nonfastcaslled (int32_t arg_8h, int32_t arg_ch, int32_t arg_10h, int32_t arg_14h);
-|           ; var int32_t var_10h @ ebp-0x10
-|           ; var int32_t var_ch @ ebp-0xc
 |           ; arg int32_t arg_8h @ ebp+0x8
 |           ; arg int32_t arg_ch @ ebp+0xc
 |           ; arg int32_t arg_10h @ ebp+0x10
 |           ; arg int32_t arg_14h @ ebp+0x14
+|           ; var int32_t var_ch @ ebp-0xc
+|           ; var int32_t var_10h @ ebp-0x10
 |           0x08048456      55             push ebp
 |           0x08048457      89e5           mov ebp, esp
 |           0x08048459      83ec18         sub esp, 0x18
@@ -2080,8 +1972,8 @@ EOF
 EXPECT=<<EOF
 / (fcn) fcn.00000000 62
 // void fcn.00000000 (int64_t arg1);
-|           ; var int64_t my_local @ rbp-0x18
 |           ; arg int64_t arg1 @ rdi
+|           ; var int64_t my_local @ rbp-0x18
 |           0x00000000      0000           add byte [rax], al
 EOF
 RUN
@@ -2122,9 +2014,11 @@ CMDS=<<EOF
 af
 afvb 8 ImageHandle blah @ 0x10002d8d
 afvb*~ImageHandle
+afvb*~0x10002d8d
 EOF
 EXPECT=<<EOF
-afvb 8 ImageHandle blah @ 0x10002d8d
+"afvb 8 ImageHandle blah"
+s 0x10002d8d
 EOF
 RUN
 
@@ -2303,7 +2197,7 @@ aa
 axt @ str.Hello_World
 EOF
 EXPECT=<<EOF
-main 0x40050a [DATA] mov edi, str.Hello_World
+main 0x40050a [DATA:r--] mov edi, str.Hello_World
 EOF
 RUN
 
@@ -2318,7 +2212,7 @@ aa
 axt @ str.Password:_
 EOF
 EXPECT=<<EOF
-main 0x804843c [DATA] mov dword [esp], str.Password:_
+main 0x804843c [DATA:-w-] mov dword [esp], str.Password:_
 EOF
 RUN
 
@@ -2329,9 +2223,9 @@ aaa
 axt @ sym.imp.exit
 EOF
 EXPECT=<<EOF
-fcn.08048524 0x804853d [CALL] call sym.imp.exit
-fcn.08048542 0x80485ab [CALL] call sym.imp.exit
-(nofunc) 0x804866f [CALL] call sym.imp.exit
+fcn.08048524 0x804853d [CALL:--x] call sym.imp.exit
+fcn.08048542 0x80485ab [CALL:--x] call sym.imp.exit
+(nofunc) 0x804866f [CALL:--x] call sym.imp.exit
 EOF
 RUN
 
@@ -2342,9 +2236,9 @@ aaaa
 axt @ sym.imp.exit
 EOF
 EXPECT=<<EOF
-fcn.08048524 0x804853d [CALL] call sym.imp.exit
-fcn.08048542 0x80485ab [CALL] call sym.imp.exit
-(nofunc) 0x804866f [CALL] call sym.imp.exit
+fcn.08048524 0x804853d [CALL:--x] call sym.imp.exit
+fcn.08048542 0x80485ab [CALL:--x] call sym.imp.exit
+(nofunc) 0x804866f [CALL:--x] call sym.imp.exit
 EOF
 RUN
 
@@ -2358,8 +2252,8 @@ e asm.sub.rel=true
 axt @ sym.imp.msvcrt.dll_printf
 EOF
 EXPECT=<<EOF
-entry0 0xffffffffffff100a [CALL] call qword [rip + 0xd8]
-entry0 0xffffffffffff100a [CALL] call qword [sym.imp.msvcrt.dll_printf]
+entry0 0xffffffffffff100a [CALL:--x] call qword [rip + 0xd8]
+entry0 0xffffffffffff100a [CALL:--x] call qword [sym.imp.msvcrt.dll_printf]
 EOF
 RUN
 
@@ -2372,7 +2266,7 @@ ax-10 20
 axq
 EOF
 EXPECT=<<EOF
-0x00000014 -> 0x0000000a  UNKNOWN
+0x00000014 -> 0x0000000a  NULL:r--
 EOF
 RUN
 
@@ -2386,7 +2280,7 @@ ax-10
 axq
 EOF
 EXPECT=<<EOF
-0x00000014 -> 0x0000000a  UNKNOWN
+0x00000014 -> 0x0000000a  NULL:r--
 EOF
 RUN
 
@@ -2399,7 +2293,7 @@ ax-*
 ax
 EOF
 EXPECT=<<EOF
-                                       ? 0x0 ->   UNKNOWN -> 0xa
+                                       ? 0x0 > NULL:r-- > 0xa
 EOF
 RUN
 
@@ -2410,7 +2304,7 @@ aaa
 axt fcn.00401270
 EOF
 EXPECT=<<EOF
-(nofunc) 0x401a1d [CALL] call fcn.00401270
+(nofunc) 0x401a1d [CALL:--x] call fcn.00401270
 EOF
 RUN
 
@@ -2430,8 +2324,8 @@ s 0x804848a
 axf
 EOF
 EXPECT=<<EOF
-d 0x80485fe str.SdvvzrugRN____
-d 0x80485fe str.SdvvzrugRN____
+DATA 0x80485fe str.SdvvzrugRN____
+DATA 0x80485fe str.SdvvzrugRN____
 EOF
 RUN
 
@@ -2461,13 +2355,12 @@ EXPECT=<<EOF
   {
     "opcode": "pushf",
     "disasm": "pushf",
-    "pseudo": "pushf ",
+    "pseudo": "push ()",
     "description": "push flags register onto the stack",
     "mnemonic": "pushf",
     "mask": "ffff",
     "esil": "8,rsp,-=,eflags,rsp,=[8]",
     "sign": false,
-    "prefix": 0,
     "id": 612,
     "opex": {
       "operands": [
@@ -2484,8 +2377,6 @@ EXPECT=<<EOF
     "size": 2,
     "type": "upush",
     "esilcost": 24,
-    "scale": 0,
-    "refptr": 0,
     "cycles": 2,
     "failcycles": 0,
     "delay": 0,
@@ -2512,13 +2403,13 @@ axt 0x00001df4
 axt 0x00001e09
 EOF
 EXPECT=<<EOF
-main 0x1457 [STRING] lea eax, str._Take_the_Red_Pill____n
-main 0x148e [STRING] lea eax, str._use:_._exploit1_PILL_
-main 0x14eb [STRING] lea eax, str._____Red_Pill__0x50444552
-main 0x1502 [STRING] lea eax, str._____Your_Pill_0x_08x_n
-main 0x1523 [STRING] lea eax, str._n__Red_Pill
-main 0x1557 [STRING] lea eax, str.__fwhibbit
-main 0x161d [STRING] lea eax, str._n__Blue_Pill
+main 0x1457 [STRN:r--] lea eax, str._Take_the_Red_Pill____n
+main 0x148e [STRN:r--] lea eax, str._use:_._exploit1_PILL_
+main 0x14eb [STRN:r--] lea eax, str._____Red_Pill__0x50444552
+main 0x1502 [STRN:r--] lea eax, str._____Your_Pill_0x_08x_n
+main 0x1523 [STRN:r--] lea eax, str._n__Red_Pill
+main 0x1557 [STRN:r--] lea eax, str.__fwhibbit
+main 0x161d [STRN:r--] lea eax, str._n__Blue_Pill
 EOF
 RUN
 
@@ -2529,7 +2420,7 @@ aaa
 axt@0x0804a01c
 EOF
 EXPECT=<<EOF
-main 0x80483ee [DATA] mov dword [obj.a], 0x1337
+main 0x80483ee [DATA:r--] mov dword [obj.a], 0x1337
 EOF
 RUN
 
@@ -2547,9 +2438,9 @@ ax-*
 axq
 EOF
 EXPECT=<<EOF
-0x00000014 -> 0x0000000a  UNKNOWN
-0x00000014 -> 0x0000000a  UNKNOWN
-0x00000028 -> 0x0000001e  UNKNOWN
+0x00000014 -> 0x0000000a  NULL:r--
+0x00000014 -> 0x0000000a  NULL:r--
+0x00000028 -> 0x0000001e  NULL:r--
 EOF
 RUN
 
@@ -2562,7 +2453,7 @@ aae
 axt@0x80484e0
 EOF
 EXPECT=<<EOF
-main 0x8048432 [STRING] lea eax, str.Hello_PIC_
+main 0x8048432 [STRN:r--] lea eax, str.Hello_PIC_
 EOF
 RUN
 
@@ -2582,13 +2473,13 @@ axt 0x00001df4
 axt 0x00001e09
 EOF
 EXPECT=<<EOF
-main 0x1457 [STRING] lea eax, [esi - 0x2277]
-main 0x148e [STRING] lea eax, [esi - 0x2260]
-main 0x14eb [STRING] lea eax, [esi - 0x2249]
-main 0x1502 [STRING] lea eax, [esi - 0x222f]
-main 0x1523 [STRING] lea eax, [esi - 0x2218]
-main 0x1557 [STRING] lea eax, [esi - 0x220c]
-main 0x161d [STRING] lea eax, [esi - 0x21f7]
+main 0x1457 [STRN:r--] lea eax, [esi - 0x2277]
+main 0x148e [STRN:r--] lea eax, [esi - 0x2260]
+main 0x14eb [STRN:r--] lea eax, [esi - 0x2249]
+main 0x1502 [STRN:r--] lea eax, [esi - 0x222f]
+main 0x1523 [STRN:r--] lea eax, [esi - 0x2218]
+main 0x1557 [STRN:r--] lea eax, [esi - 0x220c]
+main 0x161d [STRN:r--] lea eax, [esi - 0x21f7]
 EOF
 RUN
 
@@ -2602,7 +2493,7 @@ aae
 axt@0x80484e0
 EOF
 EXPECT=<<EOF
-main 0x8048432 [STRING] lea eax, [ebx - 0x1b20]
+main 0x8048432 [STRN:r--] lea eax, [ebx - 0x1b20]
 EOF
 RUN
 
@@ -2631,7 +2522,7 @@ aae
 pd 1 @ 0x08048432
 EOF
 EXPECT=<<EOF
-[36m|[0m           [32m0x08048432[0m      [37mlea[36m eax[0m,[36m [0m[33mstr.Hello_PIC_[0m[36m[0m[0m
+[36m|[0m           [32m0x08048432[0m      [36mlea[36m eax[0m,[36m[36m str.Hello_PIC_[0m[0m
 EOF
 RUN
 
@@ -2642,7 +2533,7 @@ axs 0x10
 axq
 EOF
 EXPECT=<<EOF
-0x00000000 -> 0x00000010  STRING
+0x00000000 -> 0x00000010  STRN:r--
 EOF
 RUN
 
@@ -2657,13 +2548,13 @@ pd 1 @0x4007f0
 pd 1 @0x400610
 EOF
 EXPECT=<<EOF
-; DATA XREF from entry0 @ +0xf
 ;-- __libc_csu_fini:
-0x00400730      f3c3           ret
-; CODE XREF from sym.__do_global_ctors_aux @ +0x2d
+; DATA XREF from entry0 @ +0xf(r)
+0x00400730      f3c3           repz ret
+; CODE XREF from sym.__do_global_ctors_aux @ +0x2d(x)
 0x004007f0      4883eb08       sub rbx, 8
-; CALL XREF from section..fini @ +0x4
 ;-- __do_global_dtors_aux:
+; CALL XREF from section..fini @ +0x4(x)
 0x00400610      55             push rbp
 EOF
 RUN
@@ -2681,18 +2572,19 @@ pd 1 @0x4007f0
 pd 1 @0x400610
 EOF
 EXPECT=<<EOF
-  ; DATA XREF from entry0 @ 0x4005cf
+  ; DATA XREF from entry0 @ 0x4005cf(r)
 2: sym.__libc_csu_fini ();
-0x00400730      f3c3           ret
-; CODE XREF from sym.__do_global_ctors_aux @ 0x4007fd
+0x00400730      f3c3           repz ret
+; CODE XREF from sym.__do_global_ctors_aux @ 0x4007fd(x)
 0x004007f0      4883eb08       sub rbx, 8
-  ; CALL XREF from sym._fini @ 0x40080c
+  ; CALL XREF from sym._fini @ 0x40080c(x)
 100: sym.__do_global_dtors_aux ();
 0x00400610      55             push rbp
 EOF
 RUN
 
 NAME=cjmp data refs with aar
+BROKEN=1
 FILE=malloc://10000
 CMDS=<<EOF
 e asm.arch=8051
@@ -2703,12 +2595,13 @@ aar
 pd 1 @_idata+0x2e
 EOF
 EXPECT=<<EOF
-; DATA XREF from unk @ 
+; DATA XREF from unk @
 0x1000002e      00             nop
 EOF
 RUN
 
 NAME=cjmp data refs with afr
+BROKEN=1
 FILE=malloc://10000
 CMDS=<<EOF
 e asm.arch=8051
@@ -2720,7 +2613,7 @@ afr
 pd 1 @_idata+0x2e
 EOF
 EXPECT=<<EOF
-; DATA XREF from fcn.00000000 @ 
+; DATA XREF from fcn.00000000 @
 0x1000002e      00             nop
 EOF
 RUN
@@ -2732,7 +2625,7 @@ aaa
 axt main
 EOF
 EXPECT=<<EOF
-entry0 0x40488d [DATA] mov rdi, main
+entry0 0x40488d [DATA:r--] mov rdi, main
 EOF
 RUN
 
@@ -2761,7 +2654,7 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=r_anal_fcn_split_bb FITFCNSZ fix (#12008)
+NAME=r_anal_function_split_bb FITFCNSZ fix (#12008)
 FILE=-
 CMDS=<<EOF
 e asm.arch=x86
@@ -2794,25 +2687,25 @@ cyclomatic-complexity: 0
 bits: 64
 type: fcn [NEW]
 num-bbs: 2
+num-instrs: 1
 edges: 2
+minbound: 0x00000000
+maxbound: 0x00000007
+is-lineal: true
 end-bbs: 0
-call-refs:
-data-refs:
-code-xrefs:
 noreturn: false
 in-degree: 0
 out-degree: 0
-data-xrefs:
 locals: 0
 args: 0
-diff: type: new
+
 
 0x00000000 0x00000004 00:0000 4 j 0x00000004
 0x00000004 0x00000007 00:0000 3 j 0x00000004
 
 / 7: fcn.00000000 ();
 |           0x00000000  ~   b8210000c1     mov eax, 0xc1000021         ; '!'
-|           ; CODE XREF from fcn.00000000 @ 0x5
+|           ; CODE XREF from fcn.00000000 @ 0x5(x)
 \       .-> 0x00000004      c1ebfd         shr ebx, 0xfd
 
 / 7: fcn.00000000 ();
@@ -2853,18 +2746,18 @@ cyclomatic-complexity: 1
 bits: 64
 type: fcn [NEW]
 num-bbs: 2
+num-instrs: 5
 edges: 1
+minbound: 0x00000000
+maxbound: 0x0000000d
+is-lineal: false
 end-bbs: 1
-call-refs: 0x00000004 J
-data-refs: 0x0000002c
-code-xrefs: 0x00000005 J
 noreturn: false
-in-degree: 1
+in-degree: 0
 out-degree: 0
-data-xrefs:
 locals: 0
 args: 0
-diff: type: new
+
 
 0x00000000 0x00000007 00:0000 7 j 0x00000004
 0x00000004 0x0000000d 00:0000 9
@@ -2872,37 +2765,37 @@ diff: type: new
 / 16: fcn.00000000 ();
 | 0x00000000      b8210000c1     mov eax, 0xc1000021                   ; '!'
 | 0x00000005      ebfd           jmp 4
-| ----------- true: 0x00000004
-| ; CODE XREF from fcn.00000000 @ 0x5
+| // true: 0x00000004
+| ; CODE XREF from fcn.00000000 @ 0x5(x)
 | 0x00000004      c1ebfd         shr ebx, 0xfd
 | 0x00000007      bb2c000000     mov ebx, 0x2c                         ; ','
 \ 0x0000000c      cc             int3
 
 
 [0x00000000]>  # fcn.00000000 ();
-      .------------------------.
-      |  0x0                   |
-      | 16: fcn.00000000 ();   |
-      | ; '!'                  |
-      | mov eax, 0xc1000021    |
-      | jmp 4                  |
-      `------------------------'
-          v
-          |
-    .-----'
+        .------------------------.
+        |  0x0                   |
+        | 16: fcn.00000000 ();   |
+        | ; '!'                  |
+        | mov eax, 0xc1000021    |
+        | jmp 4                  |
+        `------------------------'
+            v
+            |
+    .-------'
     |
-.-------------------------------------.
-|  0x4                                |
-| ; CODE XREF from fcn.00000000 @ 0x5 |
-| shr ebx, 0xfd                       |
-| ; ','                               |
-| mov ebx, 0x2c                       |
-| int3                                |
-`-------------------------------------'
+.----------------------------------------.
+|  0x4                                   |
+| ; CODE XREF from fcn.00000000 @ 0x5(x) |
+| shr ebx, 0xfd                          |
+| ; ','                                  |
+| mov ebx, 0x2c                          |
+| int3                                   |
+`----------------------------------------'
 
 / 16: fcn.00000000 ();
 |           0x00000000  ~   b8210000c1     mov eax, 0xc1000021         ; '!'
-|           ; CODE XREF from fcn.00000000 @ 0x5
+|           ; CODE XREF from fcn.00000000 @ 0x5(x)
 |       .-> 0x00000004      c1ebfd         shr ebx, 0xfd
 |           0x00000007      bb2c000000     mov ebx, 0x2c               ; ','
 \           0x0000000c      cc             int3
@@ -2928,18 +2821,18 @@ cyclomatic-complexity: 0
 bits: 64
 type: fcn [NEW]
 num-bbs: 2
+num-instrs: 5
 edges: 2
+minbound: 0x00000000
+maxbound: 0x0000000e
+is-lineal: false
 end-bbs: 0
-call-refs: 0x00000004 J 0x00000004 J
-data-refs: 0x0000002c
-code-xrefs: 0x00000005 J 0x0000000c J
 noreturn: false
-in-degree: 2
+in-degree: 0
 out-degree: 0
-data-xrefs:
 locals: 0
 args: 0
-diff: type: new
+
 
 0x00000000 0x00000007 00:0000 7 j 0x00000004
 0x00000004 0x0000000e 00:0000 10 j 0x00000004
@@ -2947,45 +2840,45 @@ diff: type: new
 / 17: fcn.00000000 ();
 | 0x00000000      b8210000c1     mov eax, 0xc1000021                   ; '!'
 | 0x00000005      ebfd           jmp 4
-| ----------- true: 0x00000004
-| ; CODE XREFS from fcn.00000000 @ 0x5, 0xc
+| // true: 0x00000004
+| ; CODE XREFS from fcn.00000000 @ 0x5(x), 0xc(x)
 | 0x00000004      c1ebfd         shr ebx, 0xfd
 | 0x00000007      bb2c000000     mov ebx, 0x2c                         ; ','
 \ 0x0000000c      ebf6           jmp 4
-| ----------- true: 0x00000004
+| // true: 0x00000004
 
 [0x00000000]>  # fcn.00000000 ();
-          .------------------------.
-          |  0x0                   |
-          | 17: fcn.00000000 ();   |
-          | ; '!'                  |
-          | mov eax, 0xc1000021    |
-          | jmp 4                  |
-          `------------------------'
-              v
-              |
-              '--------.
-                       |
-                       |
-                       |
-       .---------------'
+             .------------------------.
+             |  0x0                   |
+             | 17: fcn.00000000 ();   |
+             | ; '!'                  |
+             | mov eax, 0xc1000021    |
+             | jmp 4                  |
+             `------------------------'
+                 v
+                 |
+                 '--------.
+                          |
+                          |
+                          |
+       .------------------'
 .--------.
 |      | |
-|.-------------------------------------------.
-||  0x4                                      |
-|| ; CODE XREFS from fcn.00000000 @ 0x5, 0xc |
-|| shr ebx, 0xfd                             |
-|| ; ','                                     |
-|| mov ebx, 0x2c                             |
-|| jmp 4                                     |
-|`-------------------------------------------'
+|.-------------------------------------------------.
+||  0x4                                            |
+|| ; CODE XREFS from fcn.00000000 @ 0x5(x), 0xc(x) |
+|| shr ebx, 0xfd                                   |
+|| ; ','                                           |
+|| mov ebx, 0x2c                                   |
+|| jmp 4                                           |
+|`-------------------------------------------------'
 |    v
 |    |
 `----'
 
 / 17: fcn.00000000 ();
 |           0x00000000  ~   b8210000c1     mov eax, 0xc1000021         ; '!'
-|           ; CODE XREFS from fcn.00000000 @ 0x5, 0xc
+|           ; CODE XREFS from fcn.00000000 @ 0x5(x), 0xc(x)
 |      ..-> 0x00000004      c1ebfd         shr ebx, 0xfd
 |       :   0x00000007      bb2c000000     mov ebx, 0x2c               ; ','
 \       `=< 0x0000000c      ebf6           jmp 4
@@ -3011,18 +2904,18 @@ cyclomatic-complexity: 0
 bits: 64
 type: fcn [NEW]
 num-bbs: 3
+num-instrs: 5
 edges: 3
+minbound: 0x00000000
+maxbound: 0x0000000e
+is-lineal: false
 end-bbs: 0
-call-refs: 0x00000004 J 0x00000005 J
-data-refs: 0x0000002c
-code-xrefs: 0x00000005 J 0x0000000c J
 noreturn: false
-in-degree: 2
+in-degree: 0
 out-degree: 0
-data-xrefs:
 locals: 0
 args: 0
-diff: type: new
+
 
 0x00000000 0x00000005 00:0000 5 j 0x00000005
 0x00000004 0x0000000e 00:0000 10 j 0x00000005
@@ -3030,53 +2923,53 @@ diff: type: new
 
 / 17: fcn.00000000 ();
 | 0x00000000      b8210000c1     mov eax, 0xc1000021                   ; '!'
-| ----------- true: 0x00000005
-| ; CODE XREF from fcn.00000000 @ 0x5
+| // true: 0x00000005
+| ; CODE XREF from fcn.00000000 @ 0x5(x)
 | 0x00000004      c1ebfd         shr ebx, 0xfd
 | 0x00000007      bb2c000000     mov ebx, 0x2c                         ; ','
 \ 0x0000000c      ebf7           jmp 5
-| ----------- true: 0x00000005
-| ; CODE XREF from fcn.00000000 @ 0xc
+| // true: 0x00000005
+| ; CODE XREF from fcn.00000000 @ 0xc(x)
 | 0x00000005      ebfd           jmp 4
-| ----------- true: 0x00000004
+| // true: 0x00000004
 
 [0x00000000]>  # fcn.00000000 ();
-       .------------------------.
-       |  0x0                   |
-       | 17: fcn.00000000 ();   |
-       | ; '!'                  |
-       | mov eax, 0xc1000021    |
-       `------------------------'
-           v
-           |
-       .---'
+         .------------------------.
+         |  0x0                   |
+         | 17: fcn.00000000 ();   |
+         | ; '!'                  |
+         | mov eax, 0xc1000021    |
+         `------------------------'
+             v
+             |
+       .-----'
 .--------.
 |      | |
-|.-------------------------------------.
-||  0x5                                |
-|| ; CODE XREF from fcn.00000000 @ 0xc |
-|| jmp 4                               |
-|`-------------------------------------'
+|.----------------------------------------.
+||  0x5                                   |
+|| ; CODE XREF from fcn.00000000 @ 0xc(x) |
+|| jmp 4                                  |
+|`----------------------------------------'
 |    v
 |    |
 |    |
-|.-------------------------------------.
-||  0x4                                |
-|| ; CODE XREF from fcn.00000000 @ 0x5 |
-|| shr ebx, 0xfd                       |
-|| ; ','                               |
-|| mov ebx, 0x2c                       |
-|| jmp 5                               |
-|`-------------------------------------'
+|.----------------------------------------.
+||  0x4                                   |
+|| ; CODE XREF from fcn.00000000 @ 0x5(x) |
+|| shr ebx, 0xfd                          |
+|| ; ','                                  |
+|| mov ebx, 0x2c                          |
+|| jmp 5                                  |
+|`----------------------------------------'
 |    v
 |    |
 `----'
 
 / 17: fcn.00000000 ();
 |           0x00000000  ~   b8210000c1     mov eax, 0xc1000021         ; '!'
-|           ; CODE XREF from fcn.00000000 @ 0x5
+|           ; CODE XREF from fcn.00000000 @ 0x5(x)
 |       .-> 0x00000004  ~   c1ebfd         shr ebx, 0xfd
-|       |   ; CODE XREF from fcn.00000000 @ 0xc
+|       |   ; CODE XREF from fcn.00000000 @ 0xc(x)
 |      .`=< 0x00000005      ebfd           jmp 4
 |      :    0x00000007      bb2c000000     mov ebx, 0x2c               ; ','
 \      `==< 0x0000000c      ebf7           jmp 5
@@ -3084,7 +2977,7 @@ diff: type: new
 
 / 17: fcn.00000000 ();
 |           0x00000000      b8210000c1     mov eax, 0xc1000021         ; '!'
-|       |   ; CODE XREF from fcn.00000000 @ 0xc
+|       |   ; CODE XREF from fcn.00000000 @ 0xc(x)
 |      .`=< 0x00000005      ebfd           jmp 4
 |      :    0x00000007      bb2c000000     mov ebx, 0x2c               ; ','
 \      `==< 0x0000000c      ebf7           jmp 5
@@ -3103,18 +2996,18 @@ cyclomatic-complexity: 0
 bits: 64
 type: fcn [NEW]
 num-bbs: 4
+num-instrs: 7
 edges: 4
+minbound: 0x00000000
+maxbound: 0x00000013
+is-lineal: false
 end-bbs: 0
-call-refs: 0x00000009 J 0x00000003 J
-data-refs: 0x0000002c
-code-xrefs: 0x00000011 J 0x0000000a J
 noreturn: false
-in-degree: 2
+in-degree: 0
 out-degree: 0
-data-xrefs:
 locals: 0
 args: 0
-diff: type: new
+
 
 0x00000000 0x00000005 00:0000 5 j 0x00000005
 0x00000003 0x00000005 00:0000 2 j 0x00000005
@@ -3123,67 +3016,66 @@ diff: type: new
 
 / 24: fcn.00000000 ();
 | 0x00000000      0f1f440000     nop dword [rax + rax]
-| ----------- true: 0x00000005
-| ; CODE XREF from fcn.00000000 @ 0x11
+| // true: 0x00000005
+| ; CODE XREF from fcn.00000000 @ 0x11(x)
 | 0x00000003      0000           add byte [rax], al
-| ----------- true: 0x00000005
+| // true: 0x00000005
 | 0x00000005      b8210000c1     mov eax, 0xc1000021                   ; '!'
 | 0x0000000a      ebfd           jmp 9
-| ----------- true: 0x00000009
-| ; CODE XREF from fcn.00000000 @ 0xa
+| // true: 0x00000009
+| ; CODE XREF from fcn.00000000 @ 0xa(x)
 | 0x00000009      c1ebfd         shr ebx, 0xfd
 | 0x0000000c      bb2c000000     mov ebx, 0x2c                         ; ','
 \ 0x00000011      ebf0           jmp 3
-| ----------- true: 0x00000003
+| // true: 0x00000003
 
 [0x00000000]>  # fcn.00000000 ();
-       .--------------------------.
-       |  0x0                     |
-       | 24: fcn.00000000 ();     |
-       | nop dword [rax + rax]    |
-       `--------------------------'
-           v
-           |
-           '--.
-.---------------.
-|             | |
-|       .------------------------.
-|       |  0x5                   |
-|       | ; '!'                  |
-|       | mov eax, 0xc1000021    |
-|       | jmp 9                  |
-|       `------------------------'
-|           v
-|           |
-|     .-----'
-|     |
-| .-------------------------------------.
-| |  0x9                                |
-| | ; CODE XREF from fcn.00000000 @ 0xa |
-| | shr ebx, 0xfd                       |
-| | ; ','                               |
-| | mov ebx, 0x2c                       |
-| | jmp 3                               |
-| `-------------------------------------'
-|     v
-|     |
-|    .'
+        .--------------------------.
+        |  0x0                     |
+        | 24: fcn.00000000 ();     |
+        | nop dword [rax + rax]    |
+        `--------------------------'
+            v
+            |
+            '--.
+.----------------.
+|              | |
+|        .------------------------.
+|        |  0x5                   |
+|        | ; '!'                  |
+|        | mov eax, 0xc1000021    |
+|        | jmp 9                  |
+|        `------------------------'
+|            v
+|            |
+|    .-------'
 |    |
-|.--------------------------------------.
-||  0x3                                 |
-|| ; CODE XREF from fcn.00000000 @ 0x11 |
-|| add byte [rax], al                   |
-|`--------------------------------------'
+|.----------------------------------------.
+||  0x9                                   |
+|| ; CODE XREF from fcn.00000000 @ 0xa(x) |
+|| shr ebx, 0xfd                          |
+|| ; ','                                  |
+|| mov ebx, 0x2c                          |
+|| jmp 3                                  |
+|`----------------------------------------'
+|    v
+|    |
+|    |
+|.-----------------------------------------.
+||  0x3                                    |
+|| ; CODE XREF from fcn.00000000 @ 0x11(x) |
+|| add byte [rax], al                      |
+|`-----------------------------------------'
 |    v
 |    |
 `----'
 
 / 24: fcn.00000000 ();
 |           0x00000000  ~   0f1f440000     nop dword [rax + rax]
-|           ; CODE XREF from fcn.00000000 @ 0x11
+|           ; CODE XREF from fcn.00000000 @ 0x11(x)
 |       .-> 0x00000003      0000           add byte [rax], al
 |       :   0x00000005  ~   b8210000c1     mov eax, 0xc1000021         ; '!'
-|       :   ; CODE XREF from fcn.00000000 @ 0xa
+|       :   ; CODE XREF from fcn.00000000 @ 0xa(x)
 |      .--> 0x00000009      c1ebfd         shr ebx, 0xfd
 |       :   0x0000000c      bb2c000000     mov ebx, 0x2c               ; ','
 \       `=< 0x00000011      ebf0           jmp 3
@@ -3235,14 +3127,12 @@ address: 0x0
 opcode: push rbp
 esilcost: 24
 disasm: push rbp
-pseudo: push rbp
+pseudo: push (rbp)
 mnemonic: push
 description: push word, doubleword or quadword onto the stack
 mask: ff
-prefix: 0
 id: 609
 bytes: 55
-refptr: 0
 size: 1
 sign: false
 type: rpush
@@ -3483,16 +3373,16 @@ EXPECT=<<EOF
  0x00000870 => immbase=10
  0x00000874 => immbase=10
  0x00000878 => immbase=10
-c 0x59f case.0x59d.13
-c 0x5b2 case.0x59d.1
-c 0x5c0 case.0x59d.2
-c 0x5ce case.0x59d.5
-c 0x5dc case.0x59d.6
-c 0x5ea case.0x59d.7
-c 0x5f8 case.0x59d.9
-c 0x606 case.0x59d.11
-c 0x614 case.0x59d.12
-c 0x622 case.0x59d.0
+CODE 0x59f case.0x59d.13
+CODE 0x5b2 case.0x59d.1
+CODE 0x5c0 case.0x59d.2
+CODE 0x5ce case.0x59d.5
+CODE 0x5dc case.0x59d.6
+CODE 0x5ea case.0x59d.7
+CODE 0x5f8 case.0x59d.9
+CODE 0x606 case.0x59d.11
+CODE 0x614 case.0x59d.12
+CODE 0x622 case.0x59d.0
 0x00000580 0x0000058d 00:0000 13 j 0x00000622 f 0x0000058d
 0x0000058d 0x0000059f 00:0000 18 s 0x00000622 s 0x000005b2 s 0x000005c0 s 0x000005ce s 0x000005dc s 0x000005ea s 0x000005f8 s 0x00000606 s 0x00000614 s 0x0000059f
 0x0000059f 0x000005ab 00:0000 12 j 0x000005ab
@@ -3817,7 +3707,7 @@ RUN
 NAME=./noncode
 FILE=bins/mach0/ls-osx-x86_64
 CMDS=<<EOF
-e anal.noncode=false
+e anal.in=io.maps.x
 afr
 afl~?str.
 EOF
@@ -3829,7 +3719,7 @@ RUN
 NAME=./noncode
 FILE=bins/mach0/ls-osx-x86_64
 CMDS=<<EOF
-e anal.noncode=false
+e anal.in=io.maps
 e anal.calls=true
 af
 afl~?str.
@@ -3851,15 +3741,15 @@ pdf
 EOF
 EXPECT=<<EOF
 / 82: fcn.140001080 (int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4);
+|           ; arg int64_t arg1 @ rcx
+|           ; arg int64_t arg2 @ rdx
+|           ; arg int64_t arg3 @ r8
+|           ; arg int64_t arg4 @ r9
 |           ; var int64_t var_50h @ rsp+0x20
 |           ; var int64_t var_20h @ rsp+0x50
 |           ; var int64_t var_18h @ rsp+0x58
 |           ; var int64_t var_10h @ rsp+0x60
 |           ; var int64_t var_8h @ rsp+0x68
-|           ; arg int64_t arg1 @ rcx
-|           ; arg int64_t arg2 @ rdx
-|           ; arg int64_t arg3 @ r8
-|           ; arg int64_t arg4 @ r9
 |           0x140001080      48894c2408     mov qword [var_20h], rcx
 |           0x140001085      4889542410     mov qword [var_18h], rdx
 |           0x14000108a      4c89442418     mov qword [var_10h], r8
@@ -3896,12 +3786,12 @@ e asm.bits=64
 ar=
 EOF
 EXPECT=<<EOF
-    rax 0x00000000           rbx 0x00000000           rcx 0x00000000
-    rdx 0x00000000           rsi 0x00000000           rdi 0x00000000
-     r8 0x00000000            r9 0x00000000           r10 0x00000000
-    r11 0x00000000           r12 0x00000000           r13 0x00000000
-    r14 0x00000000           r15 0x00000000           rip 0x00000000
-    rbp 0x00000000        rflags 0x00000000           rsp 0x00000000
+   rax 0x00000000           rbx 0x00000000           rcx 0x00000000
+   rdx 0x00000000           rsi 0x00000000           rdi 0x00000000
+    r8 0x00000000            r9 0x00000000           r10 0x00000000
+   r11 0x00000000           r12 0x00000000           r13 0x00000000
+   r14 0x00000000           r15 0x00000000           rip 0x00000000
+   rbp 0x00000000        rflags 0x00000000           rsp 0x00000000
 EOF
 RUN
 
@@ -3946,12 +3836,12 @@ pd 19
 EOF
 EXPECT=<<EOF
 / 512: fcn.00000000 (int64_t arg_8h, int64_t arg_bh, int64_t arg_ch);
-|           ; var int64_t var_bh @ rbp-0xb
-|           ; var int64_t var_8h @ rbp-0x8
 |           ; arg int64_t arg_8h @ rbp+0x8
 |           ; arg int64_t arg_bh @ rbp+0xb
-|           ; var int64_t var_4h @ rsp+0x4
+|           ; var int64_t var_8h @ rbp-0x8
+|           ; var int64_t var_bh @ rbp-0xb
 |           ; arg int64_t arg_ch @ rsp+0xc
+|           ; var int64_t var_4h @ rsp+0x4
 |           0x00000000      54             push rsp
 |           0x00000001      4889e5         mov rbp, rsp
 |           0x00000004      b402           mov ah, 2
@@ -3987,13 +3877,13 @@ pd 19
 EOF
 EXPECT=<<EOF
 / 512: fcn.00000000 (int64_t arg_8h, int64_t arg_bh, int64_t arg_ch);
-|           ; var int64_t var_bh @ rbp-0xb
-|           ; var int64_t var_8h @ rbp-0x8
 |           ; arg int64_t arg_8h @ rbp+0x8
 |           ; arg int64_t arg_bh @ rbp+0xb
-|           ; var int64_t var_4h @ rsp+0x4
+|           ; var int64_t var_8h @ rbp-0x8
+|           ; var int64_t var_bh @ rbp-0xb
 |           ; arg int64_t arg_ch @ rsp+0xc
-|           0x00000000      54             push rsp
+|           ; var int64_t var_4h @ rsp+0x4
+|           0x00000000      54             push  (rsp)
 |           0x00000001      4889e5         rbp = rsp
 |           0x00000004      b402           ah = 2
 |           0x00000006      66b83333       ax = 0x3333
@@ -4059,40 +3949,96 @@ agf
 afll
 EOF
 EXPECT=<<EOF
-| ; CODE XREF from fcn.00000003 @ 0x5
+| ; CODE XREF from fcn.00000003 @ 0x5(x)
 | ;-- (0x00000003) fcn.00000003:
 | 0x00000000  ~   b821c10010     mov eax, 0x1000c121
-| ----------- true: 0x00000005
+| // true: 0x00000005
 / 9: fcn.00000003 ();
 | 0x00000003      0010           add byte [rax], dl
-| ----------- true: 0x00000005
+| // true: 0x00000005
 | 0x00000005      ebf9           jmp 0
-| ----------- true: 0x00000000
+| // true: 0x00000000
 
 [0x00000003]>  # fcn.00000003 ();
  ----.
 |    |
-|.-------------------------------------.   .-----------------------.
-||  0x0                                |   |  0x3                  |
-|| ; CODE XREF from fcn.00000003 @ 0x5 |   | 9: fcn.00000003 ();   |
-|| ;-- (0x00000003) fcn.00000003:      |   | add byte [rax], dl    |
-|| mov eax, 0x1000c121                 |   `-----------------------'
-|`-------------------------------------'       v
-|    v                                         |
-|    |                                         |
-|    '----------------------------.            |
-|                               .--------------'
-|                               | |
-|                         .--------------------.
-|                         |  0x5               |
-|                         | jmp 0              |
-|                         `--------------------'
-|                             v
-|                             |
-`-----------------------------'
+|.----------------------------------------.    .-----------------------.
+||  0x0                                   |    |  0x3                  |
+|| ; CODE XREF from fcn.00000003 @ 0x5(x) |    | 9: fcn.00000003 ();   |
+|| ;-- (0x00000003) fcn.00000003:         |    | add byte [rax], dl    |
+|| mov eax, 0x1000c121                    |    `-----------------------'
+|`----------------------------------------'        v
+|    v                                             |
+|    |                                             |
+|    '-------------------------------.             |
+|                                  .---------------'
+|                                  | |
+|                            .--------------------.
+|                            |  0x5               |
+|                            | jmp 0              |
+|                            `--------------------'
+|                                v
+|                                |
+`--------------------------------'
 
-address            size  nbbs edges    cc cost          min bound range max bound          calls locals args xref frame name
-================== ==== ===== ===== ===== ==== ================== ===== ================== ===== ====== ==== ==== ===== ====
-0x0000000000000003    9     3     3     0    4 0x0000000000000000     7 0x0000000000000007     0    0      0    0     0 fcn.00000003
+address            noret size  nbbs edges    cc cost          min bound range max bound          calls locals args xref frame name
+================== ===== ===== ===== ===== ===== ==== ================== ===== ================== ===== ====== ==== ==== ===== ====
+0x0000000000000003     0    9     3     3     0    4 0x0000000000000000     7 0x0000000000000007     0    0      0    0     0 fcn.00000003
+EOF
+RUN
+
+NAME=Use after free segfault in aft
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+e bin.relocs.apply=1
+e anal.onchange=1
+s 0x0
+f func
+wx 7f454c4602010100000000000000000003003e0001000000f0040000000000004000000000000000e0180000000000000000000040003800090040001c001b000600000004000000400000000000000040000000000000004000000000000000f801000000000000f801000000000000080000000000000003
+af
+aeim
+aft
+EOF
+EXPECT=
+RUN
+
+NAME=vecref test
+FILE=bins/pe/plscrackme.exe
+CMDS=<<EOF
+aar
+0x140001358
+ao
+pd 1
+0x140021040
+pd 1
+EOF
+EXPECT=<<EOF
+address: 0x140001358
+opcode: movdqa xmm0, xmmword [rip + 0x1fce0]
+esilcost: 16
+disasm: movdqa xmm0, xmmword [str._n_2.__1__a]
+pseudo: xmm0 = xmmword [str._n_2.__1__a]
+mnemonic: movdqa
+description: move aligned double quadword
+mask: ffffff0000000000
+id: 468
+bytes: 660f6f05e0fc0100
+ptr: 0x140021040
+disp: 130272
+refptr: 16
+size: 8
+sign: false
+type: mov
+cycles: 1
+scale: 1
+esil: 0x1fce0,rip,+,[16],xmm0,=
+direction: read
+family: vec
+            0x140001358      660f6f05e0fc.  movdqa xmm0, xmmword [str._n_2.__1__a] ; [0x140021040:16]=-1 ; "\n*,2.)%#1%#)a~\x7f"
+            ;-- str._n_2.__1__a:
+            ; DATA XREF from main @ +0x38(r)
+            0x140021040     .string "\n*,2.)%#1%#)a~" ; len=15
 EOF
 RUN

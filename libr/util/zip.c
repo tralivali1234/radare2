@@ -1,14 +1,45 @@
-/* radare - LGPL - Copyright 2014-2015 - pancake */
+/* radare - LGPL - Copyright 2014-2022 - pancake */
 
 #include <r_util.h>
 #include <zlib.h>
 
-
 // set a maximum output buffer of 50MB
 #define MAXOUT 50000000
 
+#if USE_SMALLZ4
+#include "../../../shlr/smallz4/smallz4cat.h"
+
+struct UserPtr {
+	const ut8 * input;
+	ut64 inputPos;
+	ut8 * output;
+	ut64 outputPos;
+	ut32 * outputSize;
+	int error;
+};
+
+void smallz4Write(const unsigned char* data, unsigned int numBytes, void *userPtr) {
+  struct UserPtr* user = (struct UserPtr*)userPtr;
+  if (data != NULL && numBytes > 0) {
+	if (*(user->outputSize) - user->outputPos < numBytes) {
+		user->error = -1;
+		return;
+	}
+	memcpy(user->output + user->outputPos, data, numBytes);
+	user->outputPos += numBytes;
+  }
+}
+
+unsigned char smallz4GetByte(void *userPtr) {
+  struct UserPtr* user = (struct UserPtr*)userPtr;
+  return *(user->input + (user->inputPos++));
+}
+#else
+#include <lz4.h>
+#endif
+
 static const char *gzerr(int n) {
-	const char *errors[] = {
+	const char * const errors[] = {
 		"",
 		"file error",          /* Z_ERRNO         (-1) */
 		"stream error",        /* Z_STREAM_ERROR  (-2) */
@@ -23,9 +54,9 @@ static const char *gzerr(int n) {
 	return errors[n];
 }
 
-R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen) {
+static ut8 *r_inflatew(const ut8 *src, int srcLen, int *consumed, int *dstLen, int wbits) {
 	int err = 0;
-	int out_size = 0;
+	size_t out_size = 0;
 	ut8 *dst = NULL;
 	ut8 *tmp_ptr;
 	z_stream stream;
@@ -42,8 +73,7 @@ R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen) 
 	stream.zfree  = Z_NULL;
 	stream.opaque = Z_NULL;
 
-	// + 32 tells zlib not to care whether the stream is a zlib or gzip stream
-	if (inflateInit2 (&stream, MAX_WBITS + 32) != Z_OK) {
+	if (inflateInit2 (&stream, wbits) != Z_OK) {
 		return NULL;
 	}
 
@@ -62,9 +92,8 @@ R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen) 
 			stream.avail_out = srcLen * 2;
 		}
 		err = inflate (&stream, Z_NO_FLUSH);
-		if (err<0) {
-			eprintf ("inflate error: %d %s\n",
-				err, gzerr (-err));
+		if (err < 0) {
+			R_LOG_ERROR ("inflate failed: %d %s", err, gzerr (-err));
 			goto err_exit;
 		}
 	} while (err != Z_STREAM_END);
@@ -72,8 +101,8 @@ R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen) 
 	if (dstLen) {
 		*dstLen = stream.total_out;
 	}
-	if (srcConsumed) {
-		*srcConsumed = (const ut8*)stream.next_in-(const ut8*)src;
+	if (consumed) {
+		*consumed = (const ut8 *)stream.next_in - (const ut8 *)src;
 	}
 
 	inflateEnd (&stream);
@@ -83,4 +112,72 @@ R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *srcConsumed, int *dstLen) 
 	inflateEnd (&stream);
 	free (dst);
 	return NULL;
+}
+
+R_API ut8 *r_inflate_lz4(const ut8 *src, int srcLen, int *consumed, int *dstLen) {
+	ut32 osz = srcLen * 5;
+	ut8 *obuf = calloc (srcLen, 5);
+	if (!obuf) {
+		return NULL;
+	}
+
+#if USE_SMALLZ4
+	struct UserPtr user =
+	{
+		.input = src,
+		.inputPos = 0,
+		.output = obuf,
+		.outputPos = 0,
+		.outputSize = &osz,
+		.error = 0
+	};
+	int res = unlz4Block_userPtr (smallz4GetByte, smallz4Write, &user, srcLen, NULL, NULL);
+	if (res < 1 || user.error != 0) {
+#else
+	int res = LZ4_decompress_safe ((const char*)src, (char*)obuf, (uint32_t) srcLen, (uint32_t) osz);
+	if (res < 1) {
+#endif
+		int mul = srcLen / -res;
+		int nosz = osz * (5 * (mul + 1));
+		if (nosz < osz) {
+			free (obuf);
+			return NULL;
+		}
+		ut8 *nbuf = realloc (obuf, nosz);
+		if (!nbuf) {
+			free (obuf);
+			return NULL;
+		}
+		obuf = nbuf;
+		osz = nosz;
+#if USE_SMALLZ4
+		user.output = obuf;
+		user.inputPos = 0;
+		user.outputPos = 0;
+		user.error = 0;
+		res = unlz4Block_userPtr (smallz4GetByte, smallz4Write, &user, srcLen, NULL, NULL);
+	}
+	user.output = NULL;
+	user.input = NULL;
+#else
+	}
+	res = LZ4_decompress_safe ((const char*)src, (char*)obuf, (uint32_t) srcLen, (uint32_t) osz);
+#endif
+	if (res > 0) {
+		*dstLen = res;
+		*consumed = srcLen;
+		return obuf;
+	}
+	*dstLen = 0;
+	*consumed = 0;
+	free (obuf);
+	return NULL;
+}
+
+R_API ut8 *r_inflate(const ut8 *src, int srcLen, int *consumed, int *dstLen) {
+	return r_inflatew (src, srcLen, consumed, dstLen, MAX_WBITS + 32);
+}
+
+R_API ut8 *r_inflate_raw(const ut8 *src, int srcLen, int *consumed, int *dstLen) {
+	return r_inflatew (src, srcLen, consumed, dstLen, -MAX_WBITS);
 }

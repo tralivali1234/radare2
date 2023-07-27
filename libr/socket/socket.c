@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2006-2021 - pancake */
+/* radare - LGPL - Copyright 2006-2022 - pancake */
 
 /* must be included first because of winsock2.h and windows.h */
 #include <r_socket.h>
@@ -6,16 +6,17 @@
 #include <r_util.h>
 #include <errno.h>
 
-#if EMSCRIPTEN
+#if __linux__
+#include "i/isotp.h"
+#endif
+
+#if EMSCRIPTEN || __wasi__ || defined(__serenity__) || defined(__MINGW32__)
 #define NETWORK_DISABLED 1
 #else
 #define NETWORK_DISABLED 0
 #endif
 
-#define D if(0)
-
 R_LIB_VERSION(r_socket);
-
 
 #if NETWORK_DISABLED
 /* no network */
@@ -61,10 +62,10 @@ R_API int r_socket_flush(RSocket *s) {
 R_API int r_socket_ready(RSocket *s, int secs, int usecs) {
 	return -1;
 }
-R_API char *r_socket_to_string(RSocket *s) {
+R_API char *r_socket_tostring(RSocket *s) {
 	return NULL;
 }
-R_API int r_socket_write(RSocket *s, void *buf, int len) {
+R_API int r_socket_write(RSocket *s, const void *buf, int len) {
 	return -1;
 }
 R_API int r_socket_puts(RSocket *s, char *buf) {
@@ -91,7 +92,10 @@ R_API ut8* r_socket_slurp(RSocket *s, int *len) {
 #else
 
 R_API bool r_socket_is_connected(RSocket *s) {
-#if __WINDOWS__
+	if (!r_sandbox_check (R_SANDBOX_GRAIN_SOCKET)) {
+		return false;
+	}
+#if R2__WINDOWS__
 	char buf[2];
 	r_socket_block_time (s, false, 0, 0);
 #ifdef _MSC_VER
@@ -106,14 +110,14 @@ R_API bool r_socket_is_connected(RSocket *s) {
 	socklen_t len = sizeof (error);
 	int ret = getsockopt (s->fd, SOL_SOCKET, SO_ERROR, &error, &len);
 	if (ret != 0) {
-		perror ("getsockopt");
+		r_sys_perror ("getsockopt");
 		return false;
 	}
 	return (error == 0);
 #endif
 }
 
-#if __UNIX__
+#if R2__UNIX__
 static bool __connect_unix(RSocket *s, const char *file) {
 	struct sockaddr_un addr;
 	int sock = socket (PF_UNIX, SOCK_STREAM, 0);
@@ -196,6 +200,9 @@ R_API RSocket *r_socket_new(bool is_ssl) {
 }
 
 R_API bool r_socket_spawn(RSocket *s, const char *cmd, unsigned int timeout) {
+	if (!r_sandbox_check (R_SANDBOX_GRAIN_EXEC)) {
+		return false;
+	}
 	// XXX TODO: dont use sockets, we can achieve the same with pipes
 	const int port = 2000 + r_num_rand (2000);
 	int childPid = r_sys_fork ();
@@ -209,33 +216,35 @@ R_API bool r_socket_spawn(RSocket *s, const char *cmd, unsigned int timeout) {
 				"system=%s\n"
 				"listen=%d\n", cmd, port);
 		RRunProfile *rp = r_run_new (profile);
-		r_run_start (rp);
+		if (!r_run_start (rp)) {
+			R_LOG_ERROR ("r_run_start failed");
+		}
 		r_run_free (rp);
 		free (profile);
 #endif
 		if (res != 0) {
-			eprintf ("r_socket_spawn: rarun2 failed\n");
+			R_LOG_ERROR ("rarun2 has failed");
 			exit (1);
 		}
-		eprintf ("r_socket_spawn: %s is dead\n", cmd);
+		R_LOG_ERROR ("r_socket_spawn: %s is dead", cmd);
 		exit (0);
 	}
 	r_sys_sleep (1);
 	r_sys_usleep (timeout);
 
 	char aport[32];
-	sprintf (aport, "%d", port);
+	snprintf (aport, sizeof (aport), "%d", port);
 	// redirect stdin/stdout/stderr
 	bool sock = r_socket_connect (s, "127.0.0.1", aport, R_SOCKET_PROTO_TCP, 2000);
 	if (!sock) {
 		return false;
 	}
-#if __UNIX__
+#if R2__UNIX__
 	r_sys_sleep (4);
 	r_sys_usleep (timeout);
 
 	int status = 0;
-	int ret = waitpid (childPid, &status, WNOHANG);
+	int ret = waitpid (childPid, &status, WNOHANG | WUNTRACED);
 	if (ret != 0) {
 		r_socket_close (s);
 		return false;
@@ -246,45 +255,109 @@ R_API bool r_socket_spawn(RSocket *s, const char *cmd, unsigned int timeout) {
 
 R_API bool r_socket_connect(RSocket *s, const char *host, const char *port, int proto, unsigned int timeout) {
 	r_return_val_if_fail (s, false);
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define gai_strerror gai_strerrorA
 	WSADATA wsadata;
 
 	if (WSAStartup (MAKEWORD (1, 1), &wsadata) == SOCKET_ERROR) {
-		eprintf ("Error creating socket.");
+		R_LOG_ERROR ("WSAStartup failed");
 		return false;
 	}
 #endif
 	int ret;
-	struct addrinfo hints = { 0 };
+	struct addrinfo hints = {0};
 	struct addrinfo *res, *rp;
 	if (proto == R_SOCKET_PROTO_NONE) {
 		proto = R_SOCKET_PROTO_DEFAULT;
 	}
-#if __UNIX__
+#if R2__UNIX__
 	r_sys_signal (SIGPIPE, SIG_IGN);
 #endif
 	if (proto == R_SOCKET_PROTO_UNIX) {
-#if __UNIX__
+#if R2__UNIX__
 		if (!__connect_unix (s, host)) {
 			return false;
 		}
+#endif
+	} else if (proto == R_SOCKET_PROTO_CAN) {
+#if __linux__
+		// host: can interface name
+		// port: src and dst can identifiers
+		ut32 srcid = 0;
+		ut32 dstid = 0;
+		sscanf (port, "0x%x/0x%x", &srcid, &dstid);
+		// s = socket(PF_CAN, SOCK_RAW, CAN_RAW);
+		int fd = socket (PF_CAN, SOCK_DGRAM, CAN_ISOTP);
+		if (fd == -1) {
+			return false;
+		}
+		struct can_isotp_options opts = {
+			.txpad_content = 0xcc,
+			.rxpad_content = 0xcc,
+			.frame_txtime = 0x1000,
+		};
+		if (setsockopt (fd, SOL_CAN_ISOTP, CAN_ISOTP_OPTS, &opts, sizeof (opts)) == -1) {
+			close (fd);
+			return false;
+		}
+		struct can_isotp_fc_options fcopts = {
+			.stmin = 0xf3
+		};
+		if (setsockopt (fd, SOL_CAN_ISOTP, CAN_ISOTP_RECV_FC, &fcopts, sizeof (fcopts)) == -1) {
+			close (fd);
+			return false;
+		}
+		struct can_isotp_ll_options llopts = {
+			.mtu = 8,
+			.tx_dl = 8,
+		};
+		if (setsockopt (fd, SOL_CAN_ISOTP, CAN_ISOTP_LL_OPTS, &llopts, sizeof (llopts)) == -1) {
+			close (fd);
+			return false;
+		}
+
+		struct ifreq ifr;
+		memset (&ifr, 0, sizeof (ifr));
+		r_str_ncpy (ifr.ifr_name, host, sizeof (ifr.ifr_name));
+		if (ioctl (fd, SIOCGIFINDEX, &ifr) == -1) {
+			r_sys_perror ("ioctl");
+			close (fd);
+			return -1;
+		}
+
+		struct sockaddr_can addr = {0};
+		addr.can_family = AF_CAN;
+		addr.can_ifindex = ifr.ifr_ifindex;
+		addr.can_addr.tp.rx_id = srcid | 0x80000000;
+		addr.can_addr.tp.tx_id = dstid | 0x80000000;
+
+		if (bind (fd, (struct sockaddr *)&addr, sizeof (addr)) < 0) {
+			r_sys_perror ("bind");
+			close (fd);
+			return false;
+		}
+		s->fd = fd;
+		s->is_ssl = false;
+		return true;
+#else
+		R_LOG_ERROR ("Unsupported ISOTP socket protocol");
+		return false;
 #endif
 	} else {
 		hints.ai_family = AF_UNSPEC; /* Allow IPv4 or IPv6 */
 		hints.ai_protocol = proto;
 		int gai = getaddrinfo (host, port, &hints, &res);
 		if (gai != 0) {
-			eprintf ("r_socket_connect: Error in getaddrinfo: %s (%s:%s)\n",
+			R_LOG_ERROR ("getaddrinfo: %s (%s:%s)",
 				gai_strerror (gai), host, port);
 			return false;
 		}
-		for (rp = res; rp != NULL; rp = rp->ai_next) {
+		for (rp = res; rp; rp = rp->ai_next) {
 			int flag = 1;
 
 			s->fd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
 			if (s->fd == -1) {
-				perror ("socket");
+				r_sys_perror ("socket");
 				continue;
 			}
 
@@ -292,7 +365,7 @@ R_API bool r_socket_connect(RSocket *s, const char *host, const char *port, int 
 			case R_SOCKET_PROTO_TCP:
 				ret = setsockopt (s->fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof (flag));
 				if (ret < 0) {
-					perror ("setsockopt");
+					r_sys_perror ("setsockopt");
 					close (s->fd);
 					s->fd = -1;
 					continue;
@@ -311,7 +384,7 @@ R_API bool r_socket_connect(RSocket *s, const char *host, const char *port, int 
 				s->sa.sin_port = htons (s->port);
 				if (bind (s->fd, (struct sockaddr *)&s->sa, sizeof (s->sa)) < 0) {
 					r_sys_perror ("bind");
-#ifdef __WINDOWS__
+#ifdef R2__WINDOWS__
 					closesocket (s->fd);
 #else
 					close (s->fd);
@@ -342,14 +415,14 @@ R_API bool r_socket_connect(RSocket *s, const char *host, const char *port, int 
 						goto success;
 					}
 				} else {
-					perror ("connect");
+					r_sys_perror ("connect");
 				}
 			}
 			r_socket_close (s);
 		}
 		freeaddrinfo (res);
 		if (!rp) {
-			eprintf ("Could not resolve address '%s' or failed to connect\n", host);
+			R_LOG_ERROR ("Could not resolve address '%s' or failed to connect", host);
 			return false;
 		}
 	}
@@ -412,10 +485,10 @@ R_API int r_socket_close(RSocket *s) {
 		return false;
 	}
 	if (s->fd != R_INVALID_SOCKET) {
-#if __UNIX__
+#if R2__UNIX__
 		shutdown (s->fd, SHUT_RDWR);
 #endif
-#if __WINDOWS__
+#if R2__WINDOWS__
 		// https://msdn.microsoft.com/en-us/library/windows/desktop/ms740481(v=vs.85).aspx
 		shutdown (s->fd, SD_SEND);
 		if (r_socket_ready (s, 0, 250)) {
@@ -464,22 +537,21 @@ R_API int r_socket_port_by_name(const char *name) {
 R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 	int optval = 1;
 	int ret;
-	struct linger linger = { 0 };
+	struct linger linger = {0};
 
 	if (s->proto == R_SOCKET_PROTO_UNIX) {
-#if __UNIX__
+#if R2__UNIX__
 		return __listen_unix (s, port);
 #endif
 		return false;
 	}
-
-	if (r_sandbox_enable (0)) {
+	if (!r_sandbox_check (R_SANDBOX_GRAIN_SOCKET)) {
 		return false;
 	}
-#if __WINDOWS__
+#if R2__WINDOWS__
 	WSADATA wsadata;
 	if (WSAStartup (MAKEWORD (1, 1), &wsadata) == SOCKET_ERROR) {
-		eprintf ("Error creating socket.");
+		R_LOG_ERROR ("WSAStartup failed");
 		return false;
 	}
 #endif
@@ -498,7 +570,7 @@ R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 		}
 		break;
 	default:
-		eprintf ("Invalid protocol for socket\n");
+		R_LOG_ERROR ("Invalid protocol for socket");
 		return false;
 	}
 
@@ -537,7 +609,7 @@ R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile) {
 #endif
 		return false;
 	}
-#if __UNIX__
+#if R2__UNIX__
 	r_sys_signal (SIGPIPE, SIG_IGN);
 #endif
 	if (s->proto == R_SOCKET_PROTO_TCP) {
@@ -629,8 +701,8 @@ R_API RSocket *r_socket_accept_timeout(RSocket *s, unsigned int timeout) {
 	struct timeval t = {timeout, 0};
 
 	int r = select (s->fd + 1, &read_fds, NULL, &except_fds, &t);
-	if(r < 0) {
-		perror ("select");
+	if (r < 0) {
+		r_sys_perror ("select");
 	} else if (r > 0 && FD_ISSET (s->fd, &read_fds)) {
 		return r_socket_accept (s);
 	}
@@ -640,13 +712,13 @@ R_API RSocket *r_socket_accept_timeout(RSocket *s, unsigned int timeout) {
 
 // Only applies to read in UNIX
 R_API bool r_socket_block_time(RSocket *s, bool block, int sec, int usec) {
-#if __UNIX__
+#if R2__UNIX__
 	int ret, flags;
 #endif
 	if (!s) {
 		return false;
 	}
-#if __UNIX__
+#if R2__UNIX__
 	flags = fcntl (s->fd, F_GETFL, 0);
 	if (flags < 0) {
 		return false;
@@ -657,7 +729,7 @@ R_API bool r_socket_block_time(RSocket *s, bool block, int sec, int usec) {
 	if (ret < 0) {
 		return false;
 	}
-#elif __WINDOWS__
+#elif R2__WINDOWS__
 	ioctlsocket (s->fd, FIONBIO, (u_long FAR*)&block);
 #endif
 	if (sec > 0 || usec > 0) {
@@ -691,10 +763,10 @@ R_API int r_socket_ready(RSocket *s, int secs, int usecs) {
 	return select (s->fd + 1, &rfds, NULL, NULL, &tv);
 }
 
-R_API char *r_socket_to_string(RSocket *s) {
-#if __WINDOWS__
+R_API char *r_socket_tostring(RSocket *s) {
+#if R2__WINDOWS__
 	return r_str_newf ("fd%d", (int)(size_t)s->fd);
-#elif __UNIX__
+#elif R2__UNIX__
 	char *str = NULL;
 	struct sockaddr sa;
 	socklen_t sl = sizeof (sa);
@@ -702,12 +774,10 @@ R_API char *r_socket_to_string(RSocket *s) {
 	if (!getpeername (s->fd, &sa, &sl)) {
 		struct sockaddr_in *sain = (struct sockaddr_in*) &sa;
 		ut8 *a = (ut8*) &(sain->sin_addr);
-		if ((str = malloc (32))) {
-			sprintf (str, "%d.%d.%d.%d:%d",
-				a[0], a[1], a[2], a[3], ntohs (sain->sin_port));
-		}
+		str = r_str_newf ("%d.%d.%d.%d:%d",
+			a[0], a[1], a[2], a[3], ntohs (sain->sin_port));
 	} else {
-		eprintf ("getperrname: failed\n"); //r_sys_perror ("getpeername");
+		r_sys_perror ("getpeername");
 	}
 	return str;
 #else
@@ -716,10 +786,9 @@ R_API char *r_socket_to_string(RSocket *s) {
 }
 
 /* Read/Write functions */
-R_API int r_socket_write(RSocket *s, void *buf, int len) {
-	D { eprintf ("WRITE "); int i; ut8 *b = buf; for (i = 0; i<len; i++) { eprintf ("%02x ", b[i]); } eprintf ("\n"); }
+R_API int r_socket_write(RSocket *s, const void *buf, int len) {
 	int ret, delta = 0;
-#if __UNIX__
+#if R2__UNIX__
 	r_sys_signal (SIGPIPE, SIG_IGN);
 #endif
 	for (;;) {
@@ -734,10 +803,13 @@ R_API int r_socket_write(RSocket *s, void *buf, int len) {
 			} else {
 				ret = SSL_write (s->sfd, buf + delta, b);
 			}
-		} else
+		} else /* block */
 #endif
-		{
-			ret = send (s->fd, (char *)buf+delta, b, 0);
+		if (s->proto == R_SOCKET_PROTO_SERIAL) {
+			ret = write (s->fd, (char *)buf + delta, b);
+			eprintf ("SERIAL WRITE %d\n", ret);
+		} else {
+			ret = send (s->fd, (char *)buf + delta, b, 0);
 		}
 		//if (ret == 0) return -1;
 		if (ret < 1) {
@@ -796,10 +868,10 @@ R_API int r_socket_read(RSocket *s, unsigned char *buf, int len) {
 		return SSL_read (s->sfd, buf, len);
 	}
 #endif
-	// int r = read (s->fd, buf, len);
-	int r = recv (s->fd, (char *)buf, len, 0);
-	D { eprintf ("READ "); int i; for (i = 0; i<len; i++) { eprintf ("%02x ", buf[i]); } eprintf ("\n"); }
-	return r;
+	if (s->proto == R_SOCKET_PROTO_SERIAL) {
+		return read (s->fd, (char *)buf, len);
+	}
+	return recv (s->fd, (char *)buf, len, 0);
 }
 
 R_API int r_socket_read_block(RSocket *s, ut8 *buf, int len) {

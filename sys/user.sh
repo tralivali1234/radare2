@@ -1,6 +1,7 @@
 #!/bin/sh
 
 MAKE=make
+export CFLAGS="${CFLAGS} -fPIC"
 gmake --help >/dev/null 2>&1
 [ $? = 0 ] && MAKE=gmake
 
@@ -25,6 +26,7 @@ abspath() {
 	fi
 }
 
+ARGS=""
 while [ $# -gt 0 ]
 do
 	case "$1" in
@@ -42,18 +44,24 @@ do
 			fi
 			;;
 		*)
-			echo "WARNING: unknown argument \"$1\""
+			ARGS="${ARGS} $1"
 	esac
 	shift
 done
 
 # update
 if [ $WITHOUT_PULL -eq 0 ]; then
-	if [ -d .git ]; then
+	if [ -e .git ]; then
 		git branch | grep "^\* master" > /dev/null
 		if [ $? = 0 ]; then
 			echo "WARNING: Updating from remote repository"
-			git pull
+			# Attempt to update from an existing remote
+			UPSTREAM_REMOTE=$(git remote -v | grep 'radareorg/radare2\(\.git\)\? (fetch)' | cut -f1 | head -n1)
+			if [ -n "$UPSTREAM_REMOTE" ]; then
+				git pull "$UPSTREAM_REMOTE" master
+			else
+				git pull https://github.com/radareorg/radare2 master
+			fi
 		fi
 	fi
 fi
@@ -75,11 +83,11 @@ fi
 mkdir -p "${ROOT}/lib"
 
 if [ "${M32}" = 1 ]; then
-	./sys/build-m32.sh "${ROOT}" && ${MAKE} symstall
+	./sys/build-m32.sh "${ROOT}" ${ARGS} && ${MAKE} symstall
 elif [ "${HARDEN}" = 1 ]; then
-	./sys/build-harden.sh "${ROOT}" && ${MAKE} symstall
+	./sys/build-harden.sh "${ROOT}" ${ARGS} && ${MAKE} symstall
 else
-	./sys/build.sh "${ROOT}" && ${MAKE} symstall
+	./sys/build.sh "${ROOT}" ${ARGS} && ${MAKE} symstall
 fi
 if [ $? != 0 ]; then
 	echo "Oops"

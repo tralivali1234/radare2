@@ -20,7 +20,7 @@ aB "bxeq Lr" 1eff2f01
 aB "bxne Lr" 1eff2f11
 a "clzne r5, sl" 1a5f6f11
 aB "cmpeq sl, r4" 40005a01
-a "cmpne r7, r6" 06005711
+ad "cmpne r7, r6" 06005711
 a "eoreq r2, r2, 1" 01202202
 a "eorne r0, r0, r3" 03002010
 aB "eorne r0, r0, r3, lsr #24" 230c2010
@@ -66,7 +66,7 @@ a "popeq {r4, r5, r6, r7, pc}" f080bd08
 a "popeq {r3, r4, r5, r6, r7, pc}" f880bd08
 a "popeq {r3, r4, r5, r6, r7, r8, sl, pc}" f885bd08
 a "popeq {r3, r4, r5, r6, r7, r8, r9, sl, fp, pc}" f88fbd08
-aB "reveq r3, r3" 333fbf06
+a "reveq r3, r3" 333fbf06
 a "rsbeq ip, r1, r7" 07c06100
 a "rsbne r6, r0, r6" 06606010
 aB "stmeq r0, {r2, r3}" 0c008008
@@ -275,3 +275,11 @@ a "ldr r0, [r0]" 000090e5
 a "ldr r1, [r2]" 001092e5
 a "str r0, [r0]" 000080e5
 a "str r1, [r2]" 001082e5
+ad "tst r1, r2" 020011e1
+ad "cmn r1, r3" 030071e1
+ad "teq r3, r4" 040033e1
+a "blt 0x8" 000000ba
+a "ble 0xc" 010000da
+a "cmn r0, 8" 080070e3
+a "teq r6, 4" 040036e3
+a "tst r2, 1" 010012e3

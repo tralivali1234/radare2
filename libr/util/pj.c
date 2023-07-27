@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2018-2019 - pancake */
+/* radare - LGPL - Copyright 2018-2023 - pancake */
 
 #include <r_util.h>
 #include <r_util/r_print.h>
@@ -10,11 +10,16 @@ R_API void pj_raw(PJ *j, const char *msg) {
 	}
 }
 
+R_API void pj_kraw(PJ *j) {
+	j->comma = ":";
+}
+
 static void pj_comma(PJ *j) {
 	r_return_if_fail (j);
 	if (!j->is_key) {
 		if (!j->is_first) {
-			pj_raw (j, ",");
+			pj_raw (j, j->comma);
+			j->comma = ",";
 		}
 	}
 	j->is_first = false;
@@ -26,6 +31,7 @@ R_API PJ *pj_new(void) {
 	if (j) {
 		r_strbuf_init (&j->sb);
 		j->is_first = true;
+		j->comma = ",";
 		j->str_encoding = PJ_ENCODING_STR_DEFAULT;
 		j->num_encoding = PJ_ENCODING_NUM_DEFAULT;
 	}
@@ -70,6 +76,7 @@ R_API const char *pj_string(PJ *j) {
 static PJ *pj_begin(PJ *j, char type) {
 	if (j) {
 		if (!j || j->level >= R_PRINT_JSON_DEPTH_LIMIT) {
+			R_LOG_ERROR ("JSON depth limit reached");
 			return NULL;
 		}
 		char msg[2] = { type, 0 };
@@ -221,7 +228,7 @@ R_API PJ *pj_s(PJ *j, const char *k) {
 		pj_raw (j, ek);
 		free (ek);
 	} else {
-		eprintf ("cannot escape string\n");
+		R_LOG_WARN ("cannot escape string");
 	}
 	pj_raw (j, "\"");
 	return j;
@@ -278,48 +285,61 @@ R_API PJ *pj_j(PJ *j, const char *k) {
 R_API PJ *pj_n(PJ *j, ut64 n) {
 	r_return_val_if_fail (j, j);
 	pj_comma (j);
-	pj_raw (j, sdb_fmt ("%" PFMT64u, n));
+	char numstr[32];
+	snprintf (numstr, sizeof (numstr), "%" PFMT64u, n);
+	pj_raw (j, numstr);
 	return j;
 }
 
 R_API PJ *pj_ne(PJ *j, ut64 n) {
+	char numstr[32];
 	r_return_val_if_fail (j, j);
 	pj_comma (j);
 	if (j->num_encoding == PJ_ENCODING_NUM_STR) {
-		pj_raw (j, sdb_fmt ("\"%" PFMT64u "\"", n));
+		snprintf (numstr, sizeof (numstr), "\"%" PFMT64u "\"", n);
+		pj_raw (j, numstr);
 	} else if (j->num_encoding == PJ_ENCODING_NUM_HEX) {
-		pj_raw (j, sdb_fmt ("\"0x%" PFMT64x "\"", n));
+		snprintf (numstr, sizeof (numstr), "\"0x%" PFMT64x "\"", n);
+		pj_raw (j, numstr);
 	} else {
-		pj_n(j, n);
+		pj_n (j, n);
 	}
 	return j;
 }
 
 R_API PJ *pj_N(PJ *j, st64 n) {
+	char numstr[64];
 	r_return_val_if_fail (j, NULL);
+	snprintf (numstr, sizeof (numstr), "%"PFMT64d, n);
 	pj_comma (j);
-	pj_raw (j, sdb_fmt ("%"PFMT64d, n));
+	pj_raw (j, numstr);
 	return j;
 }
 
 R_API PJ *pj_f(PJ *j, float f) {
 	r_return_val_if_fail (j, NULL);
+	char numstr[64];
+	snprintf (numstr, sizeof (numstr), "%f", f);
 	pj_comma (j);
-	pj_raw (j, sdb_fmt ("%f", f));
+	pj_raw (j, numstr);
 	return j;
 }
 
 R_API PJ *pj_d(PJ *j, double d) {
 	r_return_val_if_fail (j, NULL);
+	char numstr[64];
+	snprintf (numstr, sizeof (numstr), "%lf", d);
 	pj_comma (j);
-	pj_raw (j, sdb_fmt ("%lf", d));
+	pj_raw (j, numstr);
 	return j;
 }
 
 R_API PJ *pj_i(PJ *j, int i) {
 	if (j) {
+		char numstr[64];
 		pj_comma (j);
-		pj_raw (j, sdb_fmt ("%d", i));
+		snprintf (numstr, sizeof (numstr), "%d", i);
+		pj_raw (j, numstr);
 	}
 	return j;
 }

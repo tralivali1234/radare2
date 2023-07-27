@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2018 - pancake */
+/* radare - LGPL - Copyright 2009-2022 - pancake */
 
 #include <r_core.h>
 
@@ -12,17 +12,18 @@ static void set_fcn_args_info(RAnalFuncArg *arg, RAnal *anal, const char *fcn_na
 	arg->name = r_type_func_args_name (TDB, fcn_name, arg_num);
 	arg->orig_c_type = r_type_func_args_type (TDB, fcn_name, arg_num);
 	if (!arg->name || !arg->orig_c_type) {
-		eprintf ("Missing type for function argument (%s)\n", fcn_name);
+		R_LOG_WARN ("Missing type for function argument to set (%s)", fcn_name);
 		return;
 	}
-	if (!strncmp ("const ", arg->orig_c_type, 6)) {
+	if (r_str_startswith (arg->orig_c_type, "const ")) {
 		arg->c_type = arg->orig_c_type + 6;
 	} else {
 		arg->c_type = arg->orig_c_type;
 	}
-	const char *query = sdb_fmt ("type.%s", arg->c_type);
+	r_strf_buffer (256);
+	const char *query = r_strf ("type.%s", arg->c_type);
 	arg->fmt = sdb_const_get (TDB, query, 0);
-	const char *t_query = sdb_fmt ("type.%s.size", arg->c_type);
+	const char *t_query = r_strf ("type.%s.size", arg->c_type);
 	arg->size = sdb_num_get (TDB, t_query, 0) / 8;
 	arg->cc_source = r_anal_cc_arg (anal, cc, arg_num);
 }
@@ -60,8 +61,8 @@ static void print_format_values(RCore *core, const char *fmt, bool onstack, ut64
 	char opt;
 	ut64 bval = src;
 	int i;
-	int endian = core->print->big_endian;
-	int width = (core->anal->bits == 64)? 8: 4;
+	const int endian = R_ARCH_CONFIG_IS_BIG_ENDIAN (core->rasm->config);
+	int width = (core->anal->config->bits == 64)? 8: 4;
 	int bsize = R_MIN (64, core->blocksize);
 
 	ut8 *buf = malloc (bsize);
@@ -152,7 +153,7 @@ R_API void r_core_print_func_args(RCore *core) {
 	const char *pc = r_reg_get_name (core->anal->reg, R_REG_NAME_PC);
 	ut64 cur_addr = r_reg_getv (core->anal->reg, pc);
 	RListIter *iter;
-	RAnalOp *op = r_core_anal_op (core, cur_addr, R_ANAL_OP_MASK_BASIC);
+	RAnalOp *op = r_core_anal_op (core, cur_addr, R_ARCH_OP_MASK_BASIC);
 	if (!op) {
 		return;
 	}
@@ -206,7 +207,7 @@ R_API void r_core_print_func_args(RCore *core) {
 	r_anal_op_fini (op);
 }
 
-static void r_anal_fcn_arg_free(RAnalFuncArg *arg) {
+static void r_anal_function_arg_free(RAnalFuncArg *arg) {
 	if (!arg) {
 		return;
 	}
@@ -226,7 +227,7 @@ R_API RList *r_core_get_func_args(RCore *core, const char *fcn_name) {
 	}
 	const char *sp = r_reg_get_name (core->anal->reg, R_REG_NAME_SP);
 	int nargs = r_type_func_args_count (TDB, key);
-	if (!r_anal_cc_func (core->anal, key)){
+	if (!r_anal_cc_func (core->anal, key)) {
 		return NULL;
 	}
 	char *cc = strdup (r_anal_cc_func (core->anal, key));
@@ -236,10 +237,10 @@ R_API RList *r_core_get_func_args(RCore *core, const char *fcn_name) {
 		free (key);
 		return NULL;
 	}
-	RList *list = r_list_newf ((RListFree)r_anal_fcn_arg_free);
+	RList *list = r_list_newf ((RListFree)r_anal_function_arg_free);
 	int i;
 	ut64 spv = r_reg_getv (core->anal->reg, sp);
-	ut64 s_width = (core->anal->bits == 64)? 8: 4;
+	ut64 s_width = (core->anal->config->bits == 64)? 8: 4;
 	if (src && !strcmp (src, "stack_rev")) {
 		for (i = nargs - 1; i >= 0; i--) {
 			RAnalFuncArg *arg = R_NEW0 (RAnalFuncArg);

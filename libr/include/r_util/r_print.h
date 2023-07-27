@@ -5,6 +5,7 @@
 #include "r_cons.h"
 #include "r_bind.h"
 #include "r_io.h"
+#include "r_arch.h"
 #include "r_reg.h"
 
 #ifdef __cplusplus
@@ -33,6 +34,7 @@ extern "C" {
 #define R_PRINT_FLAGS_UNALLOC  0x00080000
 #define R_PRINT_FLAGS_BGFILL   0x00100000
 #define R_PRINT_FLAGS_SECTION  0x00200000
+#define R_PRINT_FLAGS_COLOROP  0x00400000
 
 /*
 
@@ -72,7 +74,7 @@ typedef const char *(*RPrintNameCallback)(void *user, ut64 addr);
 typedef int (*RPrintSizeCallback)(void *user, ut64 addr);
 typedef char *(*RPrintCommentCallback)(void *user, ut64 addr);
 typedef const char *(*RPrintSectionGet)(void *user, ut64 addr);
-typedef const char *(*RPrintColorFor)(void *user, ut64 addr, bool verbose);
+typedef const char *(*RPrintColorFor)(void *user, ut64 addr, ut8 ch, bool verbose);
 typedef char *(*RPrintHasRefs)(void *user, ut64 addr, int mode);
 
 typedef struct r_print_zoom_t {
@@ -98,10 +100,9 @@ typedef struct r_print_t {
 	bool scr_prompt;
 	int (*disasm)(void *p, ut64 addr);
 	PrintfCallback oprintf;
-	int big_endian;
+	RArchConfig *config;
 	int width;
 	int limit;
-	int bits;
 	bool histblock;
 	// true if the cursor is enabled, false otherwise
 	bool cur_enabled;
@@ -112,7 +113,6 @@ typedef struct r_print_t {
 	int ocur;
 	int cols;
 	int flags;
-	int seggrn;
 	bool use_comments;
 	int addrmod;
 	int col;
@@ -141,10 +141,12 @@ typedef struct r_print_t {
 	int lines_abs;
 	bool esc_bslash;
 	bool wide_offsets;
-	const char *strconv_mode;
+	char *strconv_mode;
+	bool base36;
 	RList *vars;
 	char io_unalloc_ch;
 	bool show_offset;
+	char *codevarname;
 
 	// when true it uses row_offsets
 	bool calc_row_offsets;
@@ -162,6 +164,11 @@ typedef struct r_print_t {
 	// eg. when setting the default flag tags on startup. Does not override scr.progressbar.
 	bool enable_progressbar;
 	RCharset *charset;
+
+	// segmented memory addressing
+	int nbcolor;
+	int spinpos;
+	char *spinmsg;
 } RPrint;
 
 #ifdef R_API
@@ -176,7 +183,7 @@ R_API void r_print_set_is_interrupted_cb(RPrintIsInterruptedCallback cb);
 R_API char *r_print_hexpair(RPrint *p, const char *str, int idx);
 R_API void r_print_hex_from_bin(RPrint *p, char *bin_str);
 R_API RPrint *r_print_new(void);
-R_API RPrint *r_print_free(RPrint *p);
+R_API void r_print_free(RPrint *p);
 R_API bool r_print_mute(RPrint *p, int x);
 R_API void r_print_set_flags(RPrint *p, int _flags);
 R_API void r_print_unset_flags(RPrint *p, int flags);
@@ -191,8 +198,8 @@ R_API void r_print_hexpairs(RPrint *p, ut64 addr, const ut8 *buf, int len);
 R_API void r_print_hexdiff(RPrint *p, ut64 aa, const ut8* a, ut64 ba, const ut8 *b, int len, int scndcol);
 R_API void r_print_bytes(RPrint *p, const ut8* buf, int len, const char *fmt);
 R_API void r_print_fill(RPrint *p, const ut8 *arr, int size, ut64 addr, int step);
-R_API void r_print_byte(RPrint *p, const char *fmt, int idx, ut8 ch);
-R_API const char *r_print_byte_color(RPrint *p, int ch);
+R_API void r_print_byte(RPrint *p, ut64 addr, const char *fmt, int idx, ut8 ch);
+R_API const char *r_print_byte_color(RPrint *p, ut64 addr, int ch);
 R_API void r_print_c(RPrint *p, const ut8 *str, int len);
 R_API void r_print_raw(RPrint *p, ut64 addr, const ut8* buf, int len, int offlines);
 R_API bool r_print_have_cursor(RPrint *p, int cur, int len);
@@ -219,7 +226,7 @@ R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang
 R_API int r_print_format_struct_size(RPrint *p, const char *format, int mode, int n);
 R_API int r_print_format(RPrint *p, ut64 seek, const ut8* buf, const int len, const char *fmt, int elem, const char *setval, char *field);
 R_API const char *r_print_format_byname(RPrint *p, const char *name);
-R_API void r_print_offset(RPrint *p, ut64 off, int invert, int opt, int dec, int delta, const char *label);
+R_API void r_print_offset(RPrint *p, ut64 off, int invert, int delta, const char *label);
 R_API void r_print_offset_sg(RPrint *p, ut64 off, int invert, int offseg, int seggrn, int offdec, int delta, const char *label);
 #define R_PRINT_STRING_WIDE 1
 #define R_PRINT_STRING_ZEROEND 2
@@ -233,26 +240,24 @@ R_API int r_print_date_hfs(RPrint *p, const ut8 *buf, int len);
 R_API int r_print_date_w32(RPrint *p, const ut8 *buf, int len);
 R_API int r_print_date_unix(RPrint *p, const ut8 *buf, int len);
 R_API int r_print_date_get_now(RPrint *p, char *str);
-R_API void r_print_zoom(RPrint *p, void *user, RPrintZoomCallback cb, ut64 from, ut64 to, int len, int maxlen);
-R_API void r_print_zoom_buf(RPrint *p, void *user, RPrintZoomCallback cb, ut64 from, ut64 to, int len, int maxlen);
+R_API void r_print_zoom(RPrint *p, RPrintZoomCallback cb, void *cbarg, ut64 from, ut64 to, int len, int maxlen);
+R_API void r_print_zoom_buf(RPrint *p, RPrintZoomCallback cb, void *cbarg, ut64 from, ut64 to, int len, int maxlen);
 R_API void r_print_progressbar(RPrint *pr, int pc, int _cols);
 R_API void r_print_progressbar_with_count(RPrint *pr, unsigned int pc, unsigned int total, int _cols, bool reset_line);
+R_API void r_print_spinbar(RPrint *p, const char *msg);
 R_API void r_print_portionbar(RPrint *p, const ut64 *portions, int n_portions);
 R_API void r_print_rangebar(RPrint *p, ut64 startA, ut64 endA, ut64 min, ut64 max, int cols);
-R_API char * r_print_randomart(const ut8 *dgst_raw, ut32 dgst_raw_len, ut64 addr);
+R_API char *r_print_randomart(const ut8 *dgst_raw, ut32 dgst_raw_len, ut64 addr);
 R_API void r_print_2bpp_row(RPrint *p, ut8 *buf, const char **colors);
 R_API void r_print_2bpp_tiles(RPrint *p, ut8 *buf, size_t buflen, ut32 tiles, const char **colors);
-R_API char * r_print_colorize_opcode(RPrint *print, char *p, const char *reg, const char *num, bool partial_reset, ut64 func_addr);
-R_API const char * r_print_color_op_type(RPrint *p, ut32 anal_type);
+R_API char *r_print_colorize_opcode(RPrint *print, char *p, const char *reg, const char *num, bool partial_reset, ut64 func_addr);
+R_API const char *r_print_color_op_type(RPrint *p, ut32 anal_type);
 R_API void r_print_set_interrupted(int i);
 R_API void r_print_init_rowoffsets(RPrint *p);
 R_API ut32 r_print_rowoff(RPrint *p, int i);
 R_API void r_print_set_rowoff(RPrint *p, int i, ut32 offset, bool overwrite);
 R_API int r_print_row_at_off(RPrint *p, ut32 offset);
 R_API int r_print_pie(RPrint *p, ut64 *values, int nvalues, int size);
-
-R_API const char* r_print_rowlog(RPrint *print, const char *str);
-R_API void r_print_rowlog_done(RPrint *print, const char *str);
 R_API void r_print_graphline(RPrint *print, const ut8 *buf, size_t len);
 
 // WIP
@@ -267,6 +272,9 @@ R_API char* r_print_json_indent(const char* s, bool color, const char *tab, cons
 R_API char* r_print_json_human(const char* s);
 R_API char* r_print_json_path(const char* s, int pos);
 
+// code
+R_API char *r_print_code_tocolor(const char *s);
+R_API char *r_print_code_indent(const char *s);
 #endif
 
 #ifdef __cplusplus

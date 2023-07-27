@@ -1,10 +1,38 @@
+NAME=test 8051 reassembly
+FILE=--
+CMDS=!scripts/test-8051-reassembly.sh
+EXPECT=<<EOF
+Reassembling 8051... OK
+EOF
+EXPECT_ERR=<<EOF
+WARN: using oba to load the syminfo from different mapaddress
+EOF
+RUN
+
+NAME=rasm2 binary input
+FILE=-
+ARGS=-a arm -b 64
+CMDS=<<EOF
+!!rasm2 -a arm -b 64 -d Bx01000000_00000000_00000010_10001011
+!!rasm2 -a arm -b 64 -d 0b01000000_00000000_00000010_10001011
+!!rasm2 -a arm -b 64 -d 0100_0000_0000_0000_0000_0010_1000_1011b
+!!rasm2 -a arm -b 64 -d 01000001000000000000001110001011b
+EOF
+EXPECT=<<EOF
+add x0, x2, x2
+add x0, x2, x2
+add x0, x2, x2
+add x1, x2, x3
+EOF
+RUN
+
 NAME=rasm2 i4004
 FILE=-
 CMDS=<<EOF
 !!rasm2 -L~4004
 EOF
 EXPECT=<<EOF
-adAe  4          i4004       LGPL3   Intel 4004 microprocessor
+ade 4           i4004       LGPL3   i4004 decoder plugin (by pancake, condret)
 EOF
 RUN
 
@@ -80,7 +108,7 @@ RUN
 
 NAME=2: rasm2
 FILE=-
-CMDS=!rasm2 -a x86 -b 64 -d "5589e583ec2083f8000f8507000000b800000000eb05b80100000083c4205dc3" 
+CMDS=!rasm2 -a x86 -b 64 -d "5589e583ec2083f8000f8507000000b800000000eb05b80100000083c4205dc3"
 EXPECT=<<EOF
 push rbp
 mov ebp, esp
@@ -98,7 +126,7 @@ RUN
 
 NAME=rasm2 #1167
 FILE=-
-CMDS=!rasm2 -a x86 -b 64 "cmp rax,rbx" 
+CMDS=!rasm2 -a x86 -b 64 "cmp rax,rbx"
 EXPECT=<<EOF
 4839d8
 EOF
@@ -106,7 +134,7 @@ RUN
 
 NAME=rasm2 #1167 2
 FILE=-
-CMDS=!rasm2 -a x86 -b 64 "test rax, rbx" 
+CMDS=!rasm2 -a x86 -b 64 "test rax, rbx"
 EXPECT=<<EOF
 4885d8
 EOF
@@ -114,22 +142,38 @@ RUN
 
 NAME=rasm2 #1167 3
 FILE=-
-CMDS=!rasm2 -s att -a x86.as -b 64 "test %rbx, %rax" 
+BROKEN=1
+REQUIRE=gas linux x86
+CMDS=!rasm2 -s att -a x86.as -b 64 "test %rbx, %rax"
 EXPECT=<<EOF
 4885d8
 EOF
 RUN
 
-NAME=rasm2 #1167 4
+NAME=rasm2 -s att -a x86.as -b 64 movq %rdx, %rax
+BROKEN=1
 FILE=-
-CMDS=!rasm2 -s intel -a x86.as -b 64 "test rax, rbx" 
+REQUIRE=gas linux x86
+CMDS=!rasm2 -s att -a x86.as -b 64 "movq %rdx, %rax"
+EXPECT=<<EOF
+4889d0
+EOF
+RUN
+
+NAME=rasm2 #1167 4
+BROKEN=1
+FILE=-
+REQUIRE=gas linux x86
+CMDS=!rasm2 -s intel -a x86.as -b 64 "test rax, rbx"
 EXPECT=<<EOF
 4885d8
 EOF
 RUN
 
 NAME=rasm2 #1167 5
+BROKEN=1
 FILE=-
+REQUIRE=gas linux x86
 CMDS=!rasm2 -s att -a x86.as -b 64 "add \$33, %rbx"
 EXPECT=<<EOF
 4883c321
@@ -137,8 +181,10 @@ EOF
 RUN
 
 NAME=rasm2 #1167 6
+BROKEN=1
 FILE=-
-CMDS=!rasm2 -s intel -a x86.as -b 64 "add rbx, 33" 
+REQUIRE=gas linux x86
+CMDS=!rasm2 -s intel -a x86.as -b 64 "add rbx, 33"
 EXPECT=<<EOF
 4883c321
 EOF
@@ -161,33 +207,27 @@ RUN
 NAME=rasm2 #1900 (detect syntax error - case 1)
 FILE=-
 CMDS=!rasm2 -a x86 -b 32 "mov hello, eax"
-EXPECT=<<EOF
-EOF
+EXPECT=
 EXPECT_ERR=<<EOF
-Cannot assemble 'mov hello, eax' at line 3
-invalid
+ERROR: Cannot assemble 'mov hello, eax' at line 3
 EOF
 RUN
 
 NAME=rasm2 #1900 (detect syntax error - case 2)
 FILE=-
 CMDS=!rasm2 -a x86 -b 32 "mov 33, eax"
-EXPECT=<<EOF
-EOF
+EXPECT=
 EXPECT_ERR=<<EOF
-Cannot assemble 'mov 33, eax' at line 3
-invalid
+ERROR: Cannot assemble 'mov 33, eax' at line 3
 EOF
 RUN
 
 NAME=rasm2 #1900 (detect syntax error - case 3)
 FILE=-
 CMDS=!rasm2 -a x86 -b 32 "mov eax, hello"
-EXPECT=<<EOF
-EOF
+EXPECT=
 EXPECT_ERR=<<EOF
-Cannot assemble 'mov eax, hello' at line 3
-invalid
+ERROR: Cannot assemble 'mov eax, hello' at line 3
 EOF
 RUN
 
@@ -196,8 +236,7 @@ FILE=-
 CMDS=!rasm2 -a x86 -b 32 "mov eax, 0x1122334455"
 EXPECT=
 EXPECT_ERR=<<EOF
-Cannot assemble 'mov eax, 0x1122334455' at line 3
-invalid
+ERROR: Cannot assemble 'mov eax, 0x1122334455' at line 3
 EOF
 RUN
 
@@ -209,16 +248,14 @@ CMDS=<<EOF
 EOF
 EXPECT=
 EXPECT_ERR=<<EOF
-Cannot assemble 'mov rax, 0x112233445566778899' at line 3
-invalid
-Cannot assemble 'mov eax, 0x1122334455' at line 3
-invalid
+ERROR: Cannot assemble 'mov rax, 0x112233445566778899' at line 3
+ERROR: Cannot assemble 'mov eax, 0x1122334455' at line 3
 EOF
 RUN
 
 NAME=rasm2 #9197
 FILE=-
-CMDS=!rasm2 -a arm -b 64 "ldur x1, [x29, -8]" 
+CMDS=!rasm2 -a arm -b 64 "ldur x1, [x29, -8]"
 EXPECT=<<EOF
 a1835ff8
 EOF
@@ -274,7 +311,7 @@ RUN
 
 NAME=rasm2 -F pseudo
 FILE=-
-CMDS=!rasm2 -a x86 -b 32 -o 0xa -F x86.pseudo -D 31ed 
+CMDS=!rasm2 -a x86 -b 32 -o 0xa -F x86.pseudo -D 31ed
 EXPECT=<<EOF
 0x0000000a   2                     31ed  ebp = 0
 EOF
@@ -304,17 +341,10 @@ EXPECT=<<EOF
 EOF
 RUN
 
-NAME=rasm2 -s att -a x86.as -b 64 movq %rdx, %rax
-FILE=-
-CMDS=!rasm2 -s att -a x86.as -b 64 "movq %rdx, %rax"
-EXPECT=<<EOF
-4889d0
-EOF
-RUN
 
-NAME=rasm2 -v~commit?"
+NAME=rasm2 -v~birth?"
 FILE=-
-CMDS=!!rasm2 -v~commit?
+CMDS=!!rasm2 -v~birth?
 EXPECT=<<EOF
 1
 EOF
@@ -473,25 +503,50 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=rasm2 -LL
+FILE=-
+REQUIRE=unix
+CMDS=<<EOF
+!rasm2 -LL | grep -c null
+EOF
+EXPECT=<<EOF
+1
+EOF
+RUN
+
 NAME=rasm2 -L
 FILE=-
+REQUIRE=unix
 CMDS=!rasm2 -L | grep -c arm.gnu
 EXPECT=<<EOF
 1
 EOF
 RUN
 
+NAME=rasm2 -L internal grep
+FILE=-
+CMDS=<<EOF
+!!rasm2 -L~arm?
+!!rasm2 -L~arm.gnu?
+EOF
+EXPECT=<<EOF
+17
+1
+EOF
+RUN
+
 NAME=rasm2 -qL
 FILE=-
-CMDS=!rasm2 -qL | grep -c arm.gnu
+REQUIRE=unix
+CMDS=!rasm2 -qL | grep -c arm
 EXPECT=<<EOF
-1
+4
 EOF
 RUN
 
 NAME=rasm2 -v
 FILE=-
-CMDS=!rasm2 -v  | grep -c build
+CMDS=!rasm2 -v  | grep -c birth
 EXPECT=<<EOF
 1
 EOF
@@ -539,29 +594,43 @@ RUN
 
 NAME=rasm -a sh -d
 FILE=-
-CMDS=!rasm2 -a sh -d "008d 0b00 2920 fb8f 0900 0b42 e031"
+CMDS=!rasm2 -a sh -d "8d00 000b 2029 8ffb 0009 420b 31e0"
 EXPECT=<<EOF
-bt.s 0x00000004
-rts
-and r2, r0
-bf.s 0x00000000
-nop
-jsr @r2
-cmp/eq r14, r1
+mov.w @(r0,r8), r0
+.word 0x000b0000
+mov.b r2, @r9
+.word 0x0f0b080f
+.word 0x00090000
+stc spc, r11
+mov 0x31, r0
 EOF
 RUN
 
 NAME=rasm -a sh -D
 FILE=-
-CMDS=!rasm2 -a sh -D "008d 0b00 2920 fb8f 0900 0b42 e031"
+CMDS=!rasm2 -a sh -D "8d00 000b 2029 8ffb 0009 420b 31e0"
 EXPECT=<<EOF
-0x00000000   2                     008d  bt.s 0x00000004
-0x00000002   2                     0b00  rts
-0x00000004   2                     2920  and r2, r0
-0x00000006   2                     fb8f  bf.s 0x00000000
-0x00000008   2                     0900  nop
-0x0000000a   2                     0b42  jsr @r2
-0x0000000c   2                     e031  cmp/eq r14, r1
+0x00000000   2                     8d00  mov.w @(r0,r8), r0
+0x00000002   2                     000b  .word 0x000b0000
+0x00000004   2                     2029  mov.b r2, @r9
+0x00000006   2                     8ffb  .word 0x0f0b080f
+0x00000008   2                     0009  .word 0x00090000
+0x0000000a   2                     420b  stc spc, r11
+0x0000000c   2                     31e0  mov 0x31, r0
+EOF
+RUN
+
+NAME=rasm -a sh -eD
+FILE=-
+CMDS=!rasm2 -a sh -eD "8d00 000b 2029 8ffb 0009 420b 31e0"
+EXPECT=<<EOF
+0x00000000   2                     8d00  bt.s 0x00000004
+0x00000002   2                     000b  rts
+0x00000004   2                     2029  and r2, r0
+0x00000006   2                     8ffb  bf.s 0x00000000
+0x00000008   2                     0009  nop
+0x0000000a   2                     420b  jsr @r2
+0x0000000c   2                     31e0  cmp/eq r14, r1
 EOF
 RUN
 

@@ -9,23 +9,16 @@
 #include "libgdbr.h"
 #include "packet.h"
 #include "utils.h"
-#include "r_util/r_str.h"
+#include <r_util.h>
 
 static int _server_handle_qSupported(libgdbr_t *g) {
 	int ret;
-	char *buf;
-	if (!(buf = malloc (128))) {
-		return -1;
-	}
-	snprintf (buf, 127, "PacketSize=%x;QStartNoAckMode+;qXfer:exec-file:read+",
-		  (ut32) (g->read_max - 1));
+	char buf[128];
+	snprintf (buf, sizeof (buf), "PacketSize=%x;QStartNoAckMode+;qXfer:exec-file:read+", (ut32) (g->read_max - 1));
 	if ((ret = handle_qSupported (g)) < 0) {
-		free (buf);
 		return -1;
 	}
-	ret = send_msg (g, buf);
-	free (buf);
-	return ret;
+	return send_msg (g, buf);
 }
 
 static int _server_handle_qTStatus(libgdbr_t *g) {
@@ -40,7 +33,7 @@ static int _server_handle_qTStatus(libgdbr_t *g) {
 
 static int _server_handle_qOffsets(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
 	char buf[64], *ptr;
-	ptr = buf + sprintf (buf, "TextSeg=");
+	ptr = buf + snprintf (buf, sizeof (buf), "TextSeg=");
 	if (send_ack (g) < 0) {
 		return -1;
 	}
@@ -53,7 +46,7 @@ static int _server_handle_qOffsets(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void
 
 static int _server_handle_exec_file_read(libgdbr_t *g, gdbr_server_cmd_cb cb,
 					 void *core_ptr) {
-	char *buf, *ptr, cmd[64] = { 0 };
+	char *buf, *ptr, cmd[64] = {0};
 	size_t buflen = 512;
 	int ret;
 	if (send_ack (g) < 0) {
@@ -106,7 +99,7 @@ static int _server_handle_M(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_
 	}
 	snprintf (buf, memlen2 + 63, "wx 0x%s @ 0x%"PFMT64x, memstr, addr);
 	buf[memlen2 + 63] = '\0';
-	eprintf ("buf: %s\n", buf);
+	R_LOG_DEBUG ("%s: buf: %s", __func__, buf);
 	if (cmd_cb (g, core_ptr, buf, NULL, 0) < 0) {
 		free (buf);
 		return send_msg (g, "E01");
@@ -156,7 +149,7 @@ static int _server_handle_c(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_
 }
 
 static int _server_handle_ques(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
-	char message[64] = { 0 };
+	char message[64] = {0};
 	if (send_ack (g) < 0) {
 		return -1;
 	}
@@ -234,6 +227,7 @@ static int _server_handle_z(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_
 
 static int _server_handle_vCont(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
 	char *action = NULL;
+	char *save_ptr = NULL;
 	if (send_ack (g) < 0) {
 		return -1;
 	}
@@ -242,11 +236,11 @@ static int _server_handle_vCont(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *c
 		// Query about everything we support
 		return send_msg (g, "vCont;c;s");
 	}
-	if (!(action = strtok (g->data, ";"))) {
+	if (!(action = r_str_tok_r (g->data, ";", &save_ptr))) {
 		return send_msg (g, "E01");
 	}
-	while ((action = strtok (NULL, ";"))) {
-		eprintf ("action: %s\n", action);
+	while ((action = r_str_tok_r (NULL, ";", &save_ptr))) {
+		R_LOG_DEBUG ("%s: action: %s", __func__, action);
 		switch (action[0]) {
 		case 's':
 			// TODO handle thread selections
@@ -415,7 +409,7 @@ static int _server_handle_m(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_
 
 // Read register number
 static int _server_handle_p(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
-	char message[128] = { 0 }, cmd[128] = { 0 };
+	char message[128] = {0}, cmd[128] = { 0 };
 	int regnum, i;
 	if (send_ack (g) < 0) {
 		return -1;
@@ -492,13 +486,12 @@ static int _server_handle_qTfV(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *co
 }
 
 int gdbr_server_serve(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
-	int ret;
-	if (!g) {
-		return -1;
-	}
-	while (1) {
+	r_return_val_if_fail (g, -1);
+	int ret = -1;
+	for (;;) {
 		if (read_packet (g, false) < 0) {
-			continue;
+			break;
+			// continue;
 		}
 		if (g->data_len == 0) {
 			continue;
@@ -646,9 +639,7 @@ int gdbr_server_serve(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
 				return -1;
 			}
 			g->no_ack = true;
-			if (g->server_debug) {
-				eprintf ("[noack mode enabled]\n");
-			}
+			R_LOG_DEBUG ("[noack mode enabled]");
 			if (send_msg (g, "OK") < 0) {
 				return -1;
 			}
@@ -657,7 +648,7 @@ int gdbr_server_serve(libgdbr_t *g, gdbr_server_cmd_cb cmd_cb, void *core_ptr) {
 		// Unrecognized packet
 		if (send_ack (g) < 0 || send_msg (g, "") < 0) {
 			g->data[g->data_len] = '\0';
-			eprintf ("Unknown packet: %s\n", g->data);
+			R_LOG_ERROR ("%s: Unknown packet: %s", __func__, g->data);
 			return -1;
 		}
 	};

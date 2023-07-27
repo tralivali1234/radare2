@@ -1,10 +1,10 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2023 - pancake, nibble */
 
 #define R_BIN_ELF64 1
-#include "bin_elf.inc"
+#include "bin_elf.inc.c"
 
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut8 buf[5] = {0};
 	if (r_buf_size (b) > 4) {
 		r_buf_read_at (b, 0, buf, sizeof (buf));
@@ -18,9 +18,9 @@ static bool check_buffer(RBuffer *b) {
 extern struct r_bin_dbginfo_t r_bin_dbginfo_elf64;
 extern struct r_bin_write_t r_bin_write_elf64;
 
-static ut64 get_elf_vaddr64 (RBinFile *bf, ut64 baddr, ut64 paddr, ut64 vaddr) {
+static ut64 get_elf_vaddr64(RBinFile *bf, ut64 baddr, ut64 paddr, ut64 vaddr) {
 	//NOTE(aaSSfxxx): since RVA is vaddr - "official" image base, we just need to add imagebase to vaddr
-	struct Elf_(r_bin_elf_obj_t)* obj = bf->o->bin_obj;
+	struct Elf_(obj_t)* obj = bf->o->bin_obj;
 	return obj->baddr - obj->boffset + vaddr;
 }
 
@@ -116,8 +116,8 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 	/* Append code */
 	B (code, codelen);
 
-	if (data && datalen>0) {
-		eprintf ("Warning: DATA section not support for ELF yet\n");
+	if (data && datalen > 0) {
+		R_LOG_WARN ("DATA section not support for ELF yet");
 		B (data, datalen);
 	}
 	return buf;
@@ -129,14 +129,18 @@ RBinPlugin r_bin_plugin_elf64 = {
 	.license = "LGPL3",
 	.get_sdb = &get_sdb,
 	.check_buffer = &check_buffer,
-	.load_buffer= &load_buffer,
+	.load_buffer = &load_buffer,
 	.destroy = &destroy,
 	.baddr = &baddr,
 	.boffset = &boffset,
 	.binsym = &binsym,
 	.entries = &entries,
+#if R2_590
+	.sections_vec = &sections_vec,
+#else
 	.sections = &sections,
-	.symbols = &symbols,
+#endif
+	.symbols_vec = symbols_vec,
 	.imports = &imports,
 	.minstrlen = 4,
 	.info = &info,

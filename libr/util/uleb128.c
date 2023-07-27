@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2021 - pancake */
+/* radare - LGPL - Copyright 2014-2023 - pancake */
 
 #include "r_util/r_str.h"
 #include <r_util.h>
@@ -10,6 +10,9 @@ R_API const ut8 *r_uleb128(const ut8 *data, int datalen, ut64 *v, const char **e
 	ut64 s, sum = 0;
 	const ut8 *data_end;
 	bool malformed_uleb = true;
+	if (!data) {
+		return NULL;
+	}
 	if (v) {
 		*v = 0LL;
 	}
@@ -27,7 +30,7 @@ R_API const ut8 *r_uleb128(const ut8 *data, int datalen, ut64 *v, const char **e
 				c = *(data++) & 0xff;
 				if (s > 63) {
 					if (error) {
-						*error = r_str_newf ("r_uleb128: undefined behaviour in %d shift on ut32\n", (int)s);
+						*error = r_str_newf ("r_uleb128: undefined behaviour in %d shift on ut32", (int)s);
 					}
 					break;
 				} else {
@@ -40,7 +43,7 @@ R_API const ut8 *r_uleb128(const ut8 *data, int datalen, ut64 *v, const char **e
 			}
 			if (malformed_uleb) {
 				if (error) {
-					*error = r_str_newf ("malformed uleb128\n");
+					*error = r_str_newf ("malformed uleb128");
 				}
 			}
 		} else {
@@ -53,7 +56,7 @@ R_API const ut8 *r_uleb128(const ut8 *data, int datalen, ut64 *v, const char **e
 	return data;
 }
 
-R_API int r_uleb128_len (const ut8 *data, int size) {
+R_API int r_uleb128_len(const ut8 *data, int size) {
 	int i = 1;
 	ut8 c = *(data++);
 	while (c > 0x7f && i < size) {
@@ -136,7 +139,9 @@ R_API const ut8 *r_leb128(const ut8 *data, int datalen, st64 *v) {
 		}
 	}
 	if ((s < (8 * sizeof (sum))) && (c & 0x40)) {
-		sum |= -((st64)1 << s);
+		if (s >= 0 && s < 63) {
+			sum |= -((st64)1 << s);
+		}
 	}
 beach:
 	if (v) {
@@ -156,11 +161,13 @@ R_API st64 r_sleb128(const ut8 **data, const ut8 *end) {
 		st64 chunk;
 		value = *p;
 		chunk = value & 0x7f;
-		result |= (chunk << offset);
+		if (offset < 64) {
+			result |= (chunk << offset);
+		}
 		offset += 7;
 	} while (cond = *p & 0x80 && p + 1 < end, p++, cond);
 
-	if ((value & 0x40) != 0) {
+	if ((value & 0x40) != 0 && offset < 64) {
 		result |= ~0ULL << offset;
 	}
 	*data = p;
@@ -182,12 +189,12 @@ R_API st64 r_sleb128(const ut8 **data, const ut8 *end) {
 #define LEB128_9(type) (BYTE_AT (type, 8, 56) | LEB128_8 (type))
 #define LEB128_10(type) (BYTE_AT (type, 9, 63) | LEB128_9 (type))
 
-#define SHIFT_AMOUNT(type, sign_bit) (sizeof(type) * 8 - 1 - (sign_bit))
+#define SHIFT_AMOUNT(type, sign_bit) (sizeof (type) * 8 - 1 - (sign_bit))
 #define SIGN_EXTEND(type, value, sign_bit) \
 	((type)((value) << SHIFT_AMOUNT (type, sign_bit)) >> \
 		SHIFT_AMOUNT (type, sign_bit))
 
-R_API size_t read_u32_leb128 (const ut8* p, const ut8* max, ut32* out_value) {
+R_API size_t read_u32_leb128(const ut8* p, const ut8* max, ut32* out_value) {
 	if (p < max && !(p[0] & 0x80)) {
 		*out_value = LEB128_1 (ut32);
 		return 1;
@@ -212,7 +219,7 @@ R_API size_t read_u32_leb128 (const ut8* p, const ut8* max, ut32* out_value) {
 	}
 }
 
-R_API size_t read_i32_leb128 (const ut8* p, const ut8* max, st32* out_value) {
+R_API size_t read_i32_leb128(const ut8* p, const ut8* max, st32* out_value) {
 	if (p < max && !(p[0] & 0x80)) {
 		ut32 result = LEB128_1 (ut32);
 		*out_value = SIGN_EXTEND (ut32, result, 6);
@@ -245,7 +252,7 @@ R_API size_t read_i32_leb128 (const ut8* p, const ut8* max, st32* out_value) {
 	}
 }
 
-R_API size_t read_u64_leb128 (const ut8* p, const ut8* max, ut64* out_value) {
+R_API size_t read_u64_leb128(const ut8* p, const ut8* max, ut64* out_value) {
 	if (p < max && !(p[0] & 0x80)) {
 		*out_value = LEB128_1 (ut64);
 		return 1;
@@ -283,7 +290,7 @@ R_API size_t read_u64_leb128 (const ut8* p, const ut8* max, ut64* out_value) {
 	}
 }
 
-R_API size_t read_i64_leb128 (const ut8* p, const ut8* max, st64* out_value) {
+R_API size_t read_i64_leb128(const ut8* p, const ut8* max, st64* out_value) {
 	if (p < max && !(p[0] & 0x80)) {
 		ut64 result = LEB128_1 (ut64);
 		*out_value = SIGN_EXTEND (ut64, result, 6);

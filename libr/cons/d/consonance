@@ -1,7 +1,7 @@
 # background of the terminal must be 134 o 033
 # xterm -fn 10x20 -bg rgb:20/20/20 -fg rgb:d0/d0/d0
 # ref: https://github.com/eugeneching/ida-consonance/blob/master/ida-consonance.clr
-
+ecd
 ec b0x00 rgb:9aa
 ec b0x7f rgb:577
 ec b0xff rgb:8cf
@@ -50,9 +50,10 @@ ec graph.trufae rgb:4cf
 ec graph.current rgb:af2
 ec graph.traced rgb:090
 
-ec func_var rgb:fcc
-ec func_var_type rgb:f2a
-ec func_var_addr white
+ec var rgb:fcc
+ec var.type rgb:f2a
+ec var.addr white
+ec var.name rgb:fcc
 
 ec ai.read rgb:fcc
 ec ai.write rgb:f2a
@@ -60,5 +61,5 @@ ec ai.exec rgb:f2a
 ec ai.seq rgb:f0f
 ec ai.ascii rgb:fff
 
-ec widget_bg rgb:4cf rgb:344
-ec widget_sel black rgb:4cf
+ec widget.bg rgb:4cf rgb:344
+ec widget.sel black rgb:4cf

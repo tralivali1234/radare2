@@ -1,10 +1,6 @@
-/* radare - Copyright 2008-2020 - LGPL -- pancake */
+/* radare - Copyright 2008-2023 - LGPL -- pancake */
 
-#include <r_types.h>
-#include <r_util.h>
 #include <r_syscall.h>
-#include <stdio.h>
-#include <string.h>
 
 R_LIB_VERSION (r_syscall);
 
@@ -42,21 +38,28 @@ R_API void r_syscall_free(RSyscall *s) {
 	}
 }
 
+R_API SdbGperf *r_syscall_get_gperf(const char *k);
+
 static Sdb *openDatabase(Sdb *db, const char *name) {
-	char *file = r_str_newf ( R_JOIN_3_PATHS ("%s", R2_SDB, "%s.sdb"),
-		r_sys_prefix (NULL), name);
-	if (r_file_exists (file)) {
-		if (db) {
-			sdb_reset (db);
-			sdb_open (db, file);
-		} else {
-			db = sdb_new (0, file, 0);
-		}
+	SdbGperf *sg = r_syscall_get_gperf (name);
+	if (sg) {
+		sdb_reset (db);
+		sdb_open_gperf (db, sg);
 	} else {
-		sdb_free (db);
-		db = sdb_new0 ();
+		char *file = r_str_newf (R_JOIN_3_PATHS ("%s", R2_SDB, "%s.sdb"), r_sys_prefix (NULL), name);
+		if (r_file_exists (file)) {
+			if (db) {
+				sdb_reset (db);
+				sdb_open (db, file);
+			} else {
+				db = sdb_new (0, file, 0);
+			}
+		} else {
+			sdb_free (db);
+			db = sdb_new0 ();
+		}
+		free (file);
 	}
-	free (file);
 	return db;
 }
 
@@ -82,6 +85,7 @@ static inline bool sysregs_reload_needed(RSyscall *s, const char *arch, int bits
 
 // TODO: should be renamed to r_syscall_use();
 R_API bool r_syscall_setup(RSyscall *s, const char *arch, int bits, const char *cpu, const char *os) {
+	r_return_val_if_fail (s, false);
 	bool syscall_changed, sysregs_changed;
 
 	if (!os || !*os) {
@@ -112,10 +116,18 @@ R_API bool r_syscall_setup(RSyscall *s, const char *arch, int bits, const char *
 	}
 	if (!strcmp (arch, "avr")) {
 		s->sysport = sysport_avr;
-	} else if (!strcmp (os, "darwin") || !strcmp (os, "osx") || !strcmp (os, "macos")) {
+	}
+	if (!strcmp (os, "darwin") || !strcmp (os, "osx") || !strcmp (os, "macos")) {
 		os = "darwin";
+	} else if (!strcmp (os, "android")) {
+		os = "linux";
+	//	syscall_changed = true;
 	} else if (!strcmp (arch, "x86")) {
 		s->sysport = sysport_x86;
+	}
+	if (r_str_startswith (arch, "arm") && bits == 16 && !strcmp (os, "linux")) {
+	//	syscall_changed = true;
+		bits = 32;
 	}
 
 	if (syscall_changed) {
@@ -200,26 +212,26 @@ R_API int r_syscall_get_swi(RSyscall *s) {
 
 R_API RSyscallItem *r_syscall_get(RSyscall *s, int num, int swi) {
 	r_return_val_if_fail (s && s->db, NULL);
-	const char *ret, *ret2, *key;
+	char key[128];
 	swi = getswi (s, swi);
 	if (swi < 16) {
-		key = sdb_fmt ("%d.%d", swi, num);
+		snprintf (key, sizeof (key), "%d.%d", swi, num);
 	} else {
-		key = sdb_fmt ("0x%02x.%d", swi, num);
+		snprintf (key, sizeof (key), "0x%02x.%d", swi, num);
 	}
-	ret = sdb_const_get (s->db, key, 0);
+	const char *ret = sdb_const_get (s->db, key, 0);
 	if (!ret) {
-		key = sdb_fmt ("0x%02x.0x%02x", swi, num); // Workaround until Syscall SDB is fixed
+		snprintf (key, sizeof (key), "0x%02x.0x%02x", swi, num); // Workaround until Syscall SDB is fixed
 		ret = sdb_const_get (s->db, key, 0);
 		if (!ret) {
-			key = sdb_fmt ("0x%02x.%d", num, swi); // Workaround until Syscall SDB is fixed
+			snprintf (key, sizeof (key), "0x%02x.%d", num, swi); // Workaround until Syscall SDB is fixed
 			ret = sdb_const_get (s->db, key, 0);
 			if (!ret) {
 				return NULL;
 			}
 		}
 	}
-	ret2 = sdb_const_get (s->db, ret, 0);
+	const char *ret2 = sdb_const_get (s->db, ret, 0);
 	if (!ret2) {
 		return NULL;
 	}
@@ -262,6 +274,9 @@ static bool callback_list(void *u, const char *k, const char *v) {
 R_API RList *r_syscall_list(RSyscall *s) {
 	r_return_val_if_fail (s && s->db, NULL);
 	RList *list = r_list_newf ((RListFree)r_syscall_item_free);
+	if (!list) {
+		return NULL;
+	}
 	sdb_foreach (s->db, callback_list, list);
 	return list;
 }
@@ -284,6 +299,6 @@ R_API const char *r_syscall_get_io(RSyscall *s, int ioport) {
 
 R_API const char* r_syscall_sysreg(RSyscall *s, const char *type, ut64 num) {
 	r_return_val_if_fail (s && s->db, NULL);
-	const char *key = sdb_fmt ("%s,%"PFMT64d, type, num);
+	r_strf_var (key, 64, "%s,%"PFMT64d, type, num);
 	return sdb_const_get (s->db, key, 0);
 }

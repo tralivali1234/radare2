@@ -14,25 +14,41 @@ NAME=armr - functions bits
 FILE=bins/arm/elf/hello_world
 CMDS=<<EOF
 aaa
-pi 1@@f
+pid 1@@f
 EOF
 EXPECT=<<EOF
-mov.w fp, 0
-add ip, pc, 0, 12
-ldr r3, [0x00000460]
-ldr r0, [0x00000484]
-ldr r0, [0x000004b8]
-push {r3, lr}
-add ip, pc, 0, 12
-b sym.register_tm_clones
-bx lr
-push {r3, lr}
-push.w {r3, r4, r5, r6, r7, r8, sb, lr}
-push {r7, lr}
-add ip, pc, 0, 12
-push {r3, lr}
-add ip, pc, 0, 12
-str lr, [sp, -4]!
+0x000003c0   sym.imp.__cxa_finalize:
+0x000003c0             00c68fe2  add ip, pc, 0, 12
+0x000003cc   sym.imp.puts:
+0x000003cc             00c68fe2  add ip, pc, 0, 12
+0x000003d8   sym.imp.__libc_start_main:
+0x000003d8             00c68fe2  add ip, pc, 0, 12
+0x000003f0   sym.imp.abort:
+0x000003f0             00c68fe2  add ip, pc, 0, 12
+0x000003fc   r15:
+0x000003fc             4ff0000b  mov.w fp, 0
+0x00000444   sym.call_weak_fn:
+0x00000444             14309fe5  ldr r3, [pc, 0x14]
+0x00000468   sym.deregister_tm_clones:
+0x00000468                 0648  ldr r0, [pc, 0x18]
+0x00000494   sym.register_tm_clones:
+0x00000494                 0848  ldr r0, [pc, 0x20]
+0x000004c8   sym.__do_global_dtors_aux:
+0x000004c8                 08b5  push {r3, lr}
+0x00000508   sym.frame_dummy:
+0x00000508                 c4e7  b sym.register_tm_clones
+0x00000564   sym.__libc_csu_fini:
+0x00000564                 7047  bx lr
+0x00000568   sym._fini:
+0x00000568             08402de9  push {r3, lr}
+0x00000524   sym.__libc_csu_init:
+0x00000524             2de9f843  push.w {r3, r4, r5, r6, r7, r8, sb, lr}
+0x0000050c   sym.main:
+0x0000050c                 80b5  push {r7, lr}
+0x000003a0   sym._init:
+0x000003a0             08402de9  push {r3, lr}
+0x000003ac   sym..plt:
+0x000003ac             04e02de5  str lr, [sp, -4]!
 EOF
 RUN
 
@@ -48,7 +64,7 @@ NAME=x86 - init_array detection2
 FILE=bins/elf/analysis/x86-helloworld-gcc
 CMDS=iS~init_array
 EXPECT=<<EOF
-18  0x0000059c    0x4 0x0804959c    0x4 -rw- .init_array
+18  0x0000059c    0x4 0x0804959c    0x4 -rw- INIT_ARRAY  .init_array
 EOF
 RUN
 
@@ -63,10 +79,22 @@ EXPECT=<<EOF
 0x0804818c CCu "[04] -r-- section size 32 named .gnu.hash"
 0x080481ac CCu "[05] -r-- section size 80 named .dynsym"
 0x080481fc CCu "[06] -r-- section size 74 named .dynstr"
+0x080481fd ascii[10] "libc.so.6"
+0x08048207 ascii[15] "_IO_stdin_used"
+0x08048216 ascii[5] "puts"
+0x0804821b ascii[18] "__libc_start_main"
+0x0804822d ascii[15] "__gmon_start__"
+0x0804823c ascii[10] "GLIBC_2.0"
 0x08048246 CCu "[07] -r-- section size 10 named .gnu.version"
 0x08048250 CCu "[08] -r-- section size 32 named .gnu.version_r"
 0x08048270 CCu "[09] -r-- section size 8 named .rel.dyn"
 0x08048278 CCu "[10] -r-- section size 24 named .rel.plt"
+0x08048278 data Cd 4
+0x0804827c data Cd 4
+0x08048280 data Cd 4
+0x08048284 data Cd 4
+0x08048288 data Cd 4
+0x0804828c data Cd 4
 0x08048290 CCu "[11] -r-x section size 35 named .init"
 0x080482c0 CCu "[12] -r-x section size 64 named .plt"
 0x08048300 CCu "[13] -r-x section size 404 named .text"
@@ -80,8 +108,8 @@ EXPECT=<<EOF
 0x080495a0 data Cd 4
 0x080495a0 CCu "[19] -rw- section size 4 named .fini_array"
 0x080495a4 CCu "[20] -rw- section size 4 named .jcr"
-0x080495a8 data Cd 4
 0x080495a8 CCu "[21] -rw- section size 232 named .dynamic"
+0x080495a8 data Cd 4
 0x080495ac data Cd 4
 0x080495b0 data Cd 4
 0x080495b4 data Cd 4
@@ -139,8 +167,8 @@ EXPECT=<<EOF
 0x08049684 data Cd 4
 0x08049688 data Cd 4
 0x0804968c data Cd 4
-0x08049690 data Cd 4
 0x08049690 CCu "[22] -rw- section size 4 named .got"
+0x08049690 data Cd 4
 0x08049694 CCu "[23] -rw- section size 24 named .got.plt"
 0x080496a0 data Cd 4
 0x080496a4 data Cd 4
@@ -161,10 +189,22 @@ CCu base64:WzAzXSAtci0tIHNlY3Rpb24gc2l6ZSAzNiBuYW1lZCAubm90ZS5nbnUuYnVpbGQtaWQ= 
 CCu base64:WzA0XSAtci0tIHNlY3Rpb24gc2l6ZSAzMiBuYW1lZCAuZ251Lmhhc2g= @ 0x0804818c
 CCu base64:WzA1XSAtci0tIHNlY3Rpb24gc2l6ZSA4MCBuYW1lZCAuZHluc3lt @ 0x080481ac
 CCu base64:WzA2XSAtci0tIHNlY3Rpb24gc2l6ZSA3NCBuYW1lZCAuZHluc3Ry @ 0x080481fc
+Cs 10 @ 0x080481fd # libc.so.6
+Cs 15 @ 0x08048207 # _IO_stdin_used
+Cs 5 @ 0x08048216 # puts
+Cs 18 @ 0x0804821b # __libc_start_main
+Cs 15 @ 0x0804822d # __gmon_start__
+Cs 10 @ 0x0804823c # GLIBC_2.0
 CCu base64:WzA3XSAtci0tIHNlY3Rpb24gc2l6ZSAxMCBuYW1lZCAuZ251LnZlcnNpb24= @ 0x08048246
 CCu base64:WzA4XSAtci0tIHNlY3Rpb24gc2l6ZSAzMiBuYW1lZCAuZ251LnZlcnNpb25fcg== @ 0x08048250
 CCu base64:WzA5XSAtci0tIHNlY3Rpb24gc2l6ZSA4IG5hbWVkIC5yZWwuZHlu @ 0x08048270
 CCu base64:WzEwXSAtci0tIHNlY3Rpb24gc2l6ZSAyNCBuYW1lZCAucmVsLnBsdA== @ 0x08048278
+Cd 4 @ 0x08048278
+Cd 4 @ 0x0804827c
+Cd 4 @ 0x08048280
+Cd 4 @ 0x08048284
+Cd 4 @ 0x08048288
+Cd 4 @ 0x0804828c
 CCu base64:WzExXSAtci14IHNlY3Rpb24gc2l6ZSAzNSBuYW1lZCAuaW5pdA== @ 0x08048290
 CCu base64:WzEyXSAtci14IHNlY3Rpb24gc2l6ZSA2NCBuYW1lZCAucGx0 @ 0x080482c0
 CCu base64:WzEzXSAtci14IHNlY3Rpb24gc2l6ZSA0MDQgbmFtZWQgLnRleHQ= @ 0x08048300
@@ -178,8 +218,8 @@ CCu base64:WzE4XSAtcnctIHNlY3Rpb24gc2l6ZSA0IG5hbWVkIC5pbml0X2FycmF5 @ 0x0804959c
 Cd 4 @ 0x080495a0
 CCu base64:WzE5XSAtcnctIHNlY3Rpb24gc2l6ZSA0IG5hbWVkIC5maW5pX2FycmF5 @ 0x080495a0
 CCu base64:WzIwXSAtcnctIHNlY3Rpb24gc2l6ZSA0IG5hbWVkIC5qY3I= @ 0x080495a4
-Cd 4 @ 0x080495a8
 CCu base64:WzIxXSAtcnctIHNlY3Rpb24gc2l6ZSAyMzIgbmFtZWQgLmR5bmFtaWM= @ 0x080495a8
+Cd 4 @ 0x080495a8
 Cd 4 @ 0x080495ac
 Cd 4 @ 0x080495b0
 Cd 4 @ 0x080495b4
@@ -237,8 +277,8 @@ Cd 4 @ 0x08049680
 Cd 4 @ 0x08049684
 Cd 4 @ 0x08049688
 Cd 4 @ 0x0804968c
-Cd 4 @ 0x08049690
 CCu base64:WzIyXSAtcnctIHNlY3Rpb24gc2l6ZSA0IG5hbWVkIC5nb3Q= @ 0x08049690
+Cd 4 @ 0x08049690
 CCu base64:WzIzXSAtcnctIHNlY3Rpb24gc2l6ZSAyNCBuYW1lZCAuZ290LnBsdA== @ 0x08049694
 Cd 4 @ 0x080496a0
 Cd 4 @ 0x080496a4
@@ -250,9 +290,13 @@ RUN
 
 NAME=flags spaces
 FILE=bins/elf/analysis/x86-helloworld-gcc
-CMDS=fs
+ARGS=-e bin.types=true
+CMDS=<<EOF
+fs
+EOF
 EXPECT=<<EOF
     0 * classes
+    5 * format
     3 * imports
     3 * relocs
    30 * sections
@@ -265,12 +309,14 @@ RUN
 
 NAME=flags spaces after analysis
 FILE=bins/elf/analysis/x86-helloworld-gcc
+ARGS=-e bin.types=true
 CMDS=<<EOF
 aa;fs *;fs
 afl~?
 EOF
 EXPECT=<<EOF
     0 * classes
+    5 * format
     0 * functions
     3 * imports
     3 * relocs
@@ -285,9 +331,13 @@ RUN
 
 NAME=flags spaces after analysis again
 FILE=bins/elf/analysis/x86-helloworld-gcc
-CMDS=s entry0+4; af;fs *;fs
+ARGS=-e bin.types=true
+CMDS=<<EOF
+s entry0+4; af;fs *;fs
+EOF
 EXPECT=<<EOF
     0 * classes
+    5 * format
     1 * functions
     3 * imports
     3 * relocs
@@ -326,8 +376,8 @@ e search.in=io.maps
 p-
 EOF
 EXPECT=<<EOF
-0x08048000 [^._______ss_s__s_sss_ssssss_ss_ss__sz_s____] 0x0804859c
-0x08048000 [^_sssssszss_____________________________sss] 0x080496b8
+0x08048000 [^._______ss_s__zzzss_ssssss_ss_ss__sz_s____] 0x0804859c
+0x08048000 [^_szzssszss_____________________________sss] 0x080496b8
 EOF
 RUN
 
@@ -413,15 +463,21 @@ RUN
 
 NAME=flags (total)
 FILE=bins/elf/analysis/x86-helloworld-gcc
-CMDS=f~?
+ARGS=-e bin.types=true
+CMDS=<<EOF
+f~?
+EOF
 EXPECT=<<EOF
-106
+111
 EOF
 RUN
 
 NAME=flags
 FILE=bins/elf/analysis/x86-helloworld-gcc
-CMDS=f
+ARGS=-e bin.types=true
+CMDS=<<EOF
+f
+EOF
 EXPECT=<<EOF
 0x00000000 0 section.
 0x00000000 17 section..comment
@@ -430,6 +486,11 @@ EXPECT=<<EOF
 0x00000000 599 section..strtab
 0x00000000 0 segment.GNU_STACK
 0x00000000 0 sym..comment
+0x00000000 52 elf_header
+0x00000034 32 elf_phdr
+0x000001fc 74 elf_strtab
+0x000006c5 262 elf_shstrtab
+0x000007cc 40 elf_shdr
 0x08048000 1436 segment.LOAD0
 0x08048000 52 segment.ehdr
 0x08048034 256 segment.PHDR
@@ -543,7 +604,7 @@ EXPECT=<<EOF
   {
     "offset": 134513408,
     "esil": "ebp,ebp,^=,$z,zf,:=,$p,pf,:=,31,$s,sf,:=,0,cf,:=,0,of,:=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 0,
     "size": 2,
@@ -565,8 +626,8 @@ EXPECT=<<EOF
   },
   {
     "offset": 134513410,
-    "esil": "esp,[4],esi,=,4,esp,+=",
-    "refptr": false,
+    "esil": "esp,[4],4,esp,+=,esi,=",
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 0,
     "size": 1,
@@ -582,7 +643,7 @@ EXPECT=<<EOF
   {
     "offset": 134513411,
     "esil": "esp,ecx,=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 0,
     "size": 2,
@@ -599,7 +660,7 @@ EXPECT=<<EOF
     "offset": 134513413,
     "val": 4294967280,
     "esil": "4294967280,esp,&=,$z,zf,:=,$p,pf,:=,31,$s,sf,:=,0,cf,:=,0,of,:=",
-    "refptr": false,
+    "refptr": 0,
     "fcn_addr": 0,
     "fcn_last": 0,
     "size": 3,

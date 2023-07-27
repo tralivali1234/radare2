@@ -1,6 +1,6 @@
-/* radare2 - LGPL - Copyright 2009-2020 - pancake, nibble, dso */
+/* radare2 - LGPL - Copyright 2009-2023 - pancake, nibble, dso */
 
-#include "bin_elf.inc"
+#include "bin_elf.inc.c"
 
 static void headers32(RBinFile *bf) {
 #define p bf->rbin->cb_printf
@@ -20,7 +20,7 @@ static void headers32(RBinFile *bf) {
 	p ("0x00000032  ShrStrndx   %d\n", r_buf_read_le16_at (bf->buf, 0x32));
 }
 
-static bool check_buffer(RBuffer *buf) {
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	ut8 b[5] = {0};
 	r_buf_read_at (buf, 0, b, sizeof (b));
 	return !memcmp (b, ELFMAG, SELFMAG) && b[4] != 2;
@@ -118,7 +118,7 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 
 	if (data && datalen > 0) {
 		//ut32 data_section = buf->length;
-		eprintf ("Warning: DATA section not support for ELF yet\n");
+		R_LOG_WARN ("DATA section not support for ELF yet");
 		B (data, datalen);
 	}
 	return buf;
@@ -137,7 +137,8 @@ RBinPlugin r_bin_plugin_elf = {
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
-	.symbols = &symbols,
+	// .sections_vec = &sections_vec,
+	.symbols_vec = symbols_vec,
 	.minstrlen = 4,
 	.imports = &imports,
 	.info = &info,

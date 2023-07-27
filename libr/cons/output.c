@@ -1,10 +1,12 @@
-/* radare - LGPL - Copyright 2009-2019 - pancake */
+/* radare - LGPL - Copyright 2009-2022 - pancake */
 
 #include <r_cons.h>
+#include <r_th.h>
 #include <r_util/r_assert.h>
 #define I r_cons_singleton ()
 
-#if __WINDOWS__
+#if R2__WINDOWS__
+
 static void __fill_tail(int cols, int lines) {
 	lines++;
 	if (lines > 0) {
@@ -19,13 +21,15 @@ static void __fill_tail(int cols, int lines) {
 	}
 }
 
+static R_TH_LOCAL HANDLE hStdout = NULL;
+static R_TH_LOCAL HANDLE hStderr = NULL;
+static R_TH_LOCAL CONSOLE_SCREEN_BUFFER_INFO csbi;
+
 R_API void r_cons_w32_clear(void) {
-	static HANDLE hStdout = NULL;
-	static CONSOLE_SCREEN_BUFFER_INFO csbi;
 	COORD startCoords;
 	DWORD dummy;
 	if (I->vtmode) {
-		r_cons_strcat (Color_RESET R_CONS_CLEAR_SCREEN);
+		r_cons_print (Color_RESET R_CONS_CLEAR_SCREEN);
 		return;
 	}
 	if (I->is_wine == 1) {
@@ -48,9 +52,7 @@ R_API void r_cons_w32_clear(void) {
 }
 
 R_API void r_cons_w32_gotoxy(int fd, int x, int y) {
-	static HANDLE hStdout = NULL;
-	static HANDLE hStderr = NULL;
-	HANDLE *hConsole = fd == 1 ? &hStdout : &hStderr;
+	HANDLE *hConsole = (fd == 1)? &hStdout : &hStderr;
 	COORD coord;
 	coord.X = x;
 	coord.Y = y;
@@ -62,7 +64,8 @@ R_API void r_cons_w32_gotoxy(int fd, int x, int y) {
 		write (fd, "\x1b[0;0H", 6);
 	}
 	if (!*hConsole) {
-		*hConsole = GetStdHandle (fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
+		*hConsole = GetStdHandle ((fd == 1)?
+			STD_OUTPUT_HANDLE: STD_ERROR_HANDLE);
 	}
 	CONSOLE_SCREEN_BUFFER_INFO info;
 	GetConsoleScreenBufferInfo (*hConsole, &info);
@@ -211,7 +214,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 		if (esc == 1) {
 			// \x1b[2J
 			if (ptr[0] != '[') {
-				eprintf ("Oops invalid escape char\n");
+				R_LOG_ERROR ("Oops invalid escape char");
 				esc = 0;
 				str = ptr + 1;
 				continue;
@@ -235,7 +238,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 					}
 					break;
 				case 1:
-					if (ptr[i]=='H') {
+					if (ptr[i] == 'H') {
 						x = atoi (ptr2);
 						state = -2; // END OK
 					} else if (ptr[i] >='0' && ptr[i]<='9') {
@@ -253,7 +256,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 				continue;
 			}
 			bool bright = false;
-			if (ptr[0]=='0' && ptr[1] == ';' && ptr[2]=='0') {
+			if (ptr[0] == '0' && ptr[1] == ';' && ptr[2] == '0') {
 				// \x1b[0;0H
 				/** clear screen if gotoxy **/
 				if (vmode) {
@@ -266,13 +269,13 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 				ptr += 3;
 				str = ptr + 1;
 				continue;
-			} else if (ptr[0]=='2'&&ptr[1]=='J') {
+			} else if (ptr[0] == '2' && ptr[1] == 'J') {
 				r_cons_w32_clear ();
 				esc = 0;
 				ptr = ptr + 1;
 				str = ptr + 1;
 				continue;
-			} else if (ptr[0]=='0'&&(ptr[1]=='m' || ptr [1]=='K')) {
+			} else if (ptr[0] == '0' && (ptr[1] == 'm' || ptr [1] == 'K')) {
 				SetConsoleTextAttribute (hConsole, 1|2|4|8);
 				fg = 1|2|4|8;
 				bg = 0;
@@ -282,7 +285,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 				str = ptr + 1;
 				continue;
 				// reset color
-			} else if (ptr[0]=='2'&&ptr[1]=='7'&&ptr[2]=='m') {
+			} else if (ptr[0] == '2' && ptr[1] == '7' && ptr[2] == 'm') {
 				SetConsoleTextAttribute (hConsole, bg|fg);
 				inv = 0;
 				esc = 0;
@@ -290,7 +293,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 				str = ptr + 1;
 				continue;
 				// invert off
-			} else if (ptr[0]=='7'&&ptr[1]=='m') {
+			} else if (ptr[0] == '7' && ptr[1] == 'm') {
 				SetConsoleTextAttribute (hConsole, bg|fg|COMMON_LVB_REVERSE_VIDEO);
 				inv = COMMON_LVB_REVERSE_VIDEO;
 				esc = 0;
@@ -337,7 +340,7 @@ static int r_cons_w32_hprint(DWORD hdl, const char *ptr, int len, bool vmode) {
 				str = ptr + 1;
 				continue;
 			} else if ((ptr[0] == '4' && ptr[2] == 'm')
-			           || (bright = ptr[0] == '1' && ptr[1] == '0' && ptr[3] == 'm')) {
+					|| (bright = ptr[0] == '1' && ptr[1] == '0' && ptr[3] == 'm')) {
 				/* background color */
 				ut8 col = bright ? ptr[2] : ptr[1];
 				switch (col) {

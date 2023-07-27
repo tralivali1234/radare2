@@ -5,18 +5,21 @@
 #define _FILE_OFFSET_BITS 64
 
 // defines like IS_DIGIT, etc'
+#include <r_types_base.h>
 #include "r_util/r_str_util.h"
 #include <r_userconf.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <stdint.h> // required for uint64_t
+#include <inttypes.h> // required for PRIx64
 
 // TODO: fix this to make it crosscompile-friendly: R_SYS_OSTYPE ?
 /* operating system */
-#undef __BSD__
+#undef R2__BSD__
 #undef __KFBSD__
-#undef __UNIX__
-#undef __WINDOWS__
+#undef R2__UNIX__
+#undef R2__WINDOWS__
 
 #define R_MODE_PRINT 0x000
 #define R_MODE_RADARE 0x001
@@ -32,16 +35,28 @@
 #define R_OUT /* parameter is written, not read */
 #define R_INOUT /* parameter is read and written */
 #define R_OWN /* pointer ownership is transferred */
-#define R_BORROW /* pointer ownership is not transferred, it must not be freed by the receiver */
+#define R_BORROW /* pointer ownership is not transferred, it must not be freed by the caller */
 #define R_NONNULL /* pointer can not be null */
 #define R_NULLABLE /* pointer can be null */
-#define R_DEPRECATE /* should not be used in new code and should/will be removed in the future */
-#define R_IFNULL(x) /* default value for the pointer when null */
+
+/* should not be used in new code and should/will be removed in the future */
 #ifdef __GNUC__
-#define R_UNUSED __attribute__((__unused__))
+#  define R_DEPRECATE
+#  define R_DEPRECATED __attribute__((deprecated))
 #else
-#define R_UNUSED /* unused */
+#  define R_DEPRECATE
+#  define R_DEPRECATED
 #endif
+
+#ifdef __GNUC__
+#  define R_WIP __attribute__((deprecated))
+// ("this function is considered as work-in-progress", "use it at your own risk")))
+// warning doesnt work on llvm/clang, its a gcc specific thing,
+// __attribute__((warning("Don't use this function yet. its too new")))
+#else
+#  define R_WIP /* should not be used in new code and should/will be removed in the future */
+#endif
+#define R_IFNULL(x) /* default value for the pointer when null */
 
 #ifdef R_NEW
 #undef R_NEW
@@ -67,7 +82,8 @@
 #define R_PERM_RX	(R_PERM_R|R_PERM_X)
 #define R_PERM_RWX	(R_PERM_R|R_PERM_W|R_PERM_X)
 #define R_PERM_WX	(R_PERM_W|R_PERM_X)
-#define R_PERM_SHAR	8
+#define R_PERM_S	8
+#define R_PERM_SHAR	8 /* just S_PERM, instead of _SHAR -- R2_590 */
 #define R_PERM_PRIV	16
 #define R_PERM_ACCESS	32
 #define R_PERM_CREAT	64
@@ -82,16 +98,25 @@
 #define __POWERPC__ 1
 #endif
 
+#ifndef TARGET_OS_IPHONE
 #if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
 #define TARGET_OS_IPHONE 1
 #else
 #define TARGET_OS_IPHONE 0
 #endif
+#endif
 
-#if __IPHONE_8_0 && TARGET_OS_IPHONE
+#undef LIBC_HAVE_SYSTEM
+#undef HAVE_SYSTEM
+#if __IPHONE_8_0 && TARGET_OS_IPHONE && !defined(MAC_OS_VERSION_11_0)
 #define LIBC_HAVE_SYSTEM 0
+#define HAVE_SYSTEM 0
+#elif __wasi__
+#define LIBC_HAVE_SYSTEM 0
+#define HAVE_SYSTEM 0
 #else
 #define LIBC_HAVE_SYSTEM 1
+#define HAVE_SYSTEM 1
 #endif
 
 #if APPLE_SDK_IPHONEOS || APPLE_SDK_APPLETVOS || APPLE_SDK_WATCHOS || APPLE_SDK_APPLETVSIMULATOR || APPLE_SDK_WATCHSIMULATOR
@@ -130,13 +155,7 @@
 #  define UNUSED_FUNCTION(x) UNUSED_ ## x
 #endif
 
-#ifdef __EMSCRIPTEN__
-# define __UNIX__ 1
-#endif
-
-#ifdef __HAIKU__
-# define __UNIX__ 1
-#endif
+#define R_UNUSED_RESULT(x) if ((x)) {}
 
 #if defined (__FreeBSD__) || defined (__FreeBSD_kernel__)
 #define __KFBSD__ 1
@@ -148,36 +167,50 @@
   #define restrict
   #define strcasecmp stricmp
   #define strncasecmp strnicmp
-  #define __WINDOWS__ 1
+  #define R2__WINDOWS__ 1
 
   #include <time.h>
   static inline struct tm *gmtime_r(const time_t *t, struct tm *r) { return (gmtime_s(r, t))? NULL : r; }
 #endif
 
-#if defined(EMSCRIPTEN) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun) || defined(__HAIKU__)
-  #define __BSD__ 0
-  #define __UNIX__ 1
+#ifdef __HAIKU__
+# define R2__UNIX__ 1
+#endif
+
+#undef HAVE_PTY
+#if EMSCRIPTEN || __wasi__ || defined(__serenity__)
+#define HAVE_PTY 0
+#else
+#define HAVE_PTY R2__UNIX__ && LIBC_HAVE_FORK && !__sun
+#endif
+
+#if defined(EMSCRIPTEN) || defined(__wasi__) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun) || defined(__HAIKU__) || defined(__serenity__) || defined(__vinix__)
+  #define R2__BSD__ 0
+  #define R2__UNIX__ 1
 #endif
 #if __KFBSD__ || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD__) || defined(__DragonFly__)
-  #define __BSD__ 1
-  #define __UNIX__ 1
+  #define R2__BSD__ 1
+  #define R2__UNIX__ 1
 #endif
-#if __WINDOWS__ || _WIN32
+#if R2__WINDOWS__ || _WIN32
   #ifdef _MSC_VER
   /* Must be included before windows.h */
+#ifndef WINSOCK_INCLUDED
+#define WINSOCK_INCLUDED 1
   #include <winsock2.h>
   #include <ws2tcpip.h>
+#endif
   #ifndef WIN32_LEAN_AND_MEAN
   #define WIN32_LEAN_AND_MEAN
   #endif
   #endif
   typedef int socklen_t;
   #undef USE_SOCKETS
-  #define __WINDOWS__ 1
-  #undef __UNIX__
-  #undef __BSD__
+  #define R2__WINDOWS__ 1
+  #undef R2__UNIX__
+  #undef R2__BSD__
 #endif
-#if __WINDOWS__ || _WIN32
+#if R2__WINDOWS__ || _WIN32
   #define __addr_t_defined
   #include <windows.h>
 #endif
@@ -219,8 +252,6 @@
 #define R_PRINTF_CHECK(fmt, dots)
 #endif
 
-#include <r_types_base.h>
-
 #undef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 #undef _GNU_SOURCE
@@ -241,8 +272,8 @@ extern "C" {
 
 // TODO: FS or R_SYS_DIR ??
 #undef FS
-#if __WINDOWS__
-#define FS "\\"
+#if R2__WINDOWS__
+#define FS '\\'
 #define R_SYS_DIR "\\"
 #define R_SYS_ENVSEP ";"
 #define R_SYS_HOME "USERPROFILE"
@@ -291,14 +322,16 @@ typedef int (*PrintfCallback)(const char *str, ...) R_PRINTF_CHECK(1, 2);
 #elif R_INLINE
   #define R_API inline
 #else
-  #if defined(__GNUC__) && __GNUC__ >= 4
-    #define R_API __attribute__((visibility("default")))
-  #elif defined(_MSC_VER)
+  #if R2__WINDOWS__
     #define R_API __declspec(dllexport)
+  #elif defined(__GNUC__) && __GNUC__ >= 4
+    #define R_API __attribute__((visibility("default")))
   #else
     #define R_API
   #endif
 #endif
+
+#define R_HIDDEN __attribute__((visibility("hidden")))
 
 #define R_LIB_VERSION_HEADER(x) \
 R_API const char *x##_version(void)
@@ -307,11 +340,11 @@ R_API const char *x##_version(void) { return "" R2_GITTAP; }
 
 #define BITS2BYTES(x) (((x)/8)+(((x)%8)?1:0))
 #define ZERO_FILL(x) memset (&x, 0, sizeof (x))
-#define R_NEWS0(x,y) (x*)calloc(y,sizeof(x))
-#define R_NEWS(x,y) (x*)malloc(sizeof(x)*(y))
-#define R_NEW0(x) (x*)calloc(1,sizeof(x))
-#define R_NEW(x) (x*)malloc(sizeof(x))
-#define R_NEWCOPY(x,y) (x*)r_new_copy(sizeof(x), y)
+#define R_NEWS0(x,y) (x*)calloc(y,sizeof (x))
+#define R_NEWS(x,y) (x*)malloc(sizeof (x)*(y))
+#define R_NEW0(x) (x*)calloc(1,sizeof (x))
+#define R_NEW(x) (x*)malloc(sizeof (x))
+#define R_NEWCOPY(x,y) (x*)r_new_copy(sizeof (x), y)
 
 static inline void *r_new_copy(int size, void *data) {
 	void *a = malloc(size);
@@ -321,7 +354,7 @@ static inline void *r_new_copy(int size, void *data) {
 	return a;
 }
 // TODO: Make R_NEW_COPY be 1 arg, not two
-#define R_NEW_COPY(x,y) x=(void*)malloc(sizeof(y));memcpy(x,y,sizeof(y))
+#define R_NEW_COPY(x,y) x=(void*)malloc(sizeof (y));memcpy(x,y,sizeof (y))
 #define R_MEM_ALIGN(x) ((void *)(size_t)(((ut64)(size_t)x) & 0xfffffffffffff000LL))
 #define R_ARRAY_SIZE(x) (sizeof (x) / sizeof ((x)[0]))
 #define R_PTR_MOVE(d,s) d=s;s=NULL;
@@ -333,8 +366,8 @@ static inline void *r_new_copy(int size, void *data) {
 	((char *)(((size_t)(v) + (t - 1)) \
 	& ~(t - 1)))
 
-#define R_BIT_SET(x,y) (((ut8*)x)[y>>4] |= (1<<(y&0xf)))
-#define R_BIT_UNSET(x,y) (((ut8*)x)[y>>4] &= ~(1<<(y&0xf)))
+#define R_BIT_SET(x,y) (((ut8*)x)[(y)>>4] |= (1<<((y)&0xf)))
+#define R_BIT_UNSET(x,y) (((ut8*)x)[(y)>>4] &= ~(1<<((y)&0xf)))
 #define R_BIT_TOGGLE(x, y) ( R_BIT_CHK (x, y) ? \
 		R_BIT_UNSET (x, y): R_BIT_SET (x, y))
 
@@ -353,7 +386,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define _perror(str,file,line,func) \
   { \
 	  char buf[256]; \
-	  snprintf(buf,sizeof(buf),"[%s:%d %s] %s",file,line,func,str); \
+	  snprintf(buf,sizeof (buf),"[%s:%d %s] %s",file,line,func,str); \
 	  r_sys_perror_str(buf); \
   }
 #define perror(x) _perror(x,__FILE__,__LINE__,__func__)
@@ -362,7 +395,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define r_sys_perror(x) r_sys_perror_str(x);
 #endif
 
-#if __UNIX__
+#if R2__UNIX__
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -374,11 +407,6 @@ static inline void *r_new_copy(int size, void *data) {
 #undef CLOCK_MONOTONIC
 #define CLOCK_MONOTONIC 0
 #endif
-#endif
-
-#ifndef HAVE_EPRINTF
-#define eprintf(...) fprintf(stderr,__VA_ARGS__)
-#define HAVE_EPRINTF 1
 #endif
 
 #ifndef typeof
@@ -398,13 +426,13 @@ static inline void *r_new_copy(int size, void *data) {
 
 #define R_FREE(x) { free((void *)x); x = NULL; }
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define HAVE_REGEXP 0
 #else
 #define HAVE_REGEXP 1
 #endif
 
-#if __WINDOWS__
+#if R2__WINDOWS__
 #define PFMT64x "I64x"
 #define PFMT64d "I64d"
 #define PFMT64u "I64u"
@@ -416,10 +444,10 @@ static inline void *r_new_copy(int size, void *data) {
 #define LDBLFMT "f"
 #define HHXFMT  "x"
 #else
-#define PFMT64x "llx"
-#define PFMT64d "lld"
-#define PFMT64u "llu"
-#define PFMT64o "llo"
+#define PFMT64x PRIx64
+#define PFMT64d PRId64
+#define PFMT64u PRIu64
+#define PFMT64o PRIo64
 #define PFMTSZx "zx"
 #define PFMTSZd "zd"
 #define PFMTSZu "zu"
@@ -439,6 +467,55 @@ static inline void *r_new_copy(int size, void *data) {
 #define O_BINARY 0
 #endif
 
+#ifndef eprintf
+#define eprintf(...) fprintf (stderr, __VA_ARGS__)
+#endif
+
+#ifndef R2_DEBUG_EPRINT
+#define R2_DEBUG_EPRINT 0
+#endif
+#if !R2_DEBUG_EPRINT
+#define EPRINT_STR
+#define EPRINT_CHAR
+#define EPRINT_INT
+#define EPRINT_BOOL
+#define EPRINT_PTR
+
+#define EPRINT_UT64
+#define EPRINT_ST64
+#define EPRINT_UT32
+#define EPRINT_ST32
+#define EPRINT_UT16
+#define EPRINT_ST16
+#define EPRINT_UT8
+#define EPRINT_ST8
+#else
+/* Pass R2_NO_EPRINT_MACROS=1 as an environment variable to disable these
+ * macros at runtime. Used by r2r to prevent interference with tests. */
+#define EPRINT_VAR_WRAPPER(name, fmt, ...) {				\
+	char *eprint_env = r_sys_getenv ("R2_NO_EPRINT_MACROS");	\
+	if (!eprint_env || strcmp (eprint_env, "1")) {			\
+		eprintf (#name ": " fmt "\n", __VA_ARGS__);		\
+	}								\
+	free (eprint_env);						\
+}
+
+#define EPRINT_STR(x) EPRINT_VAR_WRAPPER (x, "\"%s\"", x)
+#define EPRINT_CHAR(x) EPRINT_VAR_WRAPPER (x, "'%c' (0x%x)", x, x)
+#define EPRINT_INT(x) EPRINT_VAR_WRAPPER (x, "%d (0x%x)", x, x)
+#define EPRINT_BOOL(x) EPRINT_VAR_WRAPPER (x, "%s", x? "true": "false")
+#define EPRINT_PTR(x) EPRINT_VAR_WRAPPER (x, "%p", x)
+
+#define EPRINT_UT64(x) EPRINT_VAR_WRAPPER (x, "%" PFMT64u " (0x%" PFMT64x ")", x, x)
+#define EPRINT_ST64(x) EPRINT_VAR_WRAPPER (x, "%" PFMT64d " (0x%" PFMT64x ")", x, x)
+#define EPRINT_UT32(x) EPRINT_VAR_WRAPPER (x, "%" PFMT32u " (0x%" PFMT32x ")", x, x)
+#define EPRINT_ST32(x) EPRINT_VAR_WRAPPER (x, "%" PFMT32d " (0x%" PFMT32x ")", x, x)
+#define EPRINT_UT16(x) EPRINT_VAR_WRAPPER (x, "%hu (0x%hx)", x, x)
+#define EPRINT_ST16(x) EPRINT_VAR_WRAPPER (x, "%hd (0x%hx)", x, x)
+#define EPRINT_UT8(x) EPRINT_VAR_WRAPPER (x, "%hhu (0x%hhx)", x, x)
+#define EPRINT_ST8(x) EPRINT_VAR_WRAPPER (x, "%hhd (0x%hhx)", x, x)
+#endif
+
 #if __APPLE__
 # if __i386__
 # define R_SYS_BASE ((ut64)0x1000)
@@ -447,7 +524,7 @@ static inline void *r_new_copy(int size, void *data) {
 # else
 # define R_SYS_BASE ((ut64)0x1000)
 # endif
-#elif __WINDOWS__
+#elif R2__WINDOWS__
 # define R_SYS_BASE ((ut64)0x01001000)
 #else // linux, bsd, ...
 # if __arm__ || __arm64__
@@ -462,7 +539,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define R_SYS_ARCH "x86"
 #define R_SYS_BITS R_SYS_BITS_32
 #define R_SYS_ENDIAN 0
-#elif __EMSCRIPTEN__
+#elif __EMSCRIPTEN__ || __wasi__
 #define R_SYS_ARCH "wasm"
 #define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
 #define R_SYS_ENDIAN 0
@@ -495,7 +572,7 @@ static inline void *r_new_copy(int size, void *data) {
 #define R_SYS_BITS R_SYS_BITS_32
 #define R_SYS_ENDIAN 0
 #elif __s390x__
-#define R_SYS_ARCH "sysz"
+#define R_SYS_ARCH "s390x"
 #define R_SYS_BITS R_SYS_BITS_64
 #define R_SYS_ENDIAN 1
 #elif __sparc__
@@ -505,6 +582,10 @@ static inline void *r_new_copy(int size, void *data) {
 #elif __mips__
 #define R_SYS_ARCH "mips"
 #define R_SYS_BITS R_SYS_BITS_32
+#define R_SYS_ENDIAN 1
+#elif __loongarch__
+#define R_SYS_ARCH "loongarch"
+#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
 #define R_SYS_ENDIAN 1
 #elif __EMSCRIPTEN__
 /* we should default to wasm when ready */
@@ -577,13 +658,29 @@ typedef enum {
 	R_SYS_ARCH_HPPA,
 	R_SYS_ARCH_V810,
 	R_SYS_ARCH_LM32,
-	R_SYS_ARCH_RISCV
+	R_SYS_ARCH_RISCV,
+	R_SYS_ARCH_ESIL,
+	R_SYS_ARCH_BPF,
 } RSysArch;
 
-#if HAVE_CLOCK_NANOSLEEP && CLOCK_MONOTONIC && (__linux__ || (__FreeBSD__ && __FreeBSD_version >= 1101000) || (__NetBSD__ && __NetBSD_Version__ >= 700000000))
-#define HAS_CLOCK_NANOSLEEP 1
-#else
+#define MONOTONIC_LINUX (__linux__ && _POSIX_C_SOURCE >= 199309L)
+#define MONOTONIC_FREEBSD (__FreeBSD__ && __FreeBSD_version >= 1101000)
+#define MONOTONIC_NETBSD (__NetBSD__ && __NetBSD_Version__ >= 700000000)
+#define MONOTONIC_APPLE (__APPLE__ && CLOCK_MONOTONIC_RAW)
+#define MONOTONIC_UNIX (MONOTONIC_APPLE || MONOTONIC_LINUX || MONOTONIC_FREEBSD || MONOTONIC_NETBSD)
+
+
 #define HAS_CLOCK_NANOSLEEP 0
+#if defined(__wasi__)
+# define HAS_CLOCK_MONOTONIC 0
+#elif CLOCK_MONOTONIC && MONOTONIC_UNIX
+# define HAS_CLOCK_MONOTONIC 1
+# if HAVE_CLOCK_NANOSLEEP
+#  undef HAS_CLOCK_NANOSLEEP
+#  define HAS_CLOCK_NANOSLEEP 1
+# endif
+#else
+# define HAS_CLOCK_MONOTONIC 0
 #endif
 
 /* os */
@@ -591,11 +688,13 @@ typedef enum {
 #define R_SYS_OS "qnx"
 //#elif TARGET_OS_IPHONE
 //#define R_SYS_OS "ios"
+#elif defined (__wasi__)
+#define R_SYS_OS "wasi"
 #elif defined (__APPLE__)
 #define R_SYS_OS "darwin"
 #elif defined (__linux__)
 #define R_SYS_OS "linux"
-#elif defined (__WINDOWS__)
+#elif defined (R2__WINDOWS__)
 #define R_SYS_OS "windows"
 #elif defined (__NetBSD__ )
 #define R_SYS_OS "netbsd"
@@ -664,24 +763,7 @@ static inline void r_run_call10(void *fcn, void *arg1, void *arg2, void *arg3, v
 }
 
 #ifndef container_of
-# ifdef _MSC_VER
-#  define container_of(ptr, type, member) ((type *)((char *)(ptr) - offsetof(type, member)))
-# else
-#  define container_of(ptr, type, member) ((type *)((char *)(__typeof__(((type *)0)->member) *){ptr} - offsetof(type, member)))
-# endif
+#define container_of(ptr, type, member) (ptr? ((type *)((char *)(ptr) - r_offsetof(type, member))): NULL)
 #endif
-
-// reference counter
-typedef int RRef;
-
-#define R_REF_NAME refcount
-#define r_ref(x) x->R_REF_NAME++;
-#define r_ref_init(x) x->R_REF_NAME = 1
-#define r_unref(x,f) { assert (x->R_REF_NAME> 0); if (!--(x->R_REF_NAME)) { f(x); } }
-
-#define R_REF_TYPE RRef R_REF_NAME
-#define R_REF_FUNCTIONS(s, n) \
-static inline void n##_ref(s *x) { x->R_REF_NAME++; } \
-static inline void n##_unref(s *x) { r_unref (x, n##_free); }
 
 #endif // R2_TYPES_H

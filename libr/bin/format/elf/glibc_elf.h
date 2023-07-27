@@ -361,8 +361,11 @@ typedef struct
 
 #define EM_BPF		247	/* Linux BPF -- in-kernel virtual machine */
 #define EM_CSKY		252     /* C-SKY */
+#define EM_LOONGARCH    258 /* Loongarch */
 
-#define EM_NUM		253
+#define EM_KVX		256	/* Kalray VLIW core of the MPPA processor family */
+
+#define EM_NUM		257
 
 /* Old spellings/synonyms.  */
 
@@ -3961,6 +3964,10 @@ enum
 
 #define R_BPF_NONE		0	/* No reloc */
 #define R_BPF_64_64		1
+#define R_BPF_64_ABS64		2
+#define R_BPF_64_ABS32		3
+#define R_BPF_64_NODYLD32	4
+#define R_BPF_64_RELATIVE	8
 #define R_BPF_64_32		10
 
 /* Imagination Meta specific relocations. */

@@ -1,9 +1,8 @@
-/* libgdbr - LGPL - Copyright 2014 - defragger */
+/* libgdbr - LGPL - Copyright 2014-2023 - defragger */
 
 #include "libgdbr.h"
 #include "arch.h"
-
-#include <stdio.h>
+#include <r_util.h>
 
 int gdbr_init(libgdbr_t *g, bool is_server) {
 	if (!g) {
@@ -56,12 +55,13 @@ bool gdbr_set_architecture(libgdbr_t *g, int arch, int bits) {
 		return true;
 	}
 
-	const char *regprofile = gdbr_get_reg_profile (arch, bits);
+	char *regprofile = gdbr_get_reg_profile (arch, bits);
 	if (!regprofile) {
-		eprintf ("cannot find gdb reg_profile\n");
+		R_LOG_ERROR ("%s: cannot find gdb reg_profile", __func__);
 		return false;
 	}
 	if (!gdbr_set_reg_profile (g, regprofile)) {
+		free (regprofile);
 		return false;
 	}
 	g->target.arch = arch;
@@ -71,7 +71,7 @@ bool gdbr_set_architecture(libgdbr_t *g, int arch, int bits) {
 	return true;
 }
 
-const char *gdbr_get_reg_profile(int arch, int bits) {
+char *gdbr_get_reg_profile(int arch, int bits) {
 	switch (arch) {
 	case R_SYS_ARCH_X86:
 		if (bits == 32) {
@@ -79,7 +79,7 @@ const char *gdbr_get_reg_profile(int arch, int bits) {
 		} else if (bits == 64) {
 #include "reg/x86_64.h"
 		} else {
-			eprintf ("%s: unsupported x86 bits: %d\n", __func__, bits);
+			R_LOG_ERROR ("%s: unsupported x86 bits: %d", __func__, bits);
 			return NULL;
 		}
 		break;
@@ -89,7 +89,7 @@ const char *gdbr_get_reg_profile(int arch, int bits) {
 		} else if (bits == 64) {
 #include "reg/arm64.h"
 		} else {
-			eprintf ("%s: unsupported arm bits: %d\n", __func__, bits);
+			R_LOG_ERROR ("%s: unsupported arm bits: %d", __func__, bits);
 			return NULL;
 		}
 		break;
@@ -121,7 +121,7 @@ int gdbr_set_reg_profile(libgdbr_t *g, const char *str) {
 	}
 	gdb_reg_t *registers = arch_parse_reg_profile (str);
 	if (!registers) {
-		eprintf ("cannot parse reg profile\n");
+		R_LOG_ERROR ("%s: cannot parse reg profile", __func__);
 		return -1;
 	}
 	if (g->target.regprofile) {

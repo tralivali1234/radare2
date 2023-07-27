@@ -6,7 +6,7 @@ import sys
 
 dirlist = [
     "binrz",
-    "librz",
+    "libr",
     "shlr/ar",
     "shlr/bochs",
     "shlr/gdb",
@@ -15,23 +15,22 @@ dirlist = [
     "shlr/qnx",
     "shlr/rar",
     "shlr/tcc",
-    "shlr/w32dbg_wrap",
     "shlr/winkd",
     "test/unit",
 ]
 
 skiplist = [
     "/gnu/",
-    "librz/asm/arch/vax/",
-    "librz/asm/arch/riscv/",
-    "librz/asm/arch/sh/gnu/",
-    "librz/asm/arch/i8080/",
-    "librz/asm/arch/z80/",
-    "librz/asm/arch/avr/",
-    "librz/asm/arch/arm/aarch64/",
-    "librz/hash/xxhash/",
-    "librz/bin/mangling/cxx/",
-    "librz/util/bdiff.c",
+    "libr/anal/arch/vax/",
+    "libr/asm/arch/riscv/",
+    "libr/asm/arch/sh/gnu/",
+    "libr/asm/arch/i8080/",
+    "libr/asm/arch/z80/",
+    "libr/asm/arch/avr/",
+    "libr/arch/p/arm/aarch64/",
+    "libr/hash/xxhash/",
+    "libr/bin/mangling/cxx/",
+    "libr/util/bdiff.c",
 ]
 
 pattern = ["*.c", "*.cpp", "*.h", "*.hpp", "*.inc"]

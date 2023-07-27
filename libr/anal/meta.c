@@ -1,17 +1,15 @@
-/* radare - LGPL - Copyright 2008-2020 - nibble, pancake, thestr4ng3r */
+/* radare - LGPL - Copyright 2008-2023 - nibble, pancake, thestr4ng3r */
 
 #include <r_anal.h>
 #include <r_core.h>
 
 static bool item_matches_filter(RAnalMetaItem *item, RAnalMetaType type, R_NULLABLE const RSpace *space) {
-	return (type == R_META_TYPE_ANY || item->type == type)
-		   && (!space || item->space == space);
+	return (type == R_META_TYPE_ANY || item->type == type) && (!space || item->space == space);
 }
 
 typedef struct {
 	RAnalMetaType type;
 	const RSpace *space;
-
 	RIntervalNode *node;
 } FindCtx;
 
@@ -112,13 +110,15 @@ static bool meta_set(RAnal *a, RAnalMetaType type, int subtype, ut64 from, ut64 
 	item->subtype = subtype;
 	item->space = space;
 	free (item->str);
-	item->str = str ? strdup (str) : NULL;
-	if (str && !item->str) {
-		if (!node) { // If we just created this
-			free (item);
-		}
-		return false;
+	if (R_STR_ISNOTEMPTY (str)) {
+		item->str = strdup (str);
+		// this breaks the `ecHw` command
+		// (highlights word in current instruction, which uses ansi
+		// r_str_ansi_strip (item->str);
+	} else {
+		item->str = NULL;
 	}
+	R_DIRTY (a);
 	if (!node) {
 		r_interval_tree_insert (&a->meta, from, to, item);
 	} else if (node->end != to) {
@@ -139,7 +139,6 @@ R_API const char *r_meta_get_string(RAnal *a, RAnalMetaType type, ut64 addr) {
 	RAnalMetaItem *item = node->data;
 	return item->str;
 }
-
 
 static void del(RAnal *a, RAnalMetaType type, const RSpace *space, ut64 addr, ut64 size) {
 	RPVector *victims = NULL;
@@ -219,7 +218,7 @@ R_API RPVector *r_meta_get_all_intersect(RAnal *a, ut64 start, ut64 size, RAnalM
 	return collect_nodes_intersect (a, type, r_spaces_current (&a->meta_spaces), start, end);
 }
 
-R_API const char *r_meta_type_to_string(int type) {
+R_API const char *r_meta_type_tostring(int type) {
 	// XXX: use type as '%c'
 	switch (type) {
 	case R_META_TYPE_DATA: return "Cd";
@@ -237,7 +236,7 @@ R_API const char *r_meta_type_to_string(int type) {
 }
 
 R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int rad, PJ *pj, bool show_full) {
-	r_return_if_fail (!(rad == 'j' && !pj)); // rad == 'j' => pj != NULL
+	r_return_if_fail (!(rad == 'j' && !pj)); // rad == 'j' => pj
 	char *pstr, *base64_str;
 	RCore *core = a->coreb.core;
 	bool esc_bslash = core ? core->print->esc_bslash : false;
@@ -288,7 +287,7 @@ R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int r
 		case 'j':
 			pj_o (pj);
 			pj_kn (pj, "offset", start);
-			pj_ks (pj, "type", r_meta_type_to_string (d->type));
+			pj_ks (pj, "type", r_meta_type_tostring (d->type));
 
 			if (d->type == 'H') {
 				pj_k (pj, "color");
@@ -343,23 +342,23 @@ R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int r
 			switch (d->type) {
 			case R_META_TYPE_COMMENT:
 				{
-				const char *type = r_meta_type_to_string (d->type);
+				const char *type = r_meta_type_tostring (d->type);
 				char *s = sdb_encode ((const ut8*)pstr, -1);
 				if (!s) {
 					s = strdup (pstr);
 				}
 				if (rad) {
 					if (!strcmp (type, "CCu")) {
-						a->cb_printf ("%s base64:%s @ 0x%08"PFMT64x"\n",
-							type, s, start);
+						a->cb_printf ("%s base64:%s @ 0x%08" PFMT64x "\n",
+								type, s, start);
 					} else {
-						a->cb_printf ("%s %s @ 0x%08"PFMT64x"\n",
-							type, pstr, start);
+						a->cb_printf ("%s %s @ 0x%08" PFMT64x "\n",
+								type, pstr, start);
 					}
 				} else {
 					if (!strcmp (type, "CCu")) {
 						char *mys = r_str_escape (pstr);
-						a->cb_printf ("0x%08"PFMT64x" %s \"%s\"\n",
+						a->cb_printf ("0x%08" PFMT64x " %s \"%s\"\n",
 								start, type, mys);
 						free (mys);
 					} else {
@@ -381,7 +380,7 @@ R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int r
 					default:
 						cmd[2] = 0;
 					}
-					a->cb_printf ("%s %"PFMT64u" @ 0x%08"PFMT64x" # %s\n",
+					a->cb_printf ("%s %" PFMT64u " @ 0x%08" PFMT64x " # %s\n",
 							cmd, size, start, pstr);
 				} else {
 					const char *enc;
@@ -390,56 +389,57 @@ R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int r
 						enc = "utf8";
 						break;
 					default:
-						enc = r_str_is_ascii (d->str) ? "ascii" : "latin1";
+						enc = r_str_is_ascii (d->str)? "ascii": "latin1";
 					}
 					if (show_full) {
-						a->cb_printf ("0x%08"PFMT64x" %s[%"PFMT64u"] \"%s\"\n",
-						              start, enc, size, pstr);
+						a->cb_printf ("0x%08" PFMT64x " %s[%" PFMT64u "] \"%s\"\n",
+								start, enc, size, pstr);
 					} else {
-						a->cb_printf ("%s[%"PFMT64u"] \"%s\"\n",
-						              enc, size, pstr);
+						a->cb_printf ("%s[%" PFMT64u "] \"%s\"\n",
+								enc, size, pstr);
 					}
 				}
 				break;
 			case R_META_TYPE_HIDE:
 			case R_META_TYPE_DATA:
 				if (rad) {
-					a->cb_printf ("%s %"PFMT64u" @ 0x%08"PFMT64x"\n",
-							r_meta_type_to_string (d->type),
+					a->cb_printf ("%s %" PFMT64u " @ 0x%08" PFMT64x "\n",
+							r_meta_type_tostring (d->type),
 							size, start);
 				} else {
 					if (show_full) {
-						const char *dtype = d->type == 'h' ? "hidden" : "data";
+						const char *dtype = d->type == 'h'? "hidden": "data";
 						a->cb_printf ("0x%08" PFMT64x " %s %s %"PFMT64u"\n",
-						              start, dtype,
-						              r_meta_type_to_string (d->type), size);
+								start, dtype,
+								r_meta_type_tostring (d->type),
+								size);
 					} else {
-						a->cb_printf ("%"PFMT64u"\n", size);
+						a->cb_printf ("%" PFMT64u "\n", size);
 					}
 				}
 				break;
 			case R_META_TYPE_MAGIC:
 			case R_META_TYPE_FORMAT:
 				if (rad) {
-					a->cb_printf ("%s %"PFMT64u" %s @ 0x%08"PFMT64x"\n",
-							r_meta_type_to_string (d->type),
+					a->cb_printf ("%s %" PFMT64u " %s @ 0x%08" PFMT64x "\n",
+							r_meta_type_tostring (d->type),
 							size, pstr, start);
 				} else {
 					if (show_full) {
-						const char *dtype = d->type == 'm' ? "magic" : "format";
-						a->cb_printf ("0x%08" PFMT64x " %s %"PFMT64u" %s\n",
-						              start, dtype, size, pstr);
+						const char *dtype = d->type == 'm'? "magic": "format";
+						a->cb_printf ("0x%08" PFMT64x " %s %" PFMT64u " %s\n",
+								start, dtype, size, pstr);
 					} else {
-						a->cb_printf ("%"PFMT64u" %s\n", size, pstr);
+						a->cb_printf ("%" PFMT64u " %s\n", size, pstr);
 					}
 				}
 				break;
 			case R_META_TYPE_VARTYPE:
 				if (rad) {
-					a->cb_printf ("%s %s @ 0x%08"PFMT64x"\n",
-						r_meta_type_to_string (d->type), pstr, start);
+					a->cb_printf ("%s %s @ 0x%08" PFMT64x "\n",
+							r_meta_type_tostring (d->type), pstr, start);
 				} else {
-					a->cb_printf ("0x%08"PFMT64x" %s\n", start, pstr);
+					a->cb_printf ("0x%08" PFMT64x " %s\n", start, pstr);
 				}
 				break;
 			case R_META_TYPE_HIGHLIGHT:
@@ -447,21 +447,21 @@ R_API void r_meta_print(RAnal *a, RAnalMetaItem *d, ut64 start, ut64 size, int r
 					ut8 r = 0, g = 0, b = 0, A = 0;
 					const char *esc = strchr (d->str, '\x1b');
 					r_cons_rgb_parse (esc, &r, &g, &b, &A);
-					a->cb_printf ("%s rgb:%02x%02x%02x @ 0x%08"PFMT64x"\n",
-						r_meta_type_to_string (d->type), r, g, b, start);
+					a->cb_printf ("%s rgb:%02x%02x%02x @ 0x%08" PFMT64x "\n",
+						r_meta_type_tostring (d->type), r, g, b, start);
 					// TODO: d->size
 				}
 				break;
 			default:
 				if (rad) {
-					a->cb_printf ("%s %"PFMT64u" 0x%08"PFMT64x" # %s\n",
-						r_meta_type_to_string (d->type),
+					a->cb_printf ("%s %" PFMT64u " 0x%08" PFMT64x " # %s\n",
+						r_meta_type_tostring (d->type),
 						size, start, pstr);
 				} else {
 					// TODO: use b64 here
-					a->cb_printf ("0x%08"PFMT64x" array[%"PFMT64u"] %s %s\n",
+					a->cb_printf ("0x%08" PFMT64x " array[%" PFMT64u "] %s %s\n",
 						start, size,
-						r_meta_type_to_string (d->type), pstr);
+						r_meta_type_tostring (d->type), pstr);
 				}
 				break;
 			}
@@ -524,7 +524,7 @@ static void print_meta_list(RAnal *a, int type, int rad, ut64 addr, const char *
 			continue;
 		}
 		if (t) {
-			const char *type = r_meta_type_to_string (item->type);
+			const char *type = r_meta_type_tostring (item->type);
 			const char *name = item->str;
 			r_table_add_rowf (t, "xxss",
 				node->start,
@@ -536,18 +536,24 @@ static void print_meta_list(RAnal *a, int type, int rad, ut64 addr, const char *
 	}
 
 beach:
-	if (t) {
-		if (tq) {
-			r_table_query (t, tq);
+	if (t && tq) {
+		if (!r_table_query (t, tq)) {
+			pj_free (pj);
+			r_table_free (t);
+			return;
 		}
-		char *s = r_table_tostring (t);
-		r_cons_printf ("%s\n", s);
-		free (s);
-	} else if (pj) {
-		pj_end (pj);
-		r_cons_printf ("%s\n", pj_string (pj));
-		pj_free (pj);
 	}
+	if (!tq || !strstr (tq, "?")) {
+		if (t) {
+			char *s = r_table_tostring (t);
+			r_cons_printf ("%s\n", s);
+			free (s);
+		} else if (pj) {
+			pj_end (pj);
+			r_cons_printf ("%s\n", pj_string (pj));
+		}
+	}
+	pj_free (pj);
 }
 
 R_API void r_meta_print_list_all(RAnal *a, int type, int rad, const char *tq) {

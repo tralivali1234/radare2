@@ -1,3 +1,67 @@
+NAME=m1slice
+ARGS=-a x86
+FILE=bins/mach0/ls-m1
+CMDS=<<EOF
+pd 2
+ie
+EOF
+EXPECT=<<EOF
+            ;-- main:
+            ;-- entry0:
+            ;-- func.100003c0c:
+            0x100003c0c      55             push rbp
+            0x100003c0d      4889e5         mov rbp, rsp
+[Entrypoints]
+vaddr=0x100003c0c paddr=0x00007c0c haddr=0x00000658 type=program
+
+1 entrypoints
+EOF
+RUN
+
+NAME=m1slice.v35
+ARGS=-a arm.v35
+FILE=bins/mach0/ls-m1
+CMDS=<<EOF
+pd 2
+ie
+EOF
+EXPECT=<<EOF
+            ;-- main:
+            ;-- entry0:
+            ;-- func.100003a90:
+            0x100003a90      7f2303d5       pacibsp
+            0x100003a94      fc6fbaa9       stp x28, x27, [sp,  -0x60]!
+[Entrypoints]
+vaddr=0x100003a90 paddr=0x0001ba90 haddr=0x00000600 type=program
+
+1 entrypoints
+EOF
+RUN
+
+## XXX this test was assuming arch was arm when trying an unexistent plugin
+## XXX the reason to mark this as broken is because the mess to get it to
+## XXX work with asm/arch/anal is too much for something that will change soon
+NAME=m1slice.v35
+ARGS=-a arm.404
+BROKEN=1
+FILE=bins/mach0/ls-m1
+CMDS=<<EOF
+pd 2
+ie
+EOF
+EXPECT=<<EOF
+            ;-- main:
+            ;-- entry0:
+            ;-- func.100003a90:
+            0x100003a90      7f2303d5       pacibsp
+            0x100003a94      fc6fbaa9       stp x28, x27, [sp, -0x60]!
+[Entrypoints]
+vaddr=0x100003a90 paddr=0x0001ba90 haddr=0x00000600 type=program
+
+1 entrypoints
+EOF
+RUN
+
 NAME=oon
 FILE=bins/mach0/mac-ls2
 CMDS=<<EOF
@@ -11,6 +75,7 @@ RUN
 
 NAME=oonn
 FILE=bins/mach0/mac-ls2
+ARGS=-n -e bin.types=true
 CMDS=<<EOF
 pf.~?
 oonn
@@ -19,7 +84,23 @@ o~?
 EOF
 EXPECT=<<EOF
 0
-58
+59
+1
+EOF
+RUN
+
+NAME=oonn
+FILE=bins/mach0/mac-ls2
+ARGS=-e bin.types=true
+CMDS=<<EOF
+pf.~?
+oonn
+pf.~?
+o~?
+EOF
+EXPECT=<<EOF
+59
+59
 1
 EOF
 RUN
@@ -98,8 +179,6 @@ RUN
 NAME=o -
 FILE=malloc://1024
 CMDS=<<EOF
-e file.nowarn=true
-e file.loadmethod=append
 o -;o~?
 EOF
 EXPECT=<<EOF
@@ -161,6 +240,7 @@ RUN
 
 NAME=oob consider baddr
 FILE=bins/mach0/mac-ls
+ARGS=-e bin.types=true
 CMDS=<<EOF
 e bin.baddr = 0xf00000
 k old_v=`ieq`
@@ -180,7 +260,7 @@ RUN
 
 NAME=oob consider laddr 32bit
 FILE=bins/mach0/fatmach0-3true
-ARGS=-a x86 -b 32
+ARGS=-a x86 -b 32 -e bin.types=true
 CMDS=<<EOF
 e bin.laddr = 0x5000
 e bin.baddr = -1
@@ -288,7 +368,7 @@ bins/elf/libverifyPass.so
 bins/elf/libc.so.6
 EOF
 CMDS=<<EOF
-ob~[0-1]
+ob~[1-2]
 ?e
 ob 1; i~^fd
 ob 2; i~^fd
@@ -325,8 +405,8 @@ EXPECT=<<EOF
 
 0x00000010  2021 2223 2425 2627 2829 2a2b 2c2d 2e2f   !"#$%&'()*+,-./
 
- 2 fd: 4 +0x00000000 0x00000000 - 0x000000ff rwx 
- 1 fd: 3 +0x00000000 0x00000000 - 0x000001ff rwx 
+* 2 fd: 4 +0x00000000 0x00000000 - 0x000000ff rwx
+- 1 fd: 3 +0x00000000 0x00000000 - 0x000001ff rwx
 
 0x00000010  1011 1213 1415 1617 1819 1a1b 1c1d 1e1f  ................
 EOF
@@ -341,7 +421,7 @@ o: 1024
 ob
 EOF
 EXPECT=<<EOF
-0 3 x86-64 ba:0x00000000 sz:1024 malloc://1024
+* 0 3 x86-64 ba:0x00000000 sz:1024 malloc://1024
 EOF
 RUN
 
@@ -385,11 +465,11 @@ om
 # pv1
 EOF
 EXPECT=<<EOF
- 5 fd: 3 +0x00000000 0x00000000 - 0x0000347f rwx fmap.LOAD0
- 4 fd: 3 +0x00004000 0x00004000 - 0x00016790 rwx fmap.LOAD1
- 3 fd: 3 +0x00017000 0x00017000 - 0x0001f7bf rwx fmap.LOAD2
- 2 fd: 3 +0x00020050 0x00021050 - 0x00022267 rwx fmap.LOAD3
- 1 fd: 4 +0x00000000 0x00022268 - 0x00023557 rw- mmap.LOAD3
+- 5 fd: 3 +0x00000000 0x00000000 - 0x0000347f rwx fmap.LOAD0
+* 4 fd: 3 +0x00004000 0x00004000 - 0x00016790 rwx fmap.LOAD1
+- 3 fd: 3 +0x00017000 0x00017000 - 0x0001f7bf rwx fmap.LOAD2
+- 2 fd: 3 +0x00020050 0x00021050 - 0x00022267 rwx fmap.LOAD3
+- 1 fd: 4 +0x00000000 0x00022268 - 0x00023557 rw- mmap.LOAD3
 EOF
 RUN
 
@@ -420,9 +500,13 @@ RUN
 NAME=oc
 FILE=bins/elf/true32
 CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
 i
 oc -
 ?e --
+e asm.arch=x86
+e asm.bits=64
 i
 EOF
 EXPECT=<<EOF
@@ -441,6 +525,7 @@ binsz    20668
 bintype  elf
 bits     32
 canary   true
+injprot  false
 class    ELF32
 crypto   false
 endian   little
@@ -451,16 +536,13 @@ lang     c
 linenum  false
 lsyms    false
 machine  Intel 80386
-maxopsz  16
-minopsz  1
 nx       true
 os       linux
-pcalign  0
 pic      false
 relocs   false
 relro    partial
 rpath    NONE
-sanitiz  false
+sanitize false
 static   false
 stripped true
 subsys   linux
@@ -474,7 +556,6 @@ mode     rwx
 format   any
 iorw     true
 block    0x100
-
 EOF
 RUN
 
@@ -495,4 +576,85 @@ Cannot find file nonfile
 Missing argument
 EOF
 BROKEN=1
+RUN
+
+NAME=ob *
+FILE=bins/elf/ls
+CMDS=<<EOF
+is~?
+o bins/elf/ezpz
+is~?
+?e --
+ob *
+is~?
+?e --
+ob 0
+is~?
+ob 1
+is~?
+EOF
+EXPECT=<<EOF
+133
+139
+--
+272
+--
+133
+139
+EOF
+RUN
+
+NAME=obf
+FILE=--
+CMDS=<<EOF
+# pwd
+obf ./bins/mach0/test-arm32
+is~?
+obf ./bins/mach0/ls-m1
+is~?
+ob 1
+is~?
+i
+?e -- o
+o
+?e -- ob
+ob
+EOF
+EXPECT=<<EOF
+8
+138
+8
+arch     arm
+baddr    0x4000
+binsz    65536
+bintype  mach0
+bits     32
+canary   false
+injprot  false
+class    MACH0
+compiler clang
+crypto   false
+endian   little
+havecode true
+intrp    /usr/lib/dyld
+laddr    0x0
+lang     c
+linenum  false
+lsyms    false
+machine  v7
+nx       false
+os       ios
+pic      true
+relocs   true
+sanitize false
+static   false
+stripped false
+subsys   darwin
+va       true
+-- o
+-- ob
+- 0 3 arm-32 ba:0x00000000 sz:65536 ./bins/mach0/test-arm32
+* 1 3 arm-32 ba:0x00004000 sz:65536 ./bins/mach0/test-arm32
+- 2 3 x86-64 ba:0x100000000 sz:72800 ./bins/mach0/ls-m1
+EOF
 RUN

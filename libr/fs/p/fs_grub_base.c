@@ -37,7 +37,7 @@ static void FSP(_close)(RFSFile *file) {
 
 static RList *list = NULL;
 
-static int dirhook (const char *filename, const struct grub_dirhook_info *info, void *closure) {
+static int dirhook(const char *filename, const struct grub_dirhook_info *info, void *closure) {
 	RFSFile *fsf = r_fs_file_new (NULL, filename);
 	fsf->type = info->dir? 'd':'f';
 	fsf->time = info->mtime;
@@ -56,7 +56,6 @@ static RList *FSP(_dir)(RFSRoot *root, const char *path, int view) {
 
 	gfs = root->ptr;
 	list = r_list_new ();
-//	eprintf ("r_fs_???_dir: %s\n", path);
 	//gfs->file->device->data = &root->iob;
 	grubfs_bind_io (&root->iob, root->delta);
 	gfs->file->fs->dir (gfs->file->device, path, dirhook, 0);
@@ -64,16 +63,15 @@ static RList *FSP(_dir)(RFSRoot *root, const char *path, int view) {
 	return list;
 }
 
-static int do_nothing (const char *a, const struct grub_dirhook_info *b, void *c) { return 0; }
+static int do_nothing(const char *a, const struct grub_dirhook_info *b, void *c) { return 0; }
 
-static int FSP(_mount)(RFSRoot *root) {
-	int ret;
+static bool FSP(_mount)(RFSRoot *root) {
 	GrubFS *gfs = grubfs_new (&FSIPTR, &root->iob);
 	root->ptr = gfs;
 	grubfs_bind_io (&root->iob, root->delta);
 	// XXX: null hook seems to be problematic on some filesystems
 	//return gfs->file->fs->dir (gfs->file->device, "/", NULL, 0)? false:true;
-	ret = gfs->file->fs->dir (gfs->file->device, "/", do_nothing, 0)? false:true;
+	bool ret = gfs->file->fs->dir (gfs->file->device, "/", do_nothing, 0) == 0;
 	grubfs_bind_io (NULL, root->delta);
 	return ret;
 }

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2013-2020 - pancake */
+/* radare - LGPL - Copyright 2013-2022 - pancake */
 
 #include <r_cons.h>
 #include <r_util/r_assert.h>
@@ -115,7 +115,7 @@ static bool __expandLine(RConsCanvas *c, int real_len, int utf8_len) {
 
 	if (padding) {
 		if (padding > 0 && c->blen[c->y] + padding > c->bsize[c->y]) {
-			int newsize = R_MAX (c->bsize[c->y] * 1.5, c->blen[c->y] + padding);
+			int newsize = R_MAX ((int)(c->bsize[c->y] * 1.5), c->blen[c->y] + padding);
 			char * newline = realloc (c->b[c->y], sizeof (*c->b[c->y])*(newsize));
 			if (!newline) {
 				return false;
@@ -156,6 +156,7 @@ R_API void r_cons_canvas_free(RConsCanvas *c) {
 		}
 		free (c->b);
 	}
+	free (c->bgcolor);
 	free (c->bsize);
 	free (c->blen);
 	ht_up_free (c->attrs);
@@ -182,7 +183,7 @@ R_API void r_cons_canvas_clear(RConsCanvas *c) {
 R_API bool r_cons_canvas_gotoxy(RConsCanvas *c, int x, int y) {
 	bool ret = true;
 	if (!c) {
-		return 0;
+		return false;
 	}
 	y += c->sy;
 	x += c->sx;
@@ -226,6 +227,7 @@ R_API RConsCanvas *r_cons_canvas_new(int w, int h) {
 	if (!c) {
 		return NULL;
 	}
+	c->bgcolor = strdup (Color_RESET);
 	c->bsize = NULL;
 	c->blen = NULL;
 	int i = 0;
@@ -236,11 +238,11 @@ R_API RConsCanvas *r_cons_canvas_new(int w, int h) {
 	if (!c->b) {
 		goto beach;
 	}
-	c->blen = malloc (sizeof *c->blen * h);
+	c->blen = malloc ((sizeof *c->blen) * h);
 	if (!c->blen) {
 		goto beach;
 	}
-	c->bsize = malloc (sizeof *c->bsize * h);
+	c->bsize = malloc ((sizeof *c->bsize) * h);
 	if (!c->bsize) {
 		goto beach;
 	}
@@ -278,11 +280,13 @@ beach:
 	return NULL;
 }
 
-R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
-	if (!c || !s || !*s || !R_BETWEEN (0, c->y, c->h - 1) || !R_BETWEEN (0, c->x, c->w - 1)) {
+R_API void r_cons_canvas_write(RConsCanvas *c, const char *_s) {
+	if (!c || !_s || !*_s || !R_BETWEEN (0, c->y, c->h - 1) || !R_BETWEEN (0, c->x, c->w - 1)) {
 		return;
 	}
-
+	char *oos = strdup (_s);
+	char *os = r_str_ansi_resetbg (oos, c->bgcolor);
+	const char *s = os;
 	char ch;
 	int left, slen, attr_len, piece_len;
 	int orig_x = c->x, attr_x = c->x;
@@ -324,10 +328,9 @@ R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
 		if (attr_len > 0 && attr_x < c->blen[c->y]) {
 			__stampAttribute (c, c->y * c->w + attr_x, attr_len);
 		}
-
 		s = s_part;
 		if (ch == '\n') {
-			c->attr = Color_RESET;
+			c->attr = c->bgcolor;
 			__stampAttribute (c, c->y * c->w + attr_x, 0);
 			c->y++;
 			s++;
@@ -344,9 +347,18 @@ R_API void r_cons_canvas_write(RConsCanvas *c, const char *s) {
 	} while (*s && !r_cons_is_breaked ());
 	r_cons_break_pop ();
 	c->x = orig_x;
+	free (oos);
+	free (os);
 }
 
-R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
+R_API void r_cons_canvas_background(RConsCanvas *c, const char *color) {
+	if (color) {
+		free (c->bgcolor);
+		c->bgcolor = strdup (color);
+	}
+}
+
+R_API char *r_cons_canvas_tostring(RConsCanvas *c) {
 	r_return_val_if_fail (c, NULL);
 
 	int x, y, olen = 0, attr_x = 0;
@@ -373,7 +385,7 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 		attr_x = 0;
 		for (x = 0; x < c->blen[y]; x++) {
 			if ((c->b[y][x] & 0xc0) != 0x80) {
-				const char *atr = __attributeAt (c, y * c->w + attr_x);
+				const char *atr = __attributeAt (c, (y * c->w) + attr_x);
 				if (atr) {
 					size_t len = strlen (atr);
 					memcpy (o + olen, atr, len);
@@ -406,51 +418,60 @@ R_API char *r_cons_canvas_to_string(RConsCanvas *c) {
 }
 
 R_API void r_cons_canvas_print_region(RConsCanvas *c) {
-	char *o = r_cons_canvas_to_string (c);
+	char *o = r_cons_canvas_tostring (c);
 	if (o) {
 		r_str_trim_tail (o);
 		if (*o) {
-			r_cons_strcat (o);
+			r_cons_print (o);
 		}
 		free (o);
 	}
 }
 
 R_API void r_cons_canvas_print(RConsCanvas *c) {
-	char *o = r_cons_canvas_to_string (c);
+	char *o = r_cons_canvas_tostring (c);
 	if (o) {
-		r_cons_strcat (o);
+		r_cons_print (o);
 		free (o);
 	}
 }
 
 R_API int r_cons_canvas_resize(RConsCanvas *c, int w, int h) {
+	int i;
 	if (!c || w < 0 || h <= 0) {
 		return false;
 	}
-	int *newblen = realloc (c->blen, sizeof *c->blen * h);
+	int *newblen = realloc (c->blen, sizeof (int) * h);
 	if (!newblen) {
 		r_cons_canvas_free (c);
 		return false;
 	}
 	c->blen = newblen;
-	int *newbsize = realloc (c->bsize, sizeof *c->bsize * h);
+	int *newbsize = realloc (c->bsize, sizeof (int) * h);
 	if (!newbsize) {
 		r_cons_canvas_free (c);
 		return false;
 	}
+
+	// Don't lose the end of the array if size is being reduced
+	for (i = h; i < c->h; i++) {
+		free (c->b[i]);
+	}
+
 	c->bsize = newbsize;
-	char **newb = realloc (c->b, sizeof *c->b * h);
+	char **newb = realloc (c->b, sizeof (*c->b) * h);
 	if (!newb) {
 		r_cons_canvas_free (c);
 		return false;
 	}
 	c->b = newb;
-	int i;
 	char *newline = NULL;
 	for (i = 0; i < h; i++) {
 		if (i < c->h) {
-			newline = realloc (c->b[i], sizeof *c->b[i] * (w + 1));
+			newline = realloc (c->b[i], sizeof (*c->b[i]) * (w + 1));
+			if (newline) {
+				c->b[i] = newline;
+			}
 		} else {
 			newline = malloc (w + 1);
 		}
@@ -487,15 +508,15 @@ R_API void r_cons_canvas_circle(RConsCanvas *c, int x, int y, int w, int h, cons
 	double xfactor = 1; //(double)w / (double)h;
 	double yfactor = (double)h / 24; // 0.8; // 24  10
 	double size = w;
-	float a = 0.0;
+	double a = 0.0;
 	double s = size / 2;
 	while (a < (2 * PI)) {
 		double sa = r_num_sin (a);
 		double ca = r_num_cos (a);
 		double cx = s * ca + (size / 2);
 		double cy = s * sa + (size / 4);
-		int X = x + (xfactor * cx) - 2;
-		int Y = y + ((yfactor/2) * cy);
+		int X = x + (int)(xfactor * cx) - 2;
+		int Y = y + (int)((yfactor/2) * cy);
 		if (G (X, Y)) {
 			W ("=");
 		}
@@ -567,6 +588,11 @@ R_API void r_cons_canvas_box(RConsCanvas *c, int x, int y, int w, int h, const c
 	r_strbuf_free (vline);
 	if (color) {
 		c->attr = Color_RESET;
+		for (i = -1; i < h ; i++) {
+			if (G (x + w, y + i)) {
+				W (Color_RESET);
+			}
+		}
 	}
 }
 
@@ -587,6 +613,27 @@ R_API void r_cons_canvas_fill(RConsCanvas *c, int x, int y, int w, int h, char c
 		}
 	}
 	free (row);
+}
+
+R_API void r_cons_canvas_bgfill(RConsCanvas *c, int x, int y, int w, int h, const char *color) {
+	int i;
+	const char *pad = r_str_pad (' ', w + 2);
+	char *bgcolor = strdup (color);
+	char *col = strstr (bgcolor, "\x1b[3");
+	if (col) {
+		col[2] = '4';
+	} else {
+		free (bgcolor);
+		bgcolor = strdup (Color_BGBLUE);
+	}
+	char *row = r_str_newf ("%s%s"Color_RESET, bgcolor, pad);
+	for (i = 0; i < h; i++) {
+		if (G (x, y + i)) {
+			W (row);
+		}
+	}
+	free (row);
+	free (bgcolor);
 }
 
 R_API void r_cons_canvas_line(RConsCanvas *c, int x, int y, int x2, int y2, RCanvasLineStyle *style) {

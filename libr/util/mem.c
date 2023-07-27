@@ -1,7 +1,7 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2022 - pancake */
 
 #include <r_util.h>
-#if __UNIX__
+#if R2__UNIX__
 #include <sys/mman.h>
 #endif
 
@@ -17,7 +17,8 @@ R_API int r_mem_count(const ut8 **addr) {
 	return i;
 }
 
-R_API int r_mem_eq(ut8 *a, ut8 *b, int len) {
+// R2580 return bool
+R_API bool r_mem_eq(ut8 *a, ut8 *b, int len) {
 	register int i;
 	for (i = 0; i < len; i++) {
 		if (a[i] != b[i]) {
@@ -84,7 +85,7 @@ static inline char readbit(const ut8 *src, int bitoffset) {
 	return (src[wholeBytes] & 1<< remainingBits);
 }
 
-static inline void writebit (ut8 *dst, int i, bool c) {
+static inline void writebit(ut8 *dst, int i, bool c) {
 	const int byte = i / 8;
 	const int bit = (i % 8);
 	// eprintf ("Write %d %d = %d\n", byte, bit, c);
@@ -125,7 +126,7 @@ R_API ut64 r_mem_get_num(const ut8 *b, int size) {
 }
 
 // TODO: SEE: R_API ut64 r_reg_get_value(RReg *reg, RRegItem *item) { .. dupped code?
-R_API int r_mem_set_num(ut8 *dest, int dest_size, ut64 num) {
+R_API bool r_mem_set_num(ut8 *dest, int dest_size, ut64 num) {
 	// LITTLE ENDIAN is the default for streams
 	switch (dest_size) {
 	case 1:
@@ -211,6 +212,18 @@ R_API void r_mem_swapendian(ut8 *dest, const ut8 *orig, int size) {
 	}
 }
 
+R_API void r_mem_swap(ut8 *buf, size_t buf_len) {
+	size_t pos = 0;
+	buf_len--;
+	while (pos < buf_len) {
+		int x = buf[pos];
+		buf[pos] = buf[buf_len];
+		buf[buf_len] = x;
+		pos++;
+		buf_len--;
+	}
+}
+
 // R_DOC r_mem_mem: Finds the needle of nlen size into the haystack of hlen size
 // R_UNIT printf("%s\n", r_mem_mem("food is pure lame", 20, "is", 2));
 R_API const ut8 *r_mem_mem(const ut8 *haystack, int hlen, const ut8 *needle, int nlen) {
@@ -246,8 +259,10 @@ R_API const ut8 *r_mem_mem_aligned(const ut8 *haystack, int hlen, const ut8 *nee
 	return NULL;
 }
 
-R_API int r_mem_protect(void *ptr, int size, const char *prot) {
-#if __UNIX__
+R_API bool r_mem_protect(void *ptr, int size, const char *prot) {
+#if __wasi__
+	return false;
+#elif R2__UNIX__
 	int p = 0;
 	if (strchr (prot, 'x')) {
 		p |= PROT_EXEC;
@@ -261,7 +276,7 @@ R_API int r_mem_protect(void *ptr, int size, const char *prot) {
 	if (mprotect (ptr, size, p) == -1) {
 		return false;
 	}
-#elif __WINDOWS__
+#elif R2__WINDOWS__
 	int r, w, x;
 	DWORD p = PAGE_NOACCESS;
 	r = strchr (prot, 'r')? 1: 0;
@@ -293,6 +308,15 @@ R_API void *r_mem_dup(const void *s, int l) {
 	}
 	return d;
 }
+
+R_API void *r_mem_set(ut8 ch, int l) {
+	void *d = malloc (l);
+	if (d) {
+		memset (d, ch, l);
+	}
+	return d;
+}
+
 
 R_API void r_mem_reverse(ut8 *b, int l) {
 	ut8 tmp;
@@ -332,11 +356,12 @@ R_API void r_mem_free(void *p) {
 	free (p);
 }
 
-R_API void r_mem_memzero(void *dst, size_t l) {
+R_API void r_mem_zero(void *dst, size_t l) {
 #ifdef _MSC_VER
 	RtlSecureZeroMemory (dst, l);
-#else
-#if HAVE_EXPLICIT_BZERO
+#elif __MINGW32__
+	memset (dst, 0, l);
+#elif HAVE_EXPLICIT_BZERO
 	explicit_bzero (dst, l);
 #elif HAVE_EXPLICIT_MEMSET
 	(void)explicit_memset (dst, 0, l);
@@ -344,11 +369,10 @@ R_API void r_mem_memzero(void *dst, size_t l) {
 	memset (dst, 0, l);
 	__asm__ volatile ("" :: "r"(dst) : "memory");
 #endif
-#endif
 }
 
 R_API void *r_mem_mmap_resize(RMmap *m, ut64 newsize) {
-#if __WINDOWS__
+#if R2__WINDOWS__
 	if (m->fm != INVALID_HANDLE_VALUE) {
 		CloseHandle (m->fm);
 	}
@@ -358,7 +382,7 @@ R_API void *r_mem_mmap_resize(RMmap *m, ut64 newsize) {
 	if (m->buf) {
 		UnmapViewOfFile (m->buf);
 	}
-#elif __UNIX__
+#elif R2__UNIX__ && !__wasi__
 	if (munmap (m->buf, m->len) != 0) {
 		return NULL;
 	}

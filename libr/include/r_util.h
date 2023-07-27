@@ -1,18 +1,15 @@
-/* radare - LGPL - Copyright 2008-2016 - pancake */
+/* radare - LGPL - Copyright 2008-2023 - pancake */
 
 #ifndef R2_UTIL_H
 #define R2_UTIL_H
 
 #include <r_types.h>
-#include <r_diff.h>
 #include <r_regex.h>
 #include <r_getopt.h>
 #include <r_list.h> // radare linked list
 #include <r_skiplist.h> // skiplist
-#include <r_flist.h> // radare fixed pointer array iterators
-#include <r_binheap.h>
 #include <r_th.h>
-#if !__WINDOWS__
+#if !R2__WINDOWS__
 #include <dirent.h>
 #include <signal.h>
 #endif
@@ -21,6 +18,9 @@
 #endif
 #if HAVE_LIB_SSL
 #include <openssl/bn.h>
+#endif
+#if APPLE_SDK_IPHONEOS
+extern int ptrace(int _request, pid_t _pid, caddr_t _addr, int _data);
 #endif
 #ifdef _MSC_VER
 #include <windows.h>
@@ -32,15 +32,17 @@ int gettimeofday (struct timeval* p, void* tz);
 #include "r_util/r_signal.h"
 #include "r_util/r_alloc.h"
 #include "r_util/r_rbtree.h"
+#include "r_util/r_xml.h"
+#include "r_util/r_new_rbtree.h"
 #include "r_util/r_intervaltree.h"
 #include "r_util/r_big.h"
+#include "r_util/r_base36.h"
 #include "r_util/r_base64.h"
 #include "r_util/r_base91.h"
 #include "r_util/r_buf.h"
 #include "r_util/r_bitmap.h"
 #include "r_util/r_time.h"
 #include "r_util/r_debruijn.h"
-#include "r_util/r_cache.h"
 #include "r_util/r_ctypes.h"
 #include "r_util/r_file.h"
 #include "r_util/r_hex.h"
@@ -52,6 +54,7 @@ int gettimeofday (struct timeval* p, void* tz);
 #include "r_util/r_graph.h"
 #include "r_util/r_panels.h"
 #include "r_util/r_pool.h"
+#include "r_util/r_diff.h"
 #include "r_util/r_punycode.h"
 #include "r_util/r_queue.h"
 #include "r_util/r_range.h"
@@ -73,10 +76,15 @@ int gettimeofday (struct timeval* p, void* tz);
 #include "r_util/r_idpool.h"
 #include "r_util/r_asn1.h"
 #include "r_util/pj.h"
+#include "r_util/r_graph_drawable.h"
+#include "r_util/bplist.h"
 #include "r_util/r_x509.h"
 #include "r_util/r_pkcs7.h"
 #include "r_util/r_protobuf.h"
 #include "r_util/r_big.h"
+#include "r_util/r_ref.h"
+#include "r_util/r_w32.h"
+#include "r_util/r_token.h"
 #include "r_util/r_axml.h"
 // requires io, core, ... #include "r_util/r_print.h"
 
@@ -84,7 +92,7 @@ int gettimeofday (struct timeval* p, void* tz);
 extern "C" {
 #endif
 
-R_LIB_VERSION_HEADER(r_util);
+R_LIB_VERSION_HEADER (r_util);
 
 #ifdef __cplusplus
 }

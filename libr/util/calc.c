@@ -1,27 +1,27 @@
-/* ported to C by pancake for r2 in 2012-2017 */
+/* ported to C by pancake for r2 in 2012-2021 */
 // TODO: integrate floating point support
 // TODO: do not use global variables
 /*
-   Reference Chapter 6:
-   "The C++ Programming Language", Special Edition.
-   Bjarne Stroustrup,Addison-Wesley Pub Co; 3 edition (February 15, 2000)
-    ISBN: 0201700735
- */
+	Reference Chapter 6:
+	"The C++ Programming Language", Special Edition.
+	Bjarne Stroustrup,Addison-Wesley Pub Co; 3 edition (February 15, 2000)
+	ISBN: 0201700735
+*/
 
-#include <r_types.h>
+#define R_LOG_ORIGIN "util.calc"
 #include <r_util.h>
-#include <ctype.h>
-#include <stdio.h>
 
 /* accessors */
-static inline RNumCalcValue Nset(ut64 v) { RNumCalcValue n; n.d = (double)v; n.n = v; return n; }
-static inline RNumCalcValue Nsetf(double v) { RNumCalcValue n; n.d = v; n.n = (ut64)v; return n; }
+static inline RNumCalcValue Nset(ut64 v) { RNumCalcValue n; n.d =(double)v; n.n = v; return n; }
+static inline RNumCalcValue Nsetf(double v) { RNumCalcValue n; n.d = v; n.n =(ut64)v; return n; }
 //UNUSED static inline RNumCalcValue Naddf(RNumCalcValue n, double v) { n.d += v; n.n += (ut64)v; return n; }
-static inline RNumCalcValue Naddi(RNumCalcValue n, ut64 v) { n.d += (double)v; n.n += v; return n; }
-static inline RNumCalcValue Nsubi(RNumCalcValue n, ut64 v) { n.d -= (double)v; n.n -= v; return n; }
+static inline RNumCalcValue Naddi(RNumCalcValue n, ut64 v) { n.d +=(double)v; n.n += v; return n; }
+static inline RNumCalcValue Nsubi(RNumCalcValue n, ut64 v) { n.d -=(double)v; n.n -= v; return n; }
 static inline RNumCalcValue Nneg(RNumCalcValue n) { n.n = ~n.n; return n; }
 static inline RNumCalcValue Nor(RNumCalcValue n, RNumCalcValue v) { n.d = v.d; n.n |= v.n; return n; }
 static inline RNumCalcValue Nxor(RNumCalcValue n, RNumCalcValue v) { n.d = v.d; n.n ^= v.n; return n; }
+static inline RNumCalcValue Nlt(RNumCalcValue n, RNumCalcValue v) { n.d = v.d; n.n = n.n < v.n; return n; }
+static inline RNumCalcValue Ngt(RNumCalcValue n, RNumCalcValue v) { n.d = v.d; n.n = n.n > v.n; return n; }
 static inline RNumCalcValue Nand(RNumCalcValue n, RNumCalcValue v) { n.d = v.d; n.n &= v.n; return n; }
 static inline RNumCalcValue Nadd(RNumCalcValue n, RNumCalcValue v) { n.d += v.d; n.n += v.n; return n; }
 static inline RNumCalcValue Nsub(RNumCalcValue n, RNumCalcValue v) { n.d -= v.d; n.n -= v.n; return n; }
@@ -35,12 +35,12 @@ static inline RNumCalcValue Nshl(RNumCalcValue n, RNumCalcValue v) { n.d += v.d;
 static inline RNumCalcValue Nshr(RNumCalcValue n, RNumCalcValue v) { n.d += v.d; n.n >>= v.n; return n; }
 static inline RNumCalcValue Nrol(RNumCalcValue n, RNumCalcValue v) {
 	n.d += v.d;
-	n.n = (n.n << v.n) | (n.n >> (sizeof(n.n) * 8 - v.n));
+	n.n = (n.n << v.n) | (n.n >> (sizeof (n.n) * 8 - v.n));
 	return n;
 }
 static inline RNumCalcValue Nror(RNumCalcValue n, RNumCalcValue v) {
 	n.d += v.d;
-	n.n = (n.n >> v.n) | (n.n << (sizeof(n.n) * 8 - v.n));
+	n.n = (n.n >> v.n) | (n.n << (sizeof (n.n) * 8 - v.n));
 	return n;
 }
 static inline RNumCalcValue Nmod(RNumCalcValue n, RNumCalcValue v) {
@@ -96,6 +96,8 @@ static RNumCalcValue expr(RNum *num, RNumCalc *nc, int get) {
 		case RNCXOR: left = Nxor (left, term (num, nc, 1)); break;
 		case RNCOR: left = Nor (left, term (num, nc, 1)); break;
 		case RNCAND: left = Nand (left, term (num, nc, 1)); break;
+		case RNCLT: left = Nlt (left, term (num, nc, 1)); break;
+		case RNCGT: left = Ngt (left, term (num, nc, 1)); break;
 		default:
 			return left;
 		}
@@ -117,7 +119,7 @@ static RNumCalcValue term(RNum *num, RNumCalc *nc, int get) {
 			left = Nmod (left, d);
 		} else if (nc->curr_tok == RNCDIV) {
 			RNumCalcValue d = prim (num, nc, 1);
-			if (num != NULL && (!d.d || !d.n)) {
+			if (num && (!d.d || !d.n)) {
 				num->dbz = 1;
 				return d;
 			}
@@ -143,6 +145,11 @@ static RNumCalcValue prim(RNum *num, RNumCalc *nc, int get) {
 		//double& v = table[nc->string_value];
 		r_str_trim (nc->string_value);
 		v = Nset (r_num_get (num, nc->string_value));
+#if 0
+		if (num && num->nc.errors > 0) {
+			return v;
+		}
+#endif
 		get_token (num, nc);
 		if (nc->curr_tok  == RNCASSIGN) {
 			v = expr (num, nc, 1);
@@ -172,6 +179,8 @@ static RNumCalcValue prim(RNum *num, RNumCalc *nc, int get) {
 		} else {
 			error (num, nc, " ')' expected");
 		}
+	case RNCLT:
+	case RNCGT:
 	case RNCEND:
 	case RNCXOR:
 	case RNCAND:
@@ -192,7 +201,7 @@ static RNumCalcValue prim(RNum *num, RNumCalc *nc, int get) {
 	return v;
 }
 
-static void cin_putback (RNum *num, RNumCalc *nc, char c) {
+static inline void cin_putback(RNum *num, RNumCalc *nc, char c) {
 	nc->oc = c;
 }
 
@@ -213,13 +222,17 @@ static int cin_get(RNum *num, RNumCalc *nc, char *c) {
 		*c = nc->oc;
 		nc->oc = 0;
 	} else {
-		if (!nc->calc_buf || !*nc->calc_buf) {
+		if (R_STR_ISEMPTY (nc->calc_buf)) {
+			nc->calc_i = 0;
+			nc->calc_buf = NULL;
 			return 0;
 		}
 		*c = nc->calc_buf[nc->calc_i];
 		if (*c) {
 			nc->calc_i++;
 		} else {
+			nc->calc_i = 0;
+			nc->calc_buf = NULL;
 			return 0;
 		}
 	}
@@ -242,7 +255,16 @@ static int cin_get_num(RNum *num, RNumCalc *nc, RNumCalcValue *n) {
 		}
 	}
 	str[i] = 0;
+#if 1
 	*n = Nset (r_num_get (num, str));
+#else
+	ut64 v = r_num_get (num, str);
+	if (num && num->nc.errors > 0) {
+		return 0;
+	}
+	*n = Nset (v);
+#endif
+
 	if (IS_DIGIT (*str) && strchr (str, '.')) {
 		if (sscanf (str, "%lf", &d) < 1) {
 			return 0;
@@ -290,15 +312,15 @@ static RNumCalcToken get_token(RNum *num, RNumCalc *nc) {
 		cin_putback (num, nc, c);
 		return nc->curr_tok = (RNumCalcToken) ch;
 	case '<':
-		if (cin_get (num, nc, &c) && c == '<') {
-			if (cin_get (num, nc, &c) && c == '<') {
+		if (cin_get (num, nc, &c) && c == '<') { // "<<" = shift left
+			if (cin_get (num, nc, &c) && c == '<') { // "<<<" = rotate left
 				return nc->curr_tok = RNCROL;
 			}
 			cin_putback (num, nc, c);
 			return nc->curr_tok = RNCSHL;
 		}
 		cin_putback (num, nc, c);
-		return nc->curr_tok = RNCEND;
+		return nc->curr_tok = RNCLT; // RNCEND;
 	case '>':
 		if (cin_get (num, nc, &c) && c == '>') {
 			if (cin_get (num, nc, &c) && c == '>') {
@@ -308,7 +330,7 @@ static RNumCalcToken get_token(RNum *num, RNumCalc *nc) {
 			return nc->curr_tok = RNCSHR;
 		}
 		cin_putback (num, nc, c);
-		return nc->curr_tok = RNCEND;
+		return nc->curr_tok = RNCGT; // RNCEND
 	case '^':
 	case '&':
 	case '|':
@@ -330,38 +352,45 @@ static RNumCalcToken get_token(RNum *num, RNumCalc *nc) {
 		return nc->curr_tok = RNCNUMBER;
 
 #define isvalidchar(x) \
-	(isalnum(x) || (x)==':' || (x)=='$' || (x)=='.' || (x)=='_' || (x)=='?' || (x)=='\\' \
-	|| (x)==' ' || (x)=='[' || (x)==']' || (x)=='}' || (x)=='{' || ((x)>='0'&&(x)<='9'))
+	(isalnum (x)  || (x) == ':' || (x) == '$' || (x) == '.' || (x) == '_' || (x) == '?' || (x) == '\\' \
+	|| (x) == ' ' || (x) == '[' || (x) == ']' || (x) == '}' || (x) == '{' || ((x) >= '0' && (x) <= '9'))
 
 	default:
 		{
 			int i = 0;
 #define stringValueAppend(x) { \
 	const size_t max = sizeof (nc->string_value) - 1; \
-	if (i < max) nc->string_value[i++] = x; \
-	else nc->string_value[max] = 0; \
+	if (i < max) { nc->string_value[i++] = x; } \
+	else { nc->string_value[max] = 0; } \
 }
-			stringValueAppend(ch);
+			stringValueAppend (ch);
 			if (ch == '[') {
-				while (cin_get (num, nc, &ch) && ch!=']') {
+				while (cin_get (num, nc, &ch) && ch != ']') {
 					if (i > R_NUMCALC_STRSZ - 1) {
 						error (num, nc, "string too long");
 						return 0;
 					}
-					stringValueAppend(ch);
+					stringValueAppend (ch);
 				}
-				stringValueAppend(ch);
+				if (ch != ']') {
+					error (num, nc, "cannot find closing ]");
+					return 0;
+				}
+				stringValueAppend (ch);
+			} else if (ch == ']') {
+				error (num, nc, "cannot find opening [");
+				return 0;
 			} else {
 				while (cin_get (num, nc, &ch) && isvalidchar ((unsigned char)ch)) {
 					if (i >= R_NUMCALC_STRSZ) {
 						error (num, nc, "string too long");
 						return 0;
 					}
-					stringValueAppend(ch);
+					stringValueAppend (ch);
 				}
 			}
-			stringValueAppend(0);
-			if (ch!='\'') {
+			stringValueAppend (0);
+			if (ch != '\'') {
 				cin_putback (num, nc, ch);
 			}
 			return nc->curr_tok = RNCNAME;
@@ -379,7 +408,7 @@ static void load_token(RNum *num, RNumCalc *nc, const char *s) {
 R_API ut64 r_num_calc(RNum *num, const char *str, const char **err) {
 	RNumCalcValue n;
 	RNumCalc *nc, nc_local;
-	if (!str || !*str) {
+	if (R_STR_ISEMPTY (str)) {
 		return 0LL;
 	}
 	if (num) {
@@ -408,6 +437,7 @@ R_API ut64 r_num_calc(RNum *num, const char *str, const char **err) {
 	}
 	if (num) {
 		num->fvalue = n.d;
+		num->value = n.n;
 	}
 	nc->under_calc = false;
 	return n.n;

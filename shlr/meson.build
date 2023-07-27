@@ -1,8 +1,6 @@
 # handle capstone dependency
 capstone_dep = dependency('capstone', version: '>=3.0.4', required: false)
 if not capstone_dep.found() or not get_option('use_sys_capstone')
-  message('Use bundled capstone')
-
   if get_option('capstone_in_builddir')
     capstone_path = join_paths(meson.current_build_dir(), 'capstone')
   else
@@ -10,6 +8,7 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
   endif
 
   capstone_version = get_option('use_capstone_version')
+  message('Use bundled capstone: ' + capstone_version)
 
   res = run_command(py3_exe, '-c', '__import__("sys").exit(__import__("os").path.exists("@0@"))'.format(capstone_path))
   if res.returncode() == 0
@@ -17,21 +16,35 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
       error('Cannot load capstone library. Either provide capstone in ./shlr/capstone or install git, so it can be downloaded')
     endif
 
+    patches_files = []
     # NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/Makefile
     if capstone_version == 'v5'
-      CS_TIP = 'baa1f94cfdacd921744769bf7d93f00892ef53fa'
+      CS_TIP = '8ae8f68ea3abb7a68071908bad02baa39742870c'
       CS_BRA = 'next'
+      patches_files = [
+        'fix-x86-16.patch',
+        'mmm.patch'
+      ]
     elif capstone_version == 'v3'
       CS_TIP = '61bf71c771680033651f16cff832446e421847b1'
       CS_BRA = 'v3'
+      patches_files = [
+        'capstone-include.patch'
+      ]
     elif capstone_version == 'v4'
-      CS_TIP = '2edae851d9fee511a57d4da32d5acecedd95d7ed'
+      CS_TIP = '1d230532840a37ac032c6ab80128238fc930c6c1'
       CS_BRA = 'v4'
+      patches_files = [
+        'capstone-calloc.patch',
+        'fix-x86-16.patch',
+        'sparc-crash.patch',
+        'sstream-null.patch'
+      ]
     else
       error('Wrong capstone version selected. Please use one of the supported versions.')
     endif
 
-    capstone_git_user = 'aquynh'
+    capstone_git_user = 'capstone-engine'
 
     message('Cloning capstone ' + CS_BRA + ' branch, commit ' + CS_TIP + ', into ' + capstone_path)
     git_cmd = 'clone -b @0@ https://github.com/@1@/capstone.git @2@'.format(CS_BRA, capstone_git_user, capstone_path)
@@ -45,13 +58,6 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     if reset_cmd.returncode() != 0
       error('Cannot execute git reset command')
     endif
-
-    patches_files = [
-      'capstone-calloc.patch',
-      'fix-x86-16.patch',
-      'sparc-crash.patch',
-      'sstream-null.patch'
-    ]
 
     message('Patching capstone with radare\'s patches')
     foreach file : patches_files
@@ -101,6 +107,7 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     'arch/XCore/XCoreInstPrinter.c',
     'arch/XCore/XCoreMapping.c',
     'arch/XCore/XCoreModule.c',
+    'Mapping.c',
     'cs.c',
     'MCInst.c',
     'MCInstrDesc.c',
@@ -121,8 +128,17 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     'arch/TMS320C64x/TMS320C64xModule.c',
   ]
   rel_cs5_files = [
+    'arch/BPF/BPFDisassembler.c',
+    'arch/BPF/BPFInstPrinter.c',
+    'arch/BPF/BPFMapping.c',
+    'arch/BPF/BPFModule.c',
+    'arch/EVM/EVMDisassembler.c',
+    'arch/EVM/EVMInstPrinter.c',
+    'arch/EVM/EVMMapping.c',
+    'arch/EVM/EVMModule.c',
     'arch/X86/X86InstPrinterCommon.c',
-    # Add riscv files
+    'arch/MOS65XX/MOS65XXDisassembler.c',
+    'arch/MOS65XX/MOS65XXModule.c',
     'arch/RISCV/RISCVMapping.c',
     'arch/RISCV/RISCVModule.c',
     'arch/RISCV/RISCVInstPrinter.c',
@@ -183,13 +199,15 @@ if not capstone_dep.found() or not get_option('use_sys_capstone')
     foreach rel_cs_file : rel_cs5_files
       cs_files += [join_paths(capstone_path, rel_cs_file)]
     endforeach
-    cs_c_args += [ '-DCAPSTONE_HAS_RISCV' ]
+    cs_c_args += [
+      '-DCAPSTONE_HAS_BPF',
+      '-DCAPSTONE_HAS_EVM',
+      '-DCAPSTONE_HAS_MOS65XX',
+      '-DCAPSTONE_HAS_RISCV',
+    ]
   endif
 
-  capstone_includes = [platform_inc, include_directories('capstone/include')]
-  if capstone_version == 'v4' or capstone_version == 'v5'
-    capstone_includes += [include_directories('capstone/include/capstone')]
-  endif
+  capstone_includes = [platform_inc, include_directories(join_paths('capstone','include'))]
 
   libr2capstone = static_library('r2capstone', cs_files,
     c_args: cs_c_args,
@@ -207,10 +225,10 @@ endif
 
 # handle bochs dependency
 bochs_files = [
-  'bochs/src/libbochs.c'
+  join_paths('bochs','src','libbochs.c')
 ]
 
-bochs_inc = [platform_inc, include_directories('bochs/include')]
+bochs_inc = [platform_inc, include_directories(join_paths('bochs','include'))]
 
 libr2bochs = static_library('r2bochs', bochs_files,
   dependencies: [r_util_dep],
@@ -223,12 +241,23 @@ bochs_dep = declare_dependency(
   include_directories: bochs_inc
 )
 
+if get_option('blob')
+libr2bochs_static = static_library('r2bochs_static', bochs_files,
+  dependencies: [r_util_static_dep],
+  include_directories: bochs_inc,
+  implicit_include_directories: false
+)
+bochs_static_dep = declare_dependency(
+  link_with: libr2bochs_static,
+  include_directories: bochs_inc
+)
+endif
+
 
 # handle java dependency
 java_files = [
   'java/class.c',
   'java/code.c',
-  'java/dsojson.c',
   'java/ops.c',
   #'java/main.c',
 ]
@@ -246,6 +275,18 @@ java_dep = declare_dependency(
   include_directories: java_inc
 )
 
+if get_option('blob')
+libr2java_static = static_library('r2java_static', java_files,
+  dependencies: [r_util_static_dep],
+  include_directories: java_inc,
+  implicit_include_directories: false
+)
+
+java_static_dep = declare_dependency(
+  link_with: libr2java_static,
+  include_directories: java_inc
+)
+endif
 
 # handle qnx dependency
 qnx_files = [
@@ -269,135 +310,17 @@ qnx_dep = declare_dependency(
   include_directories: qnx_inc
 )
 
+if get_option('blob')
+libr2qnx_static = static_library('r2qnx_static', qnx_files,
+  dependencies: [r_socket_static_dep],
+  include_directories: qnx_inc,
+  implicit_include_directories: false
+)
 
-# handle lz4 dependency (unused?)
-lz4_dep = dependency('liblz4', required: false)
-if not lz4_dep.found() or not get_option('use_sys_lz4')
-  message('Use bundled lz4')
-  lz4_files = [
-    'lz4/lz4.c',
-  ]
-
-  lz4_inc = [platform_inc, include_directories('lz4')]
-
-  libr2lz4 = static_library('r2lz4', lz4_files,
-    include_directories: lz4_inc,
-    implicit_include_directories: false
-  )
-
-  lz4_dep = declare_dependency(
-    link_with: libr2lz4,
-    include_directories: lz4_inc
-  )
-else
-  message('Use system-provided lz4 library')
-endif
-
-
-# handle zip dependency
-zip_dep = dependency('libzip', required: false)
-if not zip_dep.found() or not get_option('use_sys_zip')
-  message('Use bundled zip')
-
-  zip_files = [
-    'zip/zip/zip_add.c',
-    'zip/zip/zip_add_dir.c',
-    'zip/zip/zip_add_entry.c',
-    'zip/zip/zip_close.c',
-    'zip/zip/zip_delete.c',
-    'zip/zip/zip_dir_add.c',
-    'zip/zip/zip_dirent.c',
-    'zip/zip/zip_discard.c',
-    'zip/zip/zip_entry.c',
-    'zip/zip/zip_err_str.c',
-    'zip/zip/zip_error.c',
-    #'zip/zip/zip_error_clear.c',
-    'zip/zip/zip_error_get.c',
-    'zip/zip/zip_error_get_sys_type.c',
-    'zip/zip/zip_error_strerror.c',
-    'zip/zip/zip_error_to_str.c',
-    'zip/zip/zip_extra_field.c',
-    'zip/zip/zip_extra_field_api.c',
-    'zip/zip/zip_fclose.c',
-    'zip/zip/zip_fdopen.c',
-    'zip/zip/zip_file_add.c',
-    #'zip/zip/zip_file_error_clear.c',
-    'zip/zip/zip_file_error_get.c',
-    'zip/zip/zip_file_get_comment.c',
-    'zip/zip/zip_file_get_offset.c',
-    'zip/zip/zip_file_rename.c',
-    'zip/zip/zip_file_replace.c',
-    'zip/zip/zip_file_set_comment.c',
-    'zip/zip/zip_file_strerror.c',
-    'zip/zip/zip_filerange_crc.c',
-    'zip/zip/zip_fopen.c',
-    'zip/zip/zip_fopen_encrypted.c',
-    'zip/zip/zip_fopen_index.c',
-    'zip/zip/zip_fopen_index_encrypted.c',
-    'zip/zip/zip_fread.c',
-    'zip/zip/zip_get_archive_comment.c',
-    'zip/zip/zip_get_archive_flag.c',
-    'zip/zip/zip_get_compression_implementation.c',
-    'zip/zip/zip_get_encryption_implementation.c',
-    'zip/zip/zip_get_file_comment.c',
-    'zip/zip/zip_get_name.c',
-    'zip/zip/zip_get_num_entries.c',
-    'zip/zip/zip_get_num_files.c',
-    'zip/zip/zip_name_locate.c',
-    'zip/zip/zip_new.c',
-    'zip/zip/zip_open.c',
-    'zip/zip/zip_rename.c',
-    'zip/zip/zip_replace.c',
-    'zip/zip/zip_set_archive_comment.c',
-    'zip/zip/zip_set_archive_flag.c',
-    'zip/zip/zip_set_default_password.c',
-    'zip/zip/zip_set_file_comment.c',
-    'zip/zip/zip_set_file_compression.c',
-    'zip/zip/zip_set_name.c',
-    'zip/zip/zip_source_buffer.c',
-    'zip/zip/zip_source_close.c',
-    'zip/zip/zip_source_crc.c',
-    'zip/zip/zip_source_deflate.c',
-    'zip/zip/zip_source_error.c',
-    'zip/zip/zip_source_file.c',
-    'zip/zip/zip_source_filep.c',
-    'zip/zip/zip_source_free.c',
-    'zip/zip/zip_source_function.c',
-    'zip/zip/zip_source_layered.c',
-    'zip/zip/zip_source_open.c',
-    'zip/zip/zip_source_pkware.c',
-    'zip/zip/zip_source_pop.c',
-    'zip/zip/zip_source_read.c',
-    'zip/zip/zip_source_stat.c',
-    'zip/zip/zip_source_window.c',
-    'zip/zip/zip_source_zip.c',
-    'zip/zip/zip_source_zip_new.c',
-    'zip/zip/zip_stat.c',
-    'zip/zip/zip_stat_index.c',
-    'zip/zip/zip_stat_init.c',
-    'zip/zip/zip_strerror.c',
-    'zip/zip/zip_string.c',
-    'zip/zip/zip_unchange.c',
-    'zip/zip/zip_unchange_all.c',
-    'zip/zip/zip_unchange_archive.c',
-    'zip/zip/zip_unchange_data.c',
-    'zip/zip/zip_utf-8.c'
-  ]
-
-  zip_inc = [platform_inc, include_directories('zip/include')]
-
-  libr2zip = static_library('r2zip', zip_files,
-    include_directories: zip_inc,
-    implicit_include_directories: false,
-    dependencies: zlib_dep
-  )
-
-  zip_dep = declare_dependency(
-    link_with: libr2zip,
-    include_directories: zip_inc
-  )
-else
-  message('Use system-provided zip library')
+qnx_static_dep = declare_dependency(
+  link_with: libr2qnx_static,
+  include_directories: qnx_inc
+)
 endif
 
 
@@ -467,6 +390,19 @@ grub_dep = declare_dependency(
   include_directories: grub_inc
 )
 
+if get_option('blob')
+libr2grub_static = static_library('r2grub_static', grub_files,
+  dependencies: [r_util_static_dep],
+  include_directories: grub_inc,
+  implicit_include_directories: false
+)
+
+grub_static_dep = declare_dependency(
+  link_with: libr2grub_static,
+  include_directories: grub_inc
+)
+endif
+
 # handle winkd dependency
 winkd_files = [
   'winkd/iob_pipe.c',
@@ -479,7 +415,7 @@ winkd_files = [
 winkd_inc = [platform_inc, include_directories('winkd')]
 
 libr2winkd = static_library('r2winkd', winkd_files,
-  dependencies: [r_hash_dep, r_crypto_dep, r_socket_dep, r_util_dep],
+  dependencies: [r_crypto_dep, r_socket_dep, r_util_dep],
   include_directories: winkd_inc,
   implicit_include_directories: false
 )
@@ -489,6 +425,18 @@ winkd_dep = declare_dependency(
   include_directories: winkd_inc
 )
 
+if get_option('blob')
+libr2winkd_static = static_library('r2winkd_static', winkd_files,
+  dependencies: [r_crypto_static_dep, r_socket_static_dep, r_util_static_dep],
+  include_directories: winkd_inc,
+  implicit_include_directories: false
+)
+
+winkd_static_dep = declare_dependency(
+  link_with: libr2winkd_static,
+  include_directories: winkd_inc
+)
+endif
 
 # handle ar dependency
 ar_files = [
@@ -508,9 +456,17 @@ ar_dep = declare_dependency(
   include_directories: ar_inc
 )
 
+if get_option('blob')
+libr2ar_static = static_library('r2ar_static', ar_files,
+  dependencies: [r_util_static_dep],
+  include_directories: ar_inc,
+  implicit_include_directories: false
+)
 
-if host_machine.system() == 'windows'
-  subdir('w32dbg_wrap')
+ar_static_dep = declare_dependency(
+  link_with: libr2ar_static,
+  include_directories: ar_inc
+)
 endif
 
 # handle mpc dependency
@@ -528,21 +484,4 @@ libmpc = static_library('r2mpc', mpc_files,
 mpc_dep = declare_dependency(
   link_with: libmpc,
   include_directories: mpc_inc
-)
-
-# handle yxml dependency
-yxml_files = [
-  'yxml/yxml.c'
-]
-
-yxml_inc = [platform_inc, include_directories(['yxml'])]
-
-libyxml = static_library('r2yxml', yxml_files,
-  include_directories: yxml_inc,
-  implicit_include_directories: false
-)
-
-yxml_dep = declare_dependency(
-  link_with: libyxml,
-  include_directories: yxml_inc
 )

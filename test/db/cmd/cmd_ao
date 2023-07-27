@@ -10,6 +10,260 @@ type: mov
 EOF
 RUN
 
+NAME=anal.mask
+FILE=-
+ARGS=-a arm -b 64
+CMDS=<<EOF
+wx 7f2303d5
+e anal.mask=false
+ao~mask
+e anal.mask=true
+ao~mask
+?e --
+wx fc6fbaa9
+e anal.mask=false
+ao~mask
+e anal.mask=true
+ao~mask
+?e --
+wx fd430191
+e anal.mask=false
+ao~mask
+e anal.mask=true
+ao~mask
+EOF
+EXPECT=<<EOF
+mask: ffffffff
+mask: ffffffff
+--
+mask: ffffffff
+mask: 0100025e
+--
+mask: ffffffff
+mask: 000003fe
+EOF
+RUN
+
+NAME=aob
+FILE=-
+CMDS=<<EOF
+-a arm
+-b 64
+wx fc6fbaa9
+aob
+aob fd430191
+EOF
+EXPECT=<<EOF
+03311111 42222233 40444444 10000103  : stp x28, x27, [sp, -0x60]!
+22211111 33333322 00333333 10000000  : add x29, sp, 0x50
+EOF
+RUN
+
+NAME=aob json
+FILE=-
+CMDS=<<EOF
+-a arm
+-b 64
+wx fc6fbaa9
+aobj
+aobj fd430191
+EOF
+EXPECT=<<EOF
+{"opstr":"stp x28, x27, [sp, -0x60]!","size":4,"bytes":{[0,3,3,1,1,1,1,1],[4,2,2,2,2,2,3,3],[4,0,4,4,4,4,4,4],[1,0,0,0,0,1,0,3]},"flipstr":"03311111 42222233 40444444 10000103 ","args":[[7,22,25,27,28,29,30],[1,2,3,4,0,31,26],[10,11,12,13,14],[5,6,8,9,24],[15,16,17,18,19,20,21,23]]}
+{"opstr":"add x29, sp, 0x50","size":4,"bytes":{[2,2,2,1,1,1,1,1],[3,3,3,3,3,3,2,2],[0,0,3,3,3,3,3,3],[1,0,0,0,0,0,0,0]},"flipstr":"22211111 33333322 00333333 10000000 ","args":[[22,23,24,25,26,27,28,29,30],[1,2,3,4,0,31],[5,6,7,8,9],[10,11,12,13,14,15,16,17,18,19,20,21]]}
+EOF
+RUN
+
+NAME=aom-6502.cs
+FILE=-
+CMDS=<<EOF
+e asm.arch=6502.cs
+e asm.bits=8
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+brk
+96
+EOF
+RUN
+
+NAME=aom-arm
+FILE=-
+CMDS=<<EOF
+e asm.arch=arm
+e asm.bits=64
+aom
+aoml~?
+e asm.bits=32
+aoml~?
+e asm.bits=16
+aoml~?
+EOF
+EXPECT=<<EOF
+invalid
+1288
+471
+471
+EOF
+RUN
+
+NAME=aom-evm for capstone
+FILE=-
+CMDS=<<EOF
+e asm.arch=evm
+e asm.bits=32
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+stop
+134
+EOF
+RUN
+
+NAME=aom-m680x
+FILE=-
+CMDS=<<EOF
+e asm.arch=m680x
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+fcb
+356
+EOF
+RUN
+
+NAME=aom-m68k
+FILE=-
+CMDS=<<EOF
+e asm.arch=m68k
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+ori.b
+374
+EOF
+RUN
+
+NAME=aom-mips
+FILE=-
+CMDS=<<EOF
+e asm.arch=mips
+e asm.bits=64
+aom
+aoml~?
+e asm.bits=32
+aoml~?
+e asm.bits=16
+aoml~?
+EOF
+EXPECT=<<EOF
+nop
+625
+625
+625
+EOF
+RUN
+
+NAME=aom-ppc
+FILE=-
+CMDS=<<EOF
+e asm.arch=ppc
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+invalid
+1726
+EOF
+RUN
+
+NAME=aom-riscv
+FILE=-
+CMDS=<<EOF
+e asm.arch=riscv.cs
+e asm.bits=64
+wx 13 # wa nop
+aom
+aoml~?
+e asm.bits=32
+aoml~?
+e asm.bits=16
+aoml~?
+EOF
+EXPECT=<<EOF
+nop
+272
+272
+272
+EOF
+RUN
+
+NAME=aom-sparc
+FILE=-
+CMDS=<<EOF
+e asm.arch=sparc
+e cfg.bigendian=true
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+unimp
+278
+EOF
+RUN
+
+NAME=aom-s390
+FILE=-
+CMDS=<<EOF
+e asm.arch=s390
+e cfg.bigendian=true
+wx 051e
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+balr
+2345
+EOF
+RUN
+
+NAME=aom-x86
+FILE=-
+CMDS=<<EOF
+e asm.arch=x86
+e asm.bits=64
+aom
+aoml~?
+e asm.bits=32
+aoml~?
+e asm.bits=16
+aoml~?
+EOF
+EXPECT=<<EOF
+add
+1523
+1523
+1523
+EOF
+RUN
+
+NAME=aom-xcore
+FILE=-
+CMDS=<<EOF
+e asm.arch=xcore
+aom
+aoml~?
+EOF
+EXPECT=<<EOF
+stw
+120
+EOF
+RUN
+
 NAME=aof
 FILE=-
 CMDS=<<EOF
@@ -43,11 +297,10 @@ pseudo: dword [rbp - 0xc] = 0
 mnemonic: mov
 description: moves data from src to dst
 mask: ffffffffffffff
-prefix: 0
 id: 460
 bytes: c745f400000000
 val: 0x00000000
-disp: 0xfffffffffffffff4
+disp: -12
 refptr: 4
 size: 7
 sign: false
@@ -68,7 +321,6 @@ stackptr: 8
     "mask": "ffffffffffffff",
     "esil": "0,0xc,rbp,-,=[4]",
     "sign": false,
-    "prefix": 0,
     "id": 460,
     "opex": {
       "operands": [
@@ -97,13 +349,100 @@ stackptr: 8
     "size": 7,
     "type": "mov",
     "esilcost": 12,
-    "scale": 0,
     "refptr": 4,
     "cycles": 1,
     "failcycles": 0,
     "delay": 0,
     "stack": "set",
     "stackptr": 8,
+    "direction": "write",
+    "family": "cpu"
+  }
+]
+EOF
+RUN
+
+NAME=aojvals-z80
+FILE=-
+ARGS=-a z80 -b 8
+CMDS=<<EOF
+wx ceed
+aoj~{}
+EOF
+EXPECT=<<EOF
+[
+  {
+    "opcode": "adc a, 0xed",
+    "disasm": "adc a, 0xed",
+    "pseudo": "a = a + 0xed",
+    "description": "add with carry register pair",
+    "mnemonic": "adc",
+    "mask": "ffff",
+    "sign": false,
+    "id": 0,
+    "addr": 0,
+    "bytes": "ceed",
+    "size": 2,
+    "type": "unk",
+    "esilcost": 0,
+    "cycles": 0,
+    "failcycles": 0,
+    "delay": 0,
+    "stackptr": 0,
+    "family": "cpu"
+  }
+]
+EOF
+RUN
+
+NAME=aojvals-gb
+FILE=-
+ARGS=-a x86 -b 8
+CMDS=<<EOF
+# hack because there's no parse plugin for gb
+-a gb
+wx ceed
+aoj~{}
+EOF
+EXPECT=<<EOF
+[
+  {
+    "opcode": "adc 0xed",
+    "disasm": "adc 0xed",
+    "pseudo": "0xed +=",
+    "description": "add with carry register pair",
+    "srcs": [
+      {
+        "name": "0xed",
+        "type": "imm",
+        "absolute": 1,
+        "imm": 237
+      },
+      {
+        "name": "C",
+        "type": "reg"
+      }
+    ],
+    "dsts": [
+      {
+        "name": "a",
+        "type": "reg"
+      }
+    ],
+    "mnemonic": "adc",
+    "mask": "ffff",
+    "esil": "0xed,a,+=,C,NUM,7,$c,C,:=,3,$c,H,:=,a,+=,7,$c,C,|,C,:=,3,$c,H,|=,a,a,=,$z,Z,:=,0,N,:=",
+    "sign": false,
+    "id": 0,
+    "addr": 0,
+    "bytes": "ceed",
+    "size": 2,
+    "type": "add",
+    "esilcost": 0,
+    "cycles": 8,
+    "failcycles": 0,
+    "delay": 0,
+    "stackptr": 0,
     "family": "cpu"
   }
 ]

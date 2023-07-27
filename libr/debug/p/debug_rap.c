@@ -1,47 +1,47 @@
-/* radare - LGPL - Copyright 2011-2019 - pancake */
+/* radare - LGPL - Copyright 2011-2022 - pancake */
 
 #include <r_asm.h>
 #include <r_cons.h>
 #include <r_debug.h>
 
-static int __rap_step(RDebug *dbg) {
+static bool __rap_step(RDebug *dbg) {
 	r_io_system (dbg->iob.io, "ds");
 	return true;
 }
 
-static int __rap_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
+static bool __rap_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 	r_io_system (dbg->iob.io, "dr");
-	return 0;
+	return true;
 }
 
-static int __rap_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
+static bool __rap_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
 	return false; // XXX Error check
 }
 
-static int __rap_continue(RDebug *dbg, int pid, int tid, int sig) {
+static bool __rap_continue(RDebug *dbg, int pid, int tid, int sig) {
 	r_io_system (dbg->iob.io, "dc");
 	return true;
 }
 
-static int __rap_wait(RDebug *dbg, int pid) {
+static RDebugReasonType __rap_wait(RDebug *dbg, int pid) {
 	/* do nothing */
 	return true;
 }
 
-static int __rap_attach(RDebug *dbg, int pid) {
+static bool __rap_attach(RDebug *dbg, int pid) {
 // XXX TODO PID must be a socket here !!1
 	RIODesc *d = dbg->iob.io->desc;
 	if (d && d->plugin && d->plugin->name) {
 		if (!strcmp ("rap", d->plugin->name)) {
 			eprintf ("SUCCESS: rap attach with inferior rap rio worked\n");
 		} else {
-			eprintf ("ERROR: Underlying IO descriptor is not a rap one..\n");
+			R_LOG_ERROR ("Underlying IO descriptor is not a rap one");
 		}
 	}
 	return true;
 }
 
-static int __rap_detach(RDebug *dbg, int pid) {
+static bool __rap_detach(RDebug *dbg, int pid) {
 // XXX TODO PID must be a socket here !!1
 //	close (pid);
 	//XXX Maybe we should continue here?
@@ -60,14 +60,18 @@ static char *__rap_reg_profile(RDebug *dbg) {
 	return out;
 }
 
-static int __rap_breakpoint (RBreakpoint *bp, RBreakpointItem *b, bool set) {
+static int __rap_breakpoint(RBreakpoint *bp, RBreakpointItem *b, bool set) {
 	//r_io_system (dbg->iob.io, "db");
 	return false;
 }
 
 RDebugPlugin r_debug_plugin_rap = {
-	.name = "rap",
-	.license = "LGPL3",
+	.meta = {
+		.name = "rap",
+		.author = "pancake",
+		.desc = "rap debug plugin",
+		.license = "LGPL3",
+	},
 	.arch = "any",
 	.bits = R_SYS_BITS_32,
 	.step = __rap_step,
@@ -79,8 +83,6 @@ RDebugPlugin r_debug_plugin_rap = {
 	.reg_read = &__rap_reg_read,
 	.reg_write = &__rap_reg_write,
 	.reg_profile = (void *)__rap_reg_profile,
-	//.bp_write = &__rap_bp_write,
-	//.bp_read = &__rap_bp_read,
 };
 
 #ifndef R2_PLUGIN_INCORE

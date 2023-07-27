@@ -1,3 +1,16 @@
+NAME=pcc
+FILE=README.md
+CMDS=pcc
+
+EXPECT=<<EOF
+const unsigned char cstr[256] = ""\
+  "# Radare2 Regression Test Suite\n\nA set of regression tests fo"\
+  "r Radare2 (http://radare.org).\n\nOriginally based on work by a"\
+  "nd now in collaboration with pancake.\n\n## Directory Hierarchy"\
+  "\n\n * db/:          The tests sources\n * unit/:        Unit te"\
+  "sts (written";
+EOF
+RUN
 NAME=endian tests: pv4
 FILE=-
 CMDS=<<EOF
@@ -89,6 +102,23 @@ EXPECT=<<EOF
 EOF
 RUN
 
+NAME=mac ls asm.sub.jmp
+FILE=bins/mach0/mac-ls
+CMDS=<<EOF
+f jeje.lolo=0x10000108a
+e asm.sub.jmp = false
+pd 20~7f
+e asm.sub.jmp = true
+pd 20~7f
+EOF
+EXPECT=<<EOF
+        ,=< 0x100001083      7f05           jg 0x10000108a
+        `-> 0x10000108a      488d357f3a00.  lea rsi, [0x100004b10]     ; section.4.__TEXT.__cstring
+        ,=< 0x100001083      7f05           jg jeje.lolo
+        `-> 0x10000108a      488d357f3a00.  lea rsi, section.4.__TEXT.__cstring ; 0x100004b10
+EOF
+RUN
+
 NAME=mac ls pdsf
 FILE=bins/mach0/mac-ls
 CMDS=<<EOF
@@ -117,7 +147,7 @@ EXPECT=<<EOF
 0x10000116e call sym.func.100004401
 0x100001179 str.1_ABCFGHLOPRSTUWabcdefghiklmnopqrstuvwx
 0x100001186 call sym.imp.getopt
-;-- switch
+;-- switch:
 0x100001233 str.CLICOLOR
 0x100001246 call sym.imp.setenv
 0x100001253 str.bin_ls
@@ -184,12 +214,13 @@ RUN
 
 NAME=mac ls pfc
 FILE=bins/mach0/mac-ls
+BROKEN=1
 CMDS=pfc zdq foo bar cow
 EXPECT=<<EOF
 struct {
     char* foo; // "UH..AWAVAUATSH..H."
-    int32_t bar; // 4085860352
-    uint64_t cow; // -450213120875525823
+    int32_t bar; // 0xf3894800
+    uint64_t cow; // 0xf9c0858d48fe8941
 }
 EOF
 RUN

@@ -6,6 +6,7 @@
 #include "gdbr_common.h"
 #include "utils.h"
 #include "r_util/r_str.h"
+#include "r_util/r_log.h"
 
 
 int handle_g(libgdbr_t *g) {
@@ -50,7 +51,8 @@ int handle_qStatus(libgdbr_t *g) {
 		return -1;
 	}
 	char *data = strdup (g->data);
-	char *tok = strtok (data, ";");
+	char *save_ptr = NULL;
+	char *tok = r_str_tok_r (data, ";", &save_ptr);
 	if (!tok) {
 		free (data);
 		return -1;
@@ -67,7 +69,7 @@ int handle_qStatus(libgdbr_t *g) {
 			free (data);
 			return send_ack (g);
 		}
-		tok = strtok (NULL, ";");
+		tok = r_str_tok_r (NULL, ";", &save_ptr);
 	}
 	send_ack (g);
 	free (data);
@@ -192,21 +194,21 @@ static int stop_reason_exit(libgdbr_t *g) {
 	g->stop_reason.reason = R_DEBUG_REASON_DEAD;
 	if (g->stub_features.multiprocess && g->data_len > 3) {
 		if (sscanf (g->data + 1, "%x;process:%x", &status, &pid) != 2) {
-			eprintf ("Message from remote: %s\n", g->data);
+			R_LOG_DEBUG ("Message from remote: %s", g->data);
 			return -1;
 		}
-		eprintf ("Process %d exited with status %d\n", pid, status);
+		R_LOG_DEBUG ("Process %d exited with status %d", pid, status);
 		g->stop_reason.thread.pid = pid;
 		g->stop_reason.thread.tid = pid;
 		g->stop_reason.is_valid = true;
 		return 0;
 	}
 	if (!isxdigit ((unsigned char)g->data[1])) {
-		eprintf ("Message from remote: %s\n", g->data);
+		R_LOG_DEBUG ("Message from remote: %s", g->data);
 		return -1;
 	}
 	status = (int) strtol (g->data + 1, NULL, 16);
-	eprintf ("Process %d exited with status %d\n", g->pid, status);
+	R_LOG_DEBUG ("Process %d exited with status %d", g->pid, status);
 	g->stop_reason.thread.pid = pid;
 	g->stop_reason.thread.tid = pid;
 	g->stop_reason.is_valid = true;
@@ -219,10 +221,10 @@ static int stop_reason_terminated(libgdbr_t *g) {
 	g->stop_reason.reason = R_DEBUG_REASON_DEAD;
 	if (g->stub_features.multiprocess && g->data_len > 3) {
 		if (sscanf (g->data + 1, "%x;process:%x", &signal, &pid) != 2) {
-			eprintf ("Message from remote: %s\n", g->data);
+			R_LOG_DEBUG ("Message from remote: %s", g->data);
 			return -1;
 		}
-		eprintf ("Process %d terminated with signal %d\n", pid, signal);
+		R_LOG_DEBUG ("Process %d terminated with signal %d", pid, signal);
 		g->stop_reason.thread.pid = pid;
 		g->stop_reason.thread.tid = pid;
 		g->stop_reason.signum = signal;
@@ -230,11 +232,11 @@ static int stop_reason_terminated(libgdbr_t *g) {
 		return 0;
 	}
 	if (!isxdigit ((unsigned char)g->data[1])) {
-		eprintf ("Message from remote: %s\n", g->data);
+		R_LOG_DEBUG ("Message from remote: %s", g->data);
 		return -1;
 	}
 	signal = (int) strtol (g->data + 1, NULL, 16);
-	eprintf ("Process %d terminated with signal %d\n", g->pid, signal);
+	R_LOG_DEBUG ("Process %d terminated with signal %d", g->pid, signal);
 	g->stop_reason.thread.pid = pid;
 	g->stop_reason.thread.tid = pid;
 	g->stop_reason.signum = signal;
@@ -252,7 +254,7 @@ int handle_stop_reason(libgdbr_t *g) {
 	case 'O':
 		unpack_hex (g->data + 1, g->data_len - 1, g->data + 1);
 		//g->data[g->data_len - 1] = '\0';
-		eprintf ("%s", g->data + 1);
+		R_LOG_DEBUG ("%s: %s", __func__, g->data + 1);
 		if (send_ack (g) < 0) {
 			return -1;
 		}
@@ -269,6 +271,7 @@ int handle_stop_reason(libgdbr_t *g) {
 		return -1;
 	}
 	char *ptr1, *ptr2;
+	char *save_ptr = NULL;
 	g->data[g->data_len] = '\0';
 	free (g->stop_reason.exec.path);
 	memset (&g->stop_reason, 0, sizeof (libgdbr_stop_reason_t));
@@ -278,7 +281,7 @@ int handle_stop_reason(libgdbr_t *g) {
 	}
 	g->stop_reason.is_valid = true;
 	g->stop_reason.reason = R_DEBUG_REASON_SIGNAL;
-	for (ptr1 = strtok (g->data + 3, ";"); ptr1; ptr1 = strtok (NULL, ";")) {
+	for (ptr1 = r_str_tok_r (g->data + 3, ";", &save_ptr); ptr1; ptr1 = r_str_tok_r (NULL, ";", &save_ptr)) {
 		if (r_str_startswith (ptr1, "thread") && !g->stop_reason.thread.present) {
 			if (!(ptr2 = strchr (ptr1, ':'))) {
 				continue;
@@ -393,6 +396,7 @@ int handle_lldb_read_reg(libgdbr_t *g) {
 		return -1;
 	}
 	char *ptr, *ptr2, *buf;
+	char *save_ptr = NULL;
 	size_t regnum, tot_regs, buflen = 0;
 
 	// Get maximum register number
@@ -407,25 +411,25 @@ int handle_lldb_read_reg(libgdbr_t *g) {
 	buf = g->read_buff;
 	memset (buf, 0, buflen);
 
-	if (!(ptr = strtok (g->data, ";"))) {
+	if (!(ptr = r_str_tok_r (g->data, ";", &save_ptr))) {
 		return -1;
 	}
 	while (ptr) {
 		if (!isxdigit ((unsigned char)*ptr)) {
 			// This is not a reg value. Skip
-			ptr = strtok (NULL, ";");
+			ptr = r_str_tok_r (NULL, ";", &save_ptr);
 			continue;
 		}
 		// Get register number
 		regnum = (int) strtoul (ptr, NULL, 16);
 		if (regnum >= tot_regs || !(ptr2 = strchr (ptr, ':'))) {
-			ptr = strtok (NULL, ";");
+			ptr = r_str_tok_r (NULL, ";", &save_ptr);
 			continue;
 		}
 		ptr2++;
 		// Write to offset
 		unpack_hex (ptr2, strlen (ptr2), buf + g->registers[regnum].offset);
-		ptr = strtok (NULL, ";");
+		ptr = r_str_tok_r (NULL, ";", &save_ptr);
 		continue;
 	}
 	memcpy (g->data, buf, buflen);

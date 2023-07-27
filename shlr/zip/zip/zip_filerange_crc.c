@@ -17,7 +17,7 @@
   3. The names of the authors may not be used to endorse or promote
      products derived from this software without specific prior
      written permission.
- 
+
   THIS SOFTWARE IS PROVIDED BY THE AUTHORS ``AS IS'' AND ANY EXPRESS
   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
   WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -45,16 +45,16 @@ int
 _zip_filerange_crc(FILE *fp, off_t start, off_t len, uLong *crcp,
 		   struct zip_error *errp)
 {
+#if 0
     Bytef buf[BUFSIZE];
     size_t n;
-
     *crcp = crc32(0L, Z_NULL, 0);
 
     if (fseeko(fp, start, SEEK_SET) != 0) {
 	_zip_error_set(errp, ZIP_ER_SEEK, errno);
 	return -1;
     }
-    
+
     while (len > 0) {
 	n = len > BUFSIZE ? BUFSIZE : (size_t)len;
 	if ((n=fread(buf, 1, n, fp)) == 0) {
@@ -66,6 +66,7 @@ _zip_filerange_crc(FILE *fp, off_t start, off_t len, uLong *crcp,
 
 	len-= n;
     }
+#endif
 
     return 0;
 }

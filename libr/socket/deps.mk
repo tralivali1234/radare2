@@ -18,6 +18,7 @@ endif
 # windows
 ifeq (${OSTYPE},windows)
 LDFLAGS+=-lwsock32
+LDFLAGS+=-lwininet
 #LDFLAGS+=-lws2_32
 endif
 
@@ -26,7 +27,9 @@ LDFLAGS+=-lws2_32
 else
 # no libutil for android
 #ifneq (,$(findstring linux,$(OSTYPE))$(findstring android,$(OSTYPE))$(findstring bsd,$(OSTYPE)))
+ifneq (,$(findstring erenity,$(OSTYPE)))
 ifneq (,$(findstring linux,$(OSTYPE))$(findstring bsd,$(OSTYPE)))
 LDFLAGS+=-lutil
+endif
 endif
 endif

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - nibble, pancake, alvaro_fe */
+/* radare - LGPL - Copyright 2009-2023 - nibble, pancake, alvaro_fe */
 
 #define R_BIN_MACH064 1
 #include "bin_mach0.c"
@@ -6,7 +6,7 @@
 #include "objc/mach064_classes.h"
 #include "../format/mach0/mach064_is_kernelcache.c"
 
-static bool check_buffer(RBuffer *b) {
+static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	ut8 buf[4] = {0};
 	if (r_buf_size (b) > 4) {
 		r_buf_read_at (b, 0, buf, sizeof (buf));
@@ -28,9 +28,9 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 	const bool use_linkedit = true;
 	ut64 filesize, codeva, datava;
 	ut32 ncmds, magiclen, headerlen;
-	ut64 p_codefsz=0, p_codeva=0, p_codesz=0, p_codepa=0;
-	ut64 p_datafsz=0, p_datava=0, p_datasz=0, p_datapa=0;
-	ut64 p_cmdsize=0, p_entry=0, p_tmp=0;
+	ut64 p_codefsz = 0, p_codeva = 0, p_codesz = 0, p_codepa = 0;
+	ut64 p_datafsz = 0, p_datava = 0, p_datasz = 0, p_datapa = 0;
+	ut64 p_cmdsize = 0, p_entry = 0, p_tmp = 0;
 	ut64 baddr = 0x100001000LL;
 // TODO: baddr must be overriden with -b
 	RBuffer *buf = r_buf_new ();
@@ -265,15 +265,19 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 }
 
 static RBinAddr* binsym(RBinFile *bf, int sym) {
-	ut64 addr;
 	RBinAddr *ret = NULL;
 	switch (sym) {
 	case R_BIN_SYM_MAIN:
-		addr = MACH0_(get_main) (bf->o->bin_obj);
-		if (!addr || !(ret = R_NEW0 (RBinAddr))) {
-			return NULL;
+		{
+			struct MACH0_(obj_t) *mo = R_UNWRAP3 (bf, o, bin_obj);
+			ut64 addr = MACH0_(get_main) (mo);
+			if (addr != UT64_MAX && addr) {
+				ret = R_NEW0 (RBinAddr);
+				if (ret) {
+					ret->paddr = ret->vaddr = addr;
+				}
+			}
 		}
-		ret->paddr = ret->vaddr = addr;
 		break;
 	}
 	return ret;
@@ -292,7 +296,7 @@ RBinPlugin r_bin_plugin_mach064 = {
 	.entries = &entries,
 	.sections = &sections,
 	.signature = &entitlements,
-	.symbols = &symbols,
+	.symbols_vec = &symbols_vec,
 	.imports = &imports,
 	.info = &info,
 	.libs = &libs,
@@ -301,7 +305,7 @@ RBinPlugin r_bin_plugin_mach064 = {
 	.patch_relocs = &patch_relocs,
 	.fields = &MACH0_(mach_fields),
 	.create = &create,
-	.classes = &MACH0_(parse_classes),
+	.classes = &classes,
 	.write = &r_bin_write_mach0,
 };
 

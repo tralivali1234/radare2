@@ -1,7 +1,5 @@
-/* radare - LGPL - Copyright 2019 - nibble, pancake */
+/* radare - LGPL - Copyright 2019-2023 - nibble, pancake */
 
-#include <stdio.h>
-#include <string.h>
 #include <r_core.h>
 
 static bool matchBytes(RSignItem *a, RSignItem *b) {
@@ -35,6 +33,10 @@ static bool matchGraph(RSignItem *a, RSignItem *b) {
 	return false;
 }
 
+static bool is_import(const char *name) {
+	return r_str_startswith (name, "imp.") || r_str_startswith (name, "sym.imp.");
+}
+
 R_API int r_core_zdiff(RCore *c, RCore *c2) {
 	if (!c || !c2) {
 		return false;
@@ -43,7 +45,9 @@ R_API int r_core_zdiff(RCore *c, RCore *c2) {
 	SdbList *a = sdb_foreach_list (c->anal->sdb_zigns, false);
 	SdbList *b = sdb_foreach_list (c2->anal->sdb_zigns, false);
 
-	eprintf ("Diff %d %d\n", (int)ls_length (a), (int)ls_length (b));
+	if (a && b) {
+		eprintf ("Diff %d %d\n", (int)ls_length (a), (int)ls_length (b));
+	}
 	SdbListIter *iter;
 	SdbKv *kv;
 	RList *la = r_list_new ();
@@ -72,23 +76,22 @@ R_API int r_core_zdiff(RCore *c, RCore *c2) {
 
 	// do the sign diff here
 	r_list_foreach (la, itr, si) {
-		//eprintf ("-- %s\n", si->name);
-		if (strstr (si->name, "imp.")) {
+		if (is_import (si->name)) {
 			continue;
 		}
 		r_list_foreach (lb, itr2, si2) {
-			if (strstr (si2->name, "imp.")) {
+			if (is_import (si2->name)) {
 				continue;
 			}
 			if (matchBytes (si, si2)) {
-				eprintf ("0x%08"PFMT64x" 0x%08"PFMT64x" B %s\n", si->addr, si2->addr, si->name);
+				r_cons_printf ("0x%08"PFMT64x" 0x%08"PFMT64x" B %s\n", si->addr, si2->addr, si->name);
 			}
 			if (matchGraph (si, si2)) {
-				eprintf ("0x%08"PFMT64x" 0x%08"PFMT64x" G %s\n", si->addr, si2->addr, si->name);
+				r_cons_printf ("0x%08"PFMT64x" 0x%08"PFMT64x" G %s\n", si->addr, si2->addr, si->name);
 			}
 		}
 	}
-	
+
 	/* Diff functions */
 	// r_anal_diff_fcn (cores[0]->anal, cores[0]->anal->fcns, cores[1]->anal->fcns);
 

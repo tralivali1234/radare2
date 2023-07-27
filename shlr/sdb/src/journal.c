@@ -1,31 +1,44 @@
-/* sdb - MIT - Copyright 2011-2016 - pancake */
+/* sdb - MIT - Copyright 2011-2023 - pancake */
 
-#include "sdb.h"
+#include "sdb/sdb.h"
 #include <fcntl.h>
+#if R2__UNIX__ || __UNIX__ || __MINGW32__
+#include <unistd.h>
+#endif
 
-static const char *sdb_journal_filename(Sdb *s) {
-	return (s && s->name)
-		? sdb_fmt ("%s.journal", s->name)
-		: NULL;
+static bool sdb_journal_filename(Sdb *s, char *path, size_t path_size) {
+	if (!s || !s->name) {
+		return false;
+	}
+
+	int res = snprintf (path, path_size, "%s.journal", s->name);
+	if (res < 0 || (size_t)res >= path_size) {
+		return false;
+	}
+
+	return true;
 }
 
 SDB_API bool sdb_journal_close(Sdb *s) {
+	char filename[SDB_MAX_PATH];
 	if (s->journal == -1) {
 		return false;
 	}
 	close (s->journal);
 	s->journal = -1;
-	unlink (sdb_journal_filename (s));
+	if (!sdb_journal_filename (s, filename, sizeof (filename))) {
+		return false;
+	}
+	unlink (filename);
 	return true;
 }
 
 SDB_API bool sdb_journal_open(Sdb *s) {
-	const char *filename;
+	char filename[SDB_MAX_PATH];
 	if (!s || !s->name) {
 		return false;
 	}
-	filename = sdb_journal_filename (s);
-	if (!filename) {
+	if (!sdb_journal_filename (s, filename, sizeof (filename))) {
 		return false;
 	}
 	close (s->journal);
@@ -49,13 +62,13 @@ SDB_API int sdb_journal_load(Sdb *s) {
 		return 0;
 	}
 	lseek (fd, 0, SEEK_SET);
-	str = malloc (sz + 1);
+	str = (char *)sdb_gh_malloc (sz + 1);
 	if (!str) {
 		return 0;
 	}
 	rr = read (fd, str, sz);
 	if (rr < 0) {
-		free (str);
+		sdb_gh_free (str);
 		return 0;
 	}
 	str[sz] = 0;
@@ -73,15 +86,18 @@ SDB_API int sdb_journal_load(Sdb *s) {
 		}
 		cur = ptr + 1;
 	}
-	free (str);
+	sdb_gh_free (str);
 	return changes;
 }
 
 SDB_API bool sdb_journal_log(Sdb *s, const char *key, const char *val) {
+	char str[SDB_MAX_PATH];
 	if (s->journal == -1) {
 		return false;
 	}
-	const char *str = sdb_fmt ("%s=%s\n", key, val);
+	if (snprintf (str, sizeof (str), "%s=%s\n", key, val) < 0) {
+		return false;
+	}
 	int len = strlen (str);
 	if (write (s->journal, str, len) != len) {
 		return false;
@@ -100,10 +116,10 @@ SDB_API bool sdb_journal_clear(Sdb *s) {
 }
 
 SDB_API bool sdb_journal_unlink(Sdb *s) {
-	const char *filename = sdb_journal_filename (s);
-	sdb_journal_close (s);
-	if (filename) {
-		return !unlink (filename);
+	char filename[SDB_MAX_PATH];
+	if (!sdb_journal_filename (s, filename, sizeof (filename))) {
+		return false;
 	}
-	return false;
+	sdb_journal_close (s);
+	return !unlink (filename);
 }

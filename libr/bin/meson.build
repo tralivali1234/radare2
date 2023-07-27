@@ -1,3 +1,5 @@
+subdir('d')
+
 r_bin_sources = [
   'bin.c',
   'bin_write.c',
@@ -5,9 +7,10 @@ r_bin_sources = [
   'demangle.c',
   'dwarf.c',
   'blang.c',
-  'filter.c',
+  'bfilter.c',
   'bfile.c',
   'bobj.c',
+# plugins
   'p/bin_any.c',
   'p/bin_art.c',
   'p/bin_avr.c',
@@ -17,10 +20,13 @@ r_bin_sources = [
   'p/bin_bootimg.c',
   'p/bin_cgc.c',
   'p/bin_coff.c',
+  'p/bin_off.c', # goff ibm
   'p/bin_dbginfo_dex.c',
   'p/bin_dbginfo_elf.c',
   'p/bin_dbginfo_elf64.c',
+  'p/bin_dbginfo_p9.c',
   'p/bin_dex.c',
+  'p/bin_dis.c',
   'p/bin_dmp64.c',
   'p/bin_dol.c',
   'p/bin_dyldcache.c',
@@ -38,6 +44,7 @@ r_bin_sources = [
   'p/bin_mz.c',
   'p/bin_ne.c',
   'p/bin_nes.c',
+  'p/bin_hunk.c',
   'p/bin_nin3ds.c',
   'p/bin_ninds.c',
   'p/bin_ningb.c',
@@ -53,12 +60,15 @@ r_bin_sources = [
   'p/bin_psxexe.c',
   'p/bin_pyc.c',
   'p/bin_qnx.c',
+  'p/bin_rel.c',
+  'p/bin_s390.c',
   'p/bin_sfc.c',
   'p/bin_smd.c',
   'p/bin_sms.c',
   'p/bin_symbols.c',
   'p/bin_te.c',
   'p/bin_vsf.c',
+  'p/bin_wad.c',
   'p/bin_wasm.c',
   'p/bin_write_elf.c',
   'p/bin_write_elf64.c',
@@ -67,17 +77,20 @@ r_bin_sources = [
   'p/bin_write_pe.c',
   'p/bin_write_pe64.c',
   'p/bin_xbe.c',
+  'p/bin_xcoff64.c',
   'p/bin_xnu_kernelcache.c',
   'p/bin_xtr_dyldcache.c',
   'p/bin_xtr_fatmach0.c',
   'p/bin_xtr_pemixed.c',
   'p/bin_xtr_sep64.c',
+  'p/bin_xtr_xalz.c',
   'p/bin_z64.c',
   'p/bin_zimg.c',
-
-
+  'p/bin_xtac.c',
+# implementation
   'format/bflt/bflt.c',
   'format/coff/coff.c',
+  'format/coff/xcoff64.c',
   'format/dex/dex.c',
   'format/dmp/dmp64.c',
   'format/elf/elf.c',
@@ -112,31 +125,37 @@ r_bin_sources = [
   'format/te/te.c',
   'format/wasm/wasm.c',
   'format/zimg/zimg.c',
-
+# pdb microsoft format
+  'format/pdb/dbi.c',
+  'format/pdb/fpo.c',
+  'format/pdb/gdata.c',
+  'format/pdb/omap.c',
+  'format/pdb/pdb.c',
+  'format/pdb/pdb_downloader.c',
+  'format/pdb/stream_file.c',
+  'format/pdb/stream_pe.c',
+  'format/pdb/tpi.c',
+# symbol name manglers
   'mangling/cxx.c',
   'mangling/cxx/cp-demangle.c',
+  'mangling/pascal.c',
   'mangling/demangler.c',
   'mangling/rust.c',
   'mangling/java.c',
-  'mangling/microsoft_demangle.c',
+  'mangling/microsoft.c',
   'mangling/msvc.c',
   'mangling/objc.c',
   'mangling/swift-sd.c',
-  'mangling/swift.c',
-
-  'pdb/dbi.c',
-  'pdb/fpo.c',
-  'pdb/gdata.c',
-  'pdb/omap.c',
-  'pdb/pdb.c',
-  'pdb/pdb_downloader.c',
-  'pdb/stream_file.c',
-  'pdb/stream_pe.c',
-  'pdb/tpi.c'
+  'mangling/swift.c'
 ]
 
-r_bin_inc = [platform_inc, yxml_inc, include_directories('mangling', 'format')]
+r_bin_sources += r_bin_d_sources
 
+r_bin_inc = [platform_inc, include_directories('mangling', 'format')]
+
+if not get_option('use_sys_lz4')
+  library_cflags += ['-DUSE_SMALLZ4']
+endif
 r_bin = library('r_bin', r_bin_sources,
   include_directories: r_bin_inc,
   c_args: ['-DR_API_BIN_ONLY=1'] + library_cflags,
@@ -144,13 +163,13 @@ r_bin = library('r_bin', r_bin_sources,
     r_util_dep,
     r_cons_dep,
     r_io_dep,
-    r_hash_dep,
+    r_fs_dep,
+    r_crypto_dep,
     r_magic_dep,
     r_socket_dep,
     r_syscall_dep,
     java_dep,
-    lz4_dep,
-    yxml_dep
+    lz4_dep
   ],
   install: true,
   implicit_include_directories: false,
@@ -161,6 +180,30 @@ r_bin = library('r_bin', r_bin_sources,
 r_bin_dep = declare_dependency(link_with: r_bin,
                                include_directories: r_bin_inc)
 
+if get_option('blob')
+r_bin_static = static_library('r_bin_static', r_bin_sources,
+  include_directories: r_bin_inc,
+  c_args: ['-DR_API_BIN_ONLY=1'] + library_cflags,
+  dependencies: [
+    r_util_static_dep,
+    r_cons_static_dep,
+    r_io_static_dep,
+    r_fs_static_dep,
+    r_crypto_static_dep,
+    r_magic_static_dep,
+    r_socket_static_dep,
+    r_syscall_static_dep,
+    java_static_dep,
+    lz4_dep
+  ],
+  install: true,
+  implicit_include_directories: false,
+)
+
+r_bin_static_dep = declare_dependency(link_with: r_bin_static,
+  include_directories: r_bin_inc)
+endif
+
 pkgconfig_mod.generate(r_bin,
   subdirs: 'libr',
   version: r2_version,
@@ -169,6 +212,7 @@ pkgconfig_mod.generate(r_bin,
   libraries: pkgcfg_sanitize_libs,
   requires: pkgconfig_magic_requires + [
     'r_util',
+    'r_fs',
     'r_io',
     'r_socket',
     'r_syscall'

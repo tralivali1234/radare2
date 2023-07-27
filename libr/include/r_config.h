@@ -50,9 +50,11 @@ typedef struct r_config_t {
 	RList *nodes;
 	HtPP *ht;
 	bool lock;
+	/*was the struct modified after the last project save*/
+	R_DIRTY_VAR;
 } RConfig;
 
-typedef struct r_config_hold_t { 
+typedef struct r_config_hold_t {
 	RConfig *cfg;
 	RList *list;
 } RConfigHold;
@@ -75,13 +77,16 @@ R_API void r_config_bump(RConfig *cfg, const char *key);
 R_API bool r_config_get_b(RConfig *cfg, const char *name);
 R_API RConfigNode* r_config_set_b(RConfig *cfg, const char *name, bool b);
 R_API RConfigNode *r_config_set_i(RConfig *cfg, const char *name, const ut64 i);
+
 R_API RConfigNode *r_config_set_cb(RConfig *cfg, const char *name, const char *value, RConfigCallback cb);
 R_API RConfigNode *r_config_set_i_cb(RConfig *cfg, const char *name, int ivalue, RConfigCallback cb);
+R_API RConfigNode *r_config_set_b_cb(RConfig *cfg, const char *name, bool bvalue, RConfigCallback cb);
+
 R_API RConfigNode *r_config_set(RConfig *cfg, const char *name, const char *value);
 R_API bool r_config_rm(RConfig *cfg, const char *name);
 R_API ut64 r_config_get_i(RConfig *cfg, const char *name);
 R_API const char *r_config_get(RConfig *cfg, const char *name);
-R_API const char *r_config_desc(RConfig *cfg, const char *name, const char *desc);
+R_API RConfigNode *r_config_desc(RConfig *cfg, const char *name, const char *desc);
 R_API void r_config_list(RConfig *cfg, const char *str, int rad);
 
 R_API bool r_config_toggle(RConfig *cfg, const char *name);
@@ -95,8 +100,8 @@ R_API void r_config_serialize(R_NONNULL RConfig *config, R_NONNULL Sdb *db);
 R_API bool r_config_unserialize(R_NONNULL RConfig *config, R_NONNULL Sdb *db, R_NULLABLE char **err);
 
 // RConfigNode
-R_API const char *r_config_node_desc(RConfigNode *node, const char *desc);
-R_API char *r_config_node_to_string(RConfigNode *node);
+R_API RConfigNode *r_config_node_desc(RConfigNode *node, const char *desc);
+R_API char *r_config_node_tostring(RConfigNode *node);
 R_API void r_config_node_add_option(RConfigNode *node, const char *option);
 R_API void r_config_node_purge_options(RConfigNode *node);
 

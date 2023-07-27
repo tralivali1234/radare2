@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2019 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2023 - nibble, pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -7,12 +7,14 @@
 #include "mach0/fatmach0.h"
 #include "mach0/mach0.h"
 
-static RBinXtrData * extract(RBin *bin, int idx);
+static RBinXtrData *extract(RBin *bin, int idx);
 
 static bool checkHeader(RBuffer *b) {
 	ut8 buf[4];
 	const ut64 sz = r_buf_size (b);
-	r_buf_read_at (b, 0, buf, 4);
+	if (r_buf_read_at (b, 0, buf, 4) != 4) {
+		return false;
+	}
 	if (sz >= 0x300 && !memcmp (buf, "\xca\xfe\xba\xbe", 4)) {
 		ut64 addr = 4 * sizeof (32);
 		ut64 off = r_buf_read_be32_at (b, addr);
@@ -30,12 +32,12 @@ static bool checkHeader(RBuffer *b) {
 	return false;
 }
 
-static bool check_buffer (RBuffer *buf) {
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	r_return_val_if_fail (buf, false);
 	return checkHeader (buf);
 }
 
-static void free_xtr (void *xtr_obj) {
+static void free_xtr(void *xtr_obj) {
 	r_bin_fatmach0_free ((struct r_bin_fatmach0_obj_t*)xtr_obj);
 }
 
@@ -44,7 +46,7 @@ static void destroy(RBin *bin) {
 }
 
 static bool load(RBin *bin) {
-	return ((bin->cur->xtr_obj = r_bin_fatmach0_new (bin->file)) != NULL);
+	return ((bin->cur->xtr_obj = r_bin_fatmach0_new (bin->file)));
 }
 
 static int size(RBin *bin) {
@@ -98,6 +100,9 @@ static RBinXtrData *oneshot_buffer(RBin *bin, RBuffer *b, int idx) {
 	}
 	int narch;
 	struct r_bin_fatmach0_obj_t *fb = bin->cur->xtr_obj;
+	if (!fb) {
+		return NULL;
+	}
 	struct r_bin_fatmach0_arch_t *arch = r_bin_fatmach0_extract (fb, idx, &narch);
 	if (arch) {
 		RBinXtrMetadata *metadata = R_NEW0 (RBinXtrMetadata);
@@ -111,6 +116,7 @@ static RBinXtrData *oneshot_buffer(RBin *bin, RBuffer *b, int idx) {
 				free (hdr);
 				return res;
 			}
+			free (metadata->type);
 			free (metadata);
 		}
 		free (arch);
@@ -118,11 +124,11 @@ static RBinXtrData *oneshot_buffer(RBin *bin, RBuffer *b, int idx) {
 	return NULL;
 }
 
-static RList * oneshotall_buffer(RBin *bin, RBuffer *b) {
+static RList *oneshotall_buffer(RBin *bin, RBuffer *b) {
 	RBinXtrData *data = oneshot_buffer (bin, b, 0);
 	if (data) {
 		// XXX - how do we validate a valid narch?
-		int  narch = data->file_count;
+		int narch = data->file_count;
 		RList *res = r_list_newf (r_bin_xtrdata_free);
 		if (!res) {
 			r_bin_xtrdata_free (data);

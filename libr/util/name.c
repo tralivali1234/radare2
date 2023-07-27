@@ -1,6 +1,8 @@
-/* radare - LGPL - Copyright 2009-2020 - pancake */
+/* radare - LGPL - Copyright 2009-2021 - pancake */
 
 #include <r_util.h>
+
+#define FAST_FILTER 1
 
 /* Validate if char is printable , why not use ISPRINTABLE() ?? */
 R_API bool r_name_validate_print(const char ch) {
@@ -68,13 +70,8 @@ R_API bool r_name_validate_char(const char ch) {
 	if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || IS_DIGIT (ch)) {
 		return true;
 	}
-	switch (ch) {
-	case '.':
-	case ':':
-	case '_':
-		return true;
-	}
-	return false;
+	return (ch == '.' || ch == ':' || ch == '_');
+	// return (ch == ';' || ch == '.' || ch == ':' || ch == '_');
 }
 
 R_API bool r_name_validate_first(const char ch) {
@@ -102,10 +99,13 @@ R_API bool r_name_check(const char *s) {
 }
 
 static inline bool is_special_char(char n) {
-	return (n == 'b' || n == 'f' || n == 'n' || n == 'r' || n == 't' || n == 'v' || n == 'a');
+	return (n == 's' || n == 'b' || n == 'f' || n == 'n' || n == 'r' || n == 't' || n == 'v' || n == 'a');
 }
 
 R_API const char *r_name_filter_ro(const char *a) {
+	if (!a) {
+		return NULL;
+	}
 	while (*a++ == '_');
 	return a - 1;
 }
@@ -117,7 +117,7 @@ R_API bool r_name_filter_print(char *s) {
 	while (*s && s < es) {
 		int us = r_utf8_size ((const ut8*)s);
 		if (us > 1) {
-			s += us;	
+			s += us;
 			continue;
 		}
 		if (!r_name_validate_print (*s)) {
@@ -129,26 +129,39 @@ R_API bool r_name_filter_print(char *s) {
 }
 
 R_API bool r_name_filter(char *s, int maxlen) {
+	if (R_STR_ISEMPTY (s)) {
+		return false;
+	}
 	// if maxlen == -1 : R_FLAG_NAME_SIZE
 	// maxlen is ignored, the function signature must change
-	if (maxlen > 0) {
-		int slen = strlen (s);
-		if (slen > maxlen) {
-			s[maxlen] = 0;
+	// char *os = s;
+	size_t count = 0;
+	r_str_trim_head (s);
+	if (!r_name_validate_first (*s)) {
+		*s = '_';
+	}
+#if 0
+		while (*s) {
+			if (maxlen > 0 && count > maxlen) {
+				*s = 0;
+				break;
+			}
+			if (r_name_validate_char (*s)) {
+				break;
+			}
+			if (r_name_validate_dash (*s)) {
+				break;
+			}
+			r_str_cpy (s, s + 1);
+			count++;
 		}
 	}
-	char *os = s;
-	while (*s) {
-		if (r_name_validate_first (*s)) {
-			break;
-		}
-		if (r_name_validate_dash (*s)) {
-			*s = '_';
-			break;
-		}
-		r_str_cpy (s, s + 1);
-	}
+#endif
 	for (s++; *s; s++) {
+		if (maxlen > 0 && count > maxlen) {
+			*s = 0;
+			break;
+		}
 		if (*s == '\\') {
 			if (is_special_char (s[1])) {
 				*s = '_';
@@ -165,13 +178,73 @@ R_API bool r_name_filter(char *s, int maxlen) {
 				s--;
 			}
 		}
+		count++;
 	}
+#if FAST_FILTER
+	// that flag should be trimmed and checked already
+	// we dont want to iterate over it again
+	return true;
+#else
 	r_str_trim (os);
 	return r_name_check (os);
+#endif
 }
 
-R_API char *r_name_filter2(const char *name) {
+R_API char *r_name_filter_dup(const char *name) {
 	char *s = strdup (name);
 	r_name_filter (s, -1);
 	return s;
+}
+
+// filter out shell special chars
+R_API char *r_name_filter_shell(const char *s) {
+	r_return_val_if_fail (s, NULL);
+	char *a = malloc (strlen (s) + 1);
+	if (!a) {
+		return NULL;
+	}
+	char *b = a;
+	while (*s) {
+		switch (*s) {
+		case '@':
+		case '`':
+		case '|':
+		case ';':
+		case '=':
+		case '\n':
+			break;
+		default:
+			*b++ = *s;
+			break;
+		}
+		s++;
+	}
+	*b = 0;
+	return a;
+}
+
+R_API char *r_name_filter_quoted_shell(const char *s) {
+	r_return_val_if_fail (s, NULL);
+	char *a = malloc (strlen (s) + 1);
+	if (!a) {
+		return NULL;
+	}
+	char *b = a;
+	while (*s) {
+		switch (*s) {
+		case ' ':
+		case '=':
+		case '"':
+		case '\\':
+		case '\r':
+		case '\n':
+			break;
+		default:
+			*b++ = *s;
+			break;
+		}
+		s++;
+	}
+	*b = 0;
+	return a;
 }

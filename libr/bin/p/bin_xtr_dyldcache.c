@@ -7,12 +7,12 @@
 #include "mach0/dyldcache.h"
 #include "mach0/mach0.h"
 
-static RBinXtrData * extract(RBin *bin, int idx);
-static RList * extractall(RBin *bin);
-static RBinXtrData * oneshot(RBin *bin, const ut8 *buf, ut64 size, int idx);
-static RList * oneshotall(RBin *bin, const ut8 *buf, ut64 size);
+static RBinXtrData *extract(RBin *bin, int idx);
+static RList *extractall(RBin *bin);
+static RBinXtrData *oneshot(RBin *bin, const ut8 *buf, ut64 size, int idx);
+static RList *oneshotall(RBin *bin, const ut8 *buf, ut64 size);
 
-static bool check_buffer(RBuffer *buf) {
+static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	ut8 b[4] = {0};
 	r_buf_read_at (buf, 0, b, sizeof (b));
 	return !memcmp (buf, "dyld", 4);
@@ -39,21 +39,20 @@ static bool load(RBin *bin) {
 	return bin->cur->xtr_obj? true : false;
 }
 
-static RList * extractall(RBin *bin) {
-	RList *result = NULL;
-	int nlib, i = 0;
-	RBinXtrData *data = extract (bin, i);
+static RList *extractall(RBin *bin) {
+	RBinXtrData *data = extract (bin, 0);
 	if (!data) {
-		return result;
+		return NULL;
 	}
 	// XXX - how do we validate a valid nlib?
-	nlib = data->file_count;
-	result = r_list_newf (r_bin_xtrdata_free);
+	int nlib = data->file_count;
+	RList *result = r_list_newf (r_bin_xtrdata_free);
 	if (!result) {
 		r_bin_xtrdata_free (data);
 		return NULL;
 	}
 	r_list_append (result, data);
+	int i = 0;
 	for (i = 1; data && i < nlib; i++) {
 		data = extract (bin, i);
 		r_list_append (result, data);
@@ -61,7 +60,7 @@ static RList * extractall(RBin *bin) {
 	return result;
 }
 
-static inline void fill_metadata_info_from_hdr(RBinXtrMetadata *meta, struct MACH0_ (mach_header) *hdr) {
+static inline void fill_metadata_info_from_hdr(RBinXtrMetadata *meta, struct MACH0_(mach_header) *hdr) {
 	meta->arch = strdup (MACH0_(get_cputype_from_hdr) (hdr));
 	meta->bits = MACH0_(get_bits_from_hdr) (hdr);
 	meta->machine = MACH0_(get_cpusubtype_from_hdr) (hdr);
@@ -77,7 +76,7 @@ static RBinXtrData *extract(RBin *bin, int idx) {
 		(struct r_bin_dyldcache_obj_t*)bin->cur->xtr_obj, idx, &nlib);
 
 	if (lib) {
-		RBinXtrMetadata *metadata = R_NEW0(RBinXtrMetadata);
+		RBinXtrMetadata *metadata = R_NEW0 (RBinXtrMetadata);
 		if (!metadata) {
 			free (lib);
 			return NULL;
@@ -102,19 +101,15 @@ static RBinXtrData *extract(RBin *bin, int idx) {
 }
 
 static RBinXtrData *oneshot(RBin *bin, const ut8* buf, ut64 size, int idx) {
-	RBinXtrData *res = NULL;
-	struct r_bin_dyldcache_obj_t *xtr_obj;
-	struct r_bin_dyldcache_lib_t *lib;
 	int nlib = 0;
 	char *libname;
-	struct MACH0_(mach_header) *hdr;
 
 	if (!load (bin)) {
 		return NULL;
 	}
 
-	xtr_obj = bin->cur->xtr_obj;
-	lib = r_bin_dyldcache_extract (xtr_obj, idx, &nlib);
+	struct r_bin_dyldcache_obj_t *xtr_obj = bin->cur->xtr_obj;
+	struct r_bin_dyldcache_lib_t *lib = r_bin_dyldcache_extract (xtr_obj, idx, &nlib);
 	if (!lib) {
 		free_xtr (xtr_obj);
 		bin->cur->xtr_obj = NULL;
@@ -125,7 +120,7 @@ static RBinXtrData *oneshot(RBin *bin, const ut8* buf, ut64 size, int idx) {
 		free (lib);
 		return NULL;
 	}
-	hdr = MACH0_(get_hdr) (lib->b);
+	struct MACH0_(mach_header) *hdr = MACH0_(get_hdr) (lib->b);
 	if (!hdr) {
 		free (lib);
 		free (metadata);
@@ -135,14 +130,14 @@ static RBinXtrData *oneshot(RBin *bin, const ut8* buf, ut64 size, int idx) {
 	r_bin_dydlcache_get_libname (lib, &libname);
 	metadata->libname = strdup (libname);
 
-	res = r_bin_xtrdata_new (lib->b, lib->offset, r_buf_size (lib->b), nlib, metadata);
+	RBinXtrData *res = r_bin_xtrdata_new (lib->b, lib->offset, r_buf_size (lib->b), nlib, metadata);
 	r_buf_free (lib->b);
 	free (hdr);
 	free (lib);
 	return res;
 }
 
-static RList * oneshotall(RBin *bin, const ut8* buf, ut64 size) {
+static RList *oneshotall(RBin *bin, const ut8* buf, ut64 size) {
 	RBinXtrData *data = NULL;
 	RList *res = NULL;
 	int nlib, i = 0;
@@ -187,7 +182,7 @@ RBinXtrPlugin r_bin_xtr_plugin_xtr_dyldcache = {
 #ifndef R2_PLUGIN_INCORE
 R_API RLibStruct radare_plugin = {
 	.type = R_LIB_TYPE_BIN_XTR,
-	.data = &r_bin_xtr_plugin_dyldcache,
+	.data = &r_bin_xtr_plugin_xtr_dyldcache,
 	.version = R2_VERSION
 };
 #endif

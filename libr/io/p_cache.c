@@ -71,6 +71,7 @@ const ut64 cleanup_masks[] = {
 };
 
 static void pcache_kv_free(HtUPKv *kv) {
+	r_return_if_fail (kv);
 	free (kv->value);
 }
 
@@ -155,7 +156,7 @@ R_API int r_io_desc_cache_read(RIODesc *desc, ut64 paddr, ut8 *buf, int len) {
 	cbaddr = paddr % R_IO_DESC_CACHE_SIZE;
 	while (amount < len) {
 		// get an existing desc-cache, if it exists
-		if (!(cache = (RIODescCache *)ht_up_find (desc->cache, caddr, NULL))) {	
+		if (!(cache = (RIODescCache *)ht_up_find (desc->cache, caddr, NULL))) {
 			amount += (R_IO_DESC_CACHE_SIZE - cbaddr);
 			ptr += (R_IO_DESC_CACHE_SIZE - cbaddr);
 			goto beach;
@@ -187,16 +188,12 @@ beach:
 
 static void __riocache_free(void *user) {
 	RIOCache *cache = (RIOCache *) user;
-	if (cache) {
-		free (cache->data);
-		free (cache->odata);
-	}
 	free (cache);
 }
 
 static bool __desc_cache_list_cb(void *user, const ut64 k, const void *v) {
 	RList *writes = (RList *)user;
-	RIOCache *cache = NULL;
+	RIOCacheItem *cache = NULL;
 	ut64 blockaddr;
 	int byteaddr, i;
 	if (!writes) {
@@ -207,7 +204,7 @@ static bool __desc_cache_list_cb(void *user, const ut64 k, const void *v) {
 	for (i = byteaddr = 0; byteaddr < R_IO_DESC_CACHE_SIZE; byteaddr++) {
 		if (dcache->cached & (0x1LL << byteaddr)) {
 			if (!cache) {
-				cache = R_NEW0 (RIOCache);
+				cache = R_NEW0 (RIOCacheItem);
 				if (!cache) {
 					return false;
 				}
@@ -257,7 +254,7 @@ R_API RList *r_io_desc_cache_list(RIODesc *desc) {
 	desc->io->desc = desc;
 	desc->io->p_cache = false;
 
-	RIOCache *c;
+	RIOCacheItem *c;
 	RListIter *iter;
 	r_list_foreach (writes, iter, c) {
 		const ut64 itvSize = r_itv_size (c->itv);
@@ -283,7 +280,7 @@ static bool __desc_cache_commit_cb(void *user, const ut64 k, const void *v) {
 	const RIODescCache *dcache = v;
 	ut64 blockaddr = R_IO_DESC_CACHE_SIZE * k;
 	for (i = byteaddr = 0; byteaddr < R_IO_DESC_CACHE_SIZE; byteaddr++) {
-		if (dcache->cached & (0x1LL << byteaddr)) {
+		if (dcache->cached & (1LL << byteaddr)) {
 			buf[i] = dcache->cdata[byteaddr];
 			i++;
 		} else if (i > 0) {
@@ -332,7 +329,7 @@ static bool __desc_cache_cleanup_cb(void *user, const ut64 k, const void *v) {
 	}
 	if (size <= (blockaddr + R_IO_DESC_CACHE_SIZE - 1)) {
 		//this looks scary, but it isn't
-		byteaddr = (int)(size - blockaddr) - 1;		
+		byteaddr = (int)(size - blockaddr) - 1;
 		cache->cached &= cleanup_masks[byteaddr];
 	}
 	return true;
@@ -344,7 +341,7 @@ R_API void r_io_desc_cache_cleanup(RIODesc *desc) {
 	}
 }
 
-static bool __desc_fini_cb (void *user, void *data, ut32 id) {
+static bool __desc_fini_cb(void *user, void *data, ut32 id) {
 	RIODesc *desc = (RIODesc *)data;
 	if (desc->cache) {
 		ht_up_free (desc->cache);

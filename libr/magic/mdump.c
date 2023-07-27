@@ -41,12 +41,11 @@
 #include <stdlib.h>
 #include <time.h>
 
-#define SZOF(a)	(sizeof(a) / sizeof(a[0]))
+#define SZOF(a)	(sizeof (a) / sizeof (a[0]))
 
 #ifndef COMPILE_ONLY
-void file_mdump(struct r_magic *m) {
-	static const char optyp[] = { FILE_OPS };
-	char pp[ASCTIME_BUF_MINLEN];
+void file_mdump(RMagic *ms, struct r_magic *m) {
+	char pp[ASCTIME_BUF_MAXLEN];
 
 	(void) eprintf ("[%u", m->lineno);
 	(void) eprintf ("%.*s %u", m->cont_level & 7, ">>>>>>>>", m->offset);
@@ -54,18 +53,18 @@ void file_mdump(struct r_magic *m) {
 	if (m->flag & INDIR) {
 		(void) eprintf ("(%s,",
 			       /* Note: type is unsigned */
-			       (m->in_type < file_nnames) ?
-					magic_file_names[m->in_type] : "*bad*");
+			       (m->in_type < FILE_NAMES_SIZE) ?
+					ms->magic_file_names[m->in_type] : "*bad*");
 		if (m->in_op & FILE_OPINVERSE)
 			(void) fputc('~', stderr);
 		(void) eprintf ("%c%u),",
-			       ((m->in_op & FILE_OPS_MASK) < SZOF(optyp)) ?
-					optyp[m->in_op & FILE_OPS_MASK] : '?',
+			       ((m->in_op & FILE_OPS_MASK) < SZOF(FILE_OPS)) ?
+					FILE_OPS[m->in_op & FILE_OPS_MASK] : '?',
 				m->in_offset);
 	}
 	(void) eprintf (" %s%s", (m->flag & UNSIGNED) ? "u" : "",
 		       /* Note: type is unsigned */
-		       (m->type < file_nnames) ? magic_file_names[m->type] : "*bad*");
+		       (m->type < FILE_NAMES_SIZE) ? ms->magic_file_names[m->type] : "*bad*");
 	if (m->mask_op & FILE_OPINVERSE)
 		(void) fputc('~', stderr);
 
@@ -84,17 +83,18 @@ void file_mdump(struct r_magic *m) {
 			if (m->str_flags & REGEX_OFFSET_START)
 				(void) fputc(CHAR_REGEX_OFFSET_START, stderr);
 		}
-		if (m->str_range)
+		if (m->str_range) {
 			(void) eprintf ("/%u", m->str_range);
-	}
-	else {
-		if ((m->mask_op & FILE_OPS_MASK) < SZOF(optyp))
-			(void) fputc(optyp[m->mask_op & FILE_OPS_MASK], stderr);
-		else
-			(void) fputc('?', stderr);
-
-		if (m->num_mask)
+		}
+	} else {
+		if ((m->mask_op & FILE_OPS_MASK) < SZOF(FILE_OPS)) {
+			(void) fputc (FILE_OPS[m->mask_op & FILE_OPS_MASK], stderr);
+		} else {
+			(void) fputc ('?', stderr);
+		}
+		if (m->num_mask) {
 			(void) eprintf ("%08"PFMT64x, (ut64)m->num_mask);
+		}
 	}
 	(void) eprintf (",%c", m->reln);
 
@@ -174,51 +174,37 @@ void file_mdump(struct r_magic *m) {
 /*VARARGS*/
 void file_magwarn(struct r_magic_set *ms, const char *f, ...) {
 	va_list va;
-
-	/* cuz we use stdout for most, stderr here */
-	(void) fflush(stdout);
-
-	if (ms->file)
-		(void) eprintf ("%s, %lu: ", ms->file,
-		    (unsigned long)ms->line);
-	(void) eprintf ("Warning: ");
-	va_start(va, f);
-	(void) vfprintf (stderr, f, va);
-	va_end(va);
-	(void) fputc('\n', stderr);
+	RStrBuf *sb = r_strbuf_new ("");
+	if (R_STR_ISNOTEMPTY (ms->file)) {
+		r_strbuf_appendf (sb, "%s, %lu: ",
+			ms->file, (unsigned long)ms->line);
+	}
+	va_start (va, f);
+	r_strbuf_vappendf (sb, f, va);
+	va_end (va);
+	char *msg = r_strbuf_drain (sb);
+	R_LOG_WARN ("%s", msg);
+	free (msg);
 }
 
 const char *file_fmttime(ut32 v, int local, char *pp) {
 	time_t t = (time_t)v;
-	struct tm *tm;
-	struct tm timestruct;
 
 	if (local) {
 		r_ctime_r (&t, pp);
 	} else {
-#ifndef HAVE_DAYLIGHT
-		static int daylight = 0;
-#ifdef HAVE_TM_ISDST
-		static time_t now = (time_t)0;
-
-		if (now == (time_t)0) {
-			struct tm *tm1;
-			(void)time (&now);
-			tm1 = localtime (&now);
-			if (!tm1)
-				return "*Invalid time*";
-			daylight = tm1->tm_isdst;
-		}
-#endif /* HAVE_TM_ISDST */
-#endif /* HAVE_DAYLIGHT */
-		if (daylight)
-			t += 3600;
-		tm = gmtime_r (&t, &timestruct);
-		if (!tm)
+#if __MINGW32__
+		// nothing
+#else
+		struct tm timestruct;
+		struct tm *tm = gmtime_r (&t, &timestruct);
+		if (!tm) {
 			return "*Invalid time*";
+		}
 		r_asctime_r (tm, pp);
+#endif
 	}
-
+	// TODO i dont like string spoons
 	pp[strcspn (pp, "\n")] = '\0';
 	return pp;
 }

@@ -1,12 +1,22 @@
-/* radare - LGPL - Copyright 2019-2021 - pancake, thestr4ng3r */
+/* radare - LGPL - Copyright 2019-2023 - pancake, thestr4ng3r */
 
 #include <r_anal.h>
 #include <r_hash.h>
-#include <ht_uu.h>
-
-#include <assert.h>
 
 #define unwrap(rbnode) container_of (rbnode, RAnalBlock, _rb)
+
+// rename to instr_at
+R_API ut64 r_anal_block_ninstr(RAnalBlock *block, int pos) {
+	r_return_val_if_fail (block, UT64_MAX);
+	if (pos < 1) {
+		return block->addr;
+	}
+	if (pos > block->ninstr) {
+		return UT64_MAX;
+	}
+	// ensure pos is > 0 because first check is pos < 1
+	return block->addr + block->op_pos[pos - 1];
+}
 
 static void __max_end(RBNode *node) {
 	RAnalBlock *block = unwrap (node);
@@ -25,11 +35,14 @@ static void __max_end(RBNode *node) {
 static int __bb_addr_cmp(const void *incoming, const RBNode *in_tree, void *user) {
 	ut64 incoming_addr = *(ut64 *)incoming;
 	const RAnalBlock *in_tree_block = container_of (in_tree, const RAnalBlock, _rb);
-	if (incoming_addr < in_tree_block->addr) {
-		return -1;
-	}
-	if (incoming_addr > in_tree_block->addr) {
-		return 1;
+	if (in_tree_block) {
+		ut64 itaddr = in_tree_block->addr;
+		if (incoming_addr < itaddr) {
+			return -1;
+		}
+		if (incoming_addr > itaddr) {
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -37,8 +50,12 @@ static int __bb_addr_cmp(const void *incoming, const RBNode *in_tree, void *user
 #define D if (anal && anal->verbose)
 
 R_API void r_anal_block_ref(RAnalBlock *bb) {
-	assert (bb->ref > 0); // 0-refd must already be freed.
-	bb->ref++;
+	// XXX we have R_REF for this
+	if (bb) {
+		// 0-refd must already be freed.
+		r_return_if_fail (bb->ref > 0);
+		bb->ref++;
+	}
 }
 
 #define DFLT_NINSTR 3
@@ -83,10 +100,22 @@ static void block_free(RAnalBlock *block) {
 
 void __block_free_rb(RBNode *node, void *user) {
 	RAnalBlock *block = unwrap (node);
-	block_free (block);
+	r_anal_block_unref (block);
+	// block_free (block);
+}
+
+R_API void r_anal_block_reset(RAnal *a) {
+	if (a->bb_tree) {
+		r_rbtree_free (a->bb_tree, __block_free_rb, NULL);
+		a->bb_tree = NULL;
+	}
 }
 
 R_API RAnalBlock *r_anal_get_block_at(RAnal *anal, ut64 addr) {
+	r_return_val_if_fail (anal, NULL);
+	if (addr == UT64_MAX || !anal->bb_tree) {
+		return NULL;
+	}
 	RBNode *node = r_rbtree_find (anal->bb_tree, &addr, __bb_addr_cmp, NULL);
 	return node? unwrap (node): NULL;
 }
@@ -163,10 +192,9 @@ R_API void r_anal_blocks_foreach_intersect(RAnal *anal, ut64 addr, ut64 size, RA
 
 R_API RList *r_anal_get_blocks_intersect(RAnal *anal, ut64 addr, ut64 size) {
 	RList *list = r_list_newf ((RListFree)r_anal_block_unref);
-	if (!list) {
-		return NULL;
+	if (R_LIKELY (list)) {
+		r_anal_blocks_foreach_intersect (anal, addr, size, block_list_cb, list);
 	}
-	r_anal_blocks_foreach_intersect (anal, addr, size, block_list_cb, list);
 	return list;
 }
 
@@ -174,19 +202,32 @@ R_API RAnalBlock *r_anal_create_block(RAnal *anal, ut64 addr, ut64 size) {
 	if (r_anal_get_block_at (anal, addr)) {
 		return NULL;
 	}
+	R_CRITICAL_ENTER (anal);
 	RAnalBlock *block = block_new (anal, addr, size);
-	if (!block) {
-		return NULL;
+	if (block) {
+		r_rbtree_aug_insert (&anal->bb_tree, &block->addr, &block->_rb, __bb_addr_cmp, NULL, __max_end);
 	}
-	r_rbtree_aug_insert (&anal->bb_tree, &block->addr, &block->_rb, __bb_addr_cmp, NULL, __max_end);
+	R_CRITICAL_LEAVE (anal);
 	return block;
+}
+
+R_API void r_anal_delete_block_at(RAnal *anal, ut64 addr) {
+	RAnalBlock *bb = r_anal_get_block_at (anal, addr);
+	if (bb) {
+		r_anal_delete_block (bb);
+	}
 }
 
 R_API void r_anal_delete_block(RAnalBlock *bb) {
 	r_anal_block_ref (bb);
 	while (!r_list_empty (bb->fcns)) {
-		r_anal_function_remove_block (r_list_first (bb->fcns), bb);
+		RListIter *iter, *iter2;
+		RAnalFunction *fcn;
+		r_list_foreach_safe (bb->fcns, iter, iter2, fcn) {
+			r_anal_function_remove_block (fcn, bb);
+		}
 	}
+	r_rbtree_aug_delete (&bb->anal->bb_tree, &bb->addr, __bb_addr_cmp, NULL, NULL, NULL, __max_end);
 	r_anal_block_unref (bb);
 }
 
@@ -216,7 +257,7 @@ R_API bool r_anal_block_relocate(RAnalBlock *block, ut64 addr, ut64 size) {
 		return true;
 	}
 	if (r_anal_get_block_at (block->anal, addr)) {
-		// Two blocks at the same addr is illegle you know...
+		// Two blocks at the same addr is illegal you know...
 		return false;
 	}
 
@@ -255,7 +296,7 @@ R_API RAnalBlock *r_anal_block_split(RAnalBlock *bbi, ut64 addr) {
 	RAnal *anal = bbi->anal;
 	r_return_val_if_fail (bbi && addr >= bbi->addr && addr < bbi->addr + bbi->size && addr != UT64_MAX, 0);
 	if (addr == bbi->addr) {
-		r_anal_block_ref (bbi); // ref to be consistent with splitted return refcount
+		r_anal_block_ref (bbi); // ref to be consistent with splitted return ref-count
 		return bbi;
 	}
 
@@ -305,7 +346,9 @@ R_API RAnalBlock *r_anal_block_split(RAnalBlock *bbi, ut64 addr) {
 			if (off_op >= bbi->size + bb->size) {
 				break;
 			}
-			r_anal_bb_set_offset (bb, bb->ninstr, off_op - bbi->size);
+			if (!r_anal_bb_set_offset (bb, bb->ninstr, off_op - bbi->size)) {
+				break;
+			}
 			bb->ninstr++;
 			i++;
 		}
@@ -340,7 +383,10 @@ R_API bool r_anal_block_merge(RAnalBlock *a, RAnalBlock *b) {
 	// merge ops from b into a
 	size_t i;
 	for (i = 0; i < b->ninstr; i++) {
-		r_anal_bb_set_offset (a, a->ninstr++, a->size + r_anal_bb_offset_inst (b, i));
+		ut64 addr = a->size + r_anal_bb_offset_inst (b, i);
+		if (!r_anal_bb_set_offset (a, a->ninstr++, addr)) {
+			break;
+		}
 	}
 
 	// merge everything else into a
@@ -349,7 +395,7 @@ R_API bool r_anal_block_merge(RAnalBlock *a, RAnalBlock *b) {
 	a->fail = b->fail;
 	if (a->switch_op) {
 		if (a->anal->verbose) {
-			eprintf ("Dropping switch table at 0x%" PFMT64x " of block at 0x%" PFMT64x "\n", a->switch_op->addr, a->addr);
+			R_LOG_INFO ("Dropping switch table at 0x%" PFMT64x " of block at 0x%" PFMT64x, a->switch_op->addr, a->addr);
 		}
 		r_anal_switch_op_free (a->switch_op);
 	}
@@ -372,13 +418,17 @@ R_API void r_anal_block_unref(RAnalBlock *bb) {
 	if (!bb) {
 		return;
 	}
-	assert (bb->ref > 0);
+	if (bb->ref < 1) {
+		return;
+	}
+	r_return_if_fail (bb->ref > 0);
 	bb->ref--;
-	assert (bb->ref >= r_list_length (bb->fcns)); // all of the block's functions must hold a reference to it
+	// r_return_if_fail (bb->ref >= r_list_length (bb->fcns)); // all of the block's functions must hold a reference to it
 	if (bb->ref < 1) {
 		RAnal *anal = bb->anal;
-		assert (!bb->fcns || r_list_empty (bb->fcns));
 		r_rbtree_aug_delete (&anal->bb_tree, &bb->addr, __bb_addr_cmp, NULL, __block_free_rb, NULL, __max_end);
+		block_free (bb);
+		// r_return_if_fail (r_list_empty (bb->fcns));
 	}
 }
 
@@ -390,7 +440,7 @@ R_API bool r_anal_block_successor_addrs_foreach(RAnalBlock *block, RAnalAddrCb c
 		if (!cb (addr, user)) { \
 			return false; \
 		} \
-	} while(0);
+	} while (0);
 
 	CB_ADDR (block->jump);
 	CB_ADDR (block->fail);
@@ -490,7 +540,9 @@ typedef struct {
 } RecurseDepthFirstCtx;
 
 R_API bool r_anal_block_recurse_depth_first(RAnalBlock *block, RAnalBlockCb cb, R_NULLABLE RAnalBlockCb on_exit, void *user) {
-	bool breaked = false;
+	if (!block) {
+		return false;
+	}
 	HtUP *visited = ht_up_new0 ();
 	if (!visited) {
 		goto beach;
@@ -502,8 +554,7 @@ R_API bool r_anal_block_recurse_depth_first(RAnalBlock *block, RAnalBlockCb cb, 
 	RecurseDepthFirstCtx ctx = { cur_bb, NULL };
 	r_vector_push (&path, &ctx);
 	ht_up_insert (visited, cur_bb->addr, NULL);
-	breaked = !cb (cur_bb, user);
-	if (breaked) {
+	if (!cb (cur_bb, user)) {
 		goto beach;
 	}
 	do {
@@ -530,12 +581,16 @@ R_API bool r_anal_block_recurse_depth_first(RAnalBlock *block, RAnalBlockCb cb, 
 			cur_bb = cop ? r_anal_get_block_at (anal, cop->jump) : NULL;
 		}
 		if (cur_bb) {
-			RecurseDepthFirstCtx ctx = { cur_bb, NULL };
-			r_vector_push (&path, &ctx);
-			ht_up_insert (visited, cur_bb->addr, NULL);
-			bool breaked = !cb (cur_bb, user);
-			if (breaked) {
-				break;
+			if (!ht_up_find_kv (visited, cur_bb->addr, NULL)) {
+				RecurseDepthFirstCtx ctx = { cur_bb, NULL };
+				r_vector_push (&path, &ctx); // does memcpy
+				ht_up_insert (visited, cur_bb->addr, NULL);
+				bool breaked = !cb (cur_bb, user);
+				if (breaked) {
+					break;
+				}
+			} else {
+				// eprintf ("repanocha\n");
 			}
 		} else {
 			if (on_exit) {
@@ -548,7 +603,7 @@ R_API bool r_anal_block_recurse_depth_first(RAnalBlock *block, RAnalBlockCb cb, 
 beach:
 	ht_up_free (visited);
 	r_vector_clear (&path);
-	return !breaked;
+	return true; // false!breaked;
 }
 
 static bool recurse_list_cb(RAnalBlock *block, void *user) {
@@ -578,12 +633,21 @@ R_API bool r_anal_block_op_starts_at(RAnalBlock *bb, ut64 addr) {
 		return false;
 	}
 	ut64 off = addr - bb->addr;
+	if (off == 0) {
+		return true;
+	}
 	if (off > UT16_MAX) {
 		return false;
+	}
+	if (bb->ninstr < 1) {
+		return true;
 	}
 	size_t i;
 	for (i = 0; i < bb->ninstr; i++) {
 		ut16 inst_off = r_anal_bb_offset_inst (bb, i);
+		if (inst_off > off) {
+			break;
+		}
 		if (off == inst_off) {
 			return true;
 		}
@@ -613,12 +677,23 @@ static bool shortest_path_successor_cb(ut64 addr, void *user) {
 	return addr != ctx->dst; // break if we found our destination
 }
 
+static ut64 bb_addr_for(RAnal *a, ut64 n) {
+	RListIter *iter;
+	RAnalBlock *bb;
+	RList *blocks = r_anal_get_blocks_in (a, n);
+	r_list_foreach (blocks, iter, bb) {
+		return bb->addr;
+	}
+	return n;
+}
 
 R_API R_NULLABLE RList/*<RAnalBlock *>*/ *r_anal_block_shortest_path(RAnalBlock *block, ut64 dst) {
+	ut64 dstbb_addr = bb_addr_for (block->anal, dst);
+
 	RList *ret = NULL;
 	PathContext ctx;
 	ctx.anal = block->anal;
-	ctx.dst = dst;
+	ctx.dst = dstbb_addr;
 
 	// two vectors to swap cur_visit/next_visit
 	RPVector visit_a;
@@ -652,8 +727,8 @@ R_API R_NULLABLE RList/*<RAnalBlock *>*/ *r_anal_block_shortest_path(RAnalBlock 
 
 	// reconstruct the path
 	bool found = false;
-	RAnalBlock *prev = ht_up_find (ctx.visited, dst, &found);
-	RAnalBlock *dst_block = r_anal_get_block_at (block->anal, dst);
+	RAnalBlock *prev = ht_up_find (ctx.visited, dstbb_addr, &found);
+	RAnalBlock *dst_block = r_anal_get_block_at (block->anal, dstbb_addr);
 	if (found && dst_block) {
 		ret = r_list_newf ((RListFree)r_anal_block_unref);
 		r_anal_block_ref (dst_block);
@@ -674,6 +749,9 @@ beach:
 
 R_API bool r_anal_block_was_modified(RAnalBlock *block) {
 	r_return_val_if_fail (block, false);
+	if (!block->bbhash) {
+		return false;
+	}
 	if (!block->anal->iob.read_at) {
 		return false;
 	}
@@ -695,16 +773,18 @@ R_API void r_anal_block_update_hash(RAnalBlock *block) {
 	if (!block->anal->iob.read_at) {
 		return;
 	}
+	if (block->size < 1) {
+		return;
+	}
 	ut8 *buf = malloc (block->size);
-	if (!buf) {
-		return;
-	}
-	if (!block->anal->iob.read_at (block->anal->iob.io, block->addr, buf, block->size)) {
+	if (buf) {
+		if (!block->anal->iob.read_at (block->anal->iob.io, block->addr, buf, block->size)) {
+			free (buf);
+			return;
+		}
+		block->bbhash = r_hash_xxhash (buf, block->size);
 		free (buf);
-		return;
 	}
-	block->bbhash = r_hash_xxhash (buf, block->size);
-	free (buf);
 }
 
 typedef struct {
@@ -719,6 +799,9 @@ static void noreturn_successor_free(HtUPKv *kv) {
 }
 
 static bool noreturn_successors_cb(RAnalBlock *block, void *user) {
+	if (!block) {
+		return false;
+	}
 	HtUP *succs = user;
 	NoreturnSuccessor *succ = R_NEW0 (NoreturnSuccessor);
 	if (!succ) {
@@ -785,7 +868,7 @@ R_API RAnalBlock *r_anal_block_chop_noreturn(RAnalBlock *block, ut64 addr) {
 	RListIter *it;
 	RAnalFunction *fcn;
 	// We need to clone the list because block->fcns will get modified in the loop
-	RList *fcns_cpy = r_list_clone (block->fcns);
+	RList *fcns_cpy = r_list_clone (block->fcns, NULL);
 	r_list_foreach (fcns_cpy, it, fcn) {
 		RAnalBlock *entry = r_anal_get_block_at (block->anal, fcn->addr);
 		if (entry && r_list_contains (entry->fcns, fcn)) {
@@ -836,12 +919,18 @@ typedef struct {
 } AutomergeCtx;
 
 static bool count_successors_cb(ut64 addr, void *user) {
+	if (addr == UT64_MAX) {
+		return true;
+	}
 	AutomergeCtx *ctx = user;
 	ctx->cur_succ_count++;
 	return true;
 }
 
 static bool automerge_predecessor_successor_cb(ut64 addr, void *user) {
+	if (addr == UT64_MAX) {
+		return true;
+	}
 	AutomergeCtx *ctx = user;
 	ctx->cur_succ_count++;
 	RAnalBlock *block = ht_up_find (ctx->blocks, addr, NULL);
@@ -864,6 +953,9 @@ static bool automerge_predecessor_successor_cb(ut64 addr, void *user) {
 }
 
 static bool automerge_get_predecessors_cb(void *user, ut64 k) {
+	if (k == UT64_MAX) {
+		return true;
+	}
 	AutomergeCtx *ctx = user;
 	const RAnalFunction *fcn = (const RAnalFunction *)(size_t)k;
 	RListIter *it;

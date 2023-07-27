@@ -26,10 +26,11 @@ typedef union {
 
 typedef enum {
 	RNCNAME, RNCNUMBER, RNCEND, RNCINC, RNCDEC,
+	RNCLT, RNCGT, // comparison operators
 	RNCPLUS='+', RNCMINUS='-', RNCMUL='*', RNCDIV='/', RNCMOD='%',
 	RNCNEG='~', RNCAND='&', RNCOR='|', RNCXOR='^',
 	RNCPRINT=';', RNCASSIGN='=', RNCLEFTP='(', RNCRIGHTP=')',
-	RNCSHL='<', RNCSHR = '>', RNCROL = '#', RNCROR = '$'
+	RNCSHL='<', RNCSHR = '>', RNCROL = '#', RNCROR = '$',
 } RNumCalcToken;
 
 typedef struct r_num_calc_t {
@@ -38,7 +39,7 @@ typedef struct r_num_calc_t {
 	char string_value[R_NUMCALC_STRSZ];
 	int errors;
 	char oc;
-	const char *calc_err;
+	const char *calc_err; // rename to errstr
 	int calc_i;
 	const char *calc_buf;
 	int calc_len;
@@ -54,10 +55,18 @@ typedef struct r_num_t {
 	void *userptr;
 	int dbz; /// division by zero happened
 	RNumCalc nc;
+// R2_590 R_REF_TYPE
 } RNum;
 
 typedef ut64 (*RNumCallback)(struct r_num_t *self, const char *str, int *ok);
 typedef const char *(*RNumCallback2)(struct r_num_t *self, ut64, int *ok);
+
+static inline ut64 r_num_bitmask(ut8 width) {
+	if (width >= 64) {
+		return UT64_MAX;
+	}
+	return ((ut64)1ULL << (ut64)width) - 1;
+}
 
 R_API RNum *r_num_new(RNumCallback cb, RNumCallback2 cb2, void *ptr);
 R_API void r_num_free(RNum *num);
@@ -68,10 +77,12 @@ R_API const char *r_num_calc_index(RNum *num, const char *p);
 R_API ut64 r_num_chs(int cylinder, int head, int sector, int sectorsize);
 R_API int r_num_is_valid_input(RNum *num, const char *input_value);
 R_API ut64 r_num_get_input_value(RNum *num, const char *input_value);
+R_API char *r_num_list_join(RList *str, const char *sep);
 R_API const char *r_num_get_name(RNum *num, ut64 n);
 R_API char* r_num_as_string(RNum *___, ut64 n, bool printable_only);
 R_API ut64 r_num_tail(RNum *num, ut64 addr, const char *hex);
 R_API ut64 r_num_tail_base(RNum *num, ut64 addr, ut64 off);
+R_API bool r_num_segaddr(ut64 addr, ut64 sb, int sg, ut32 *a, ut32 *b);
 R_API void r_num_minmax_swap(ut64 *a, ut64 *b);
 R_API void r_num_minmax_swap_i(int *a, int *b); // XXX this can be a cpp macro :??
 R_API ut64 r_num_math(RNum *num, const char *str);
@@ -91,6 +102,10 @@ R_API void *r_num_dup(ut64 n);
 R_API double r_num_cos(double a);
 R_API double r_num_sin(double a);
 R_API size_t r_num_bit_count(ut32 val);
+R_API size_t r_num_bit_clz32(ut32 val);
+R_API size_t r_num_bit_clz64(ut64 val);
+R_API size_t r_num_bit_ctz32(ut32 val);
+R_API size_t r_num_bit_ctz64(ut64 val);
 R_API double r_num_get_float(RNum *num, const char *str);
 
 static inline st64 r_num_abs(st64 num) {

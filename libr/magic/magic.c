@@ -24,17 +24,23 @@ R_LIB_VERSION (r_magic);
 #undef R_API
 #define R_API
 
-R_API RMagic* r_magic_new(int flags) { return magic_open (flags); }
-R_API void r_magic_free(RMagic* m) { if (m) { magic_close (m); } }
-R_API const char *r_magic_file(RMagic* m, const char * f) { return magic_file (m, f); } 
-R_API const char *r_magic_descriptor(RMagic* m, int fd) { return magic_descriptor (m, fd); }
-R_API const char *r_magic_buffer(RMagic* m, const void *b, size_t s) { return magic_buffer (m, b, s); }
-R_API const char *r_magic_error(RMagic* m) { return magic_error (m); }
-R_API void r_magic_setflags(RMagic* m, int f) { magic_setflags (m, f); }
-R_API bool r_magic_load(RMagic* m, const char *f) { return magic_load (m, f) != -1; }
-R_API bool r_magic_compile(RMagic* m, const char *x) { return magic_compile (m, x) != -1; }
-R_API bool r_magic_check(RMagic* m, const char *x) { return magic_check (m, x) != -1; }
-R_API int r_magic_errno(RMagic* m) { return magic_errno (m); }
+R_API RMagic* r_magic_new(int flags) {
+	return magic_open (flags);
+}
+R_API void r_magic_free(RMagic* m) {
+	if (m) {
+		magic_close (m);
+	}
+}
+R_API const char *r_magic_file(RMagic* m, const char *f) { return magic_file(m, f); }
+R_API const char *r_magic_descriptor(RMagic* m, int fd) { return magic_descriptor(m, fd); }
+R_API const char *r_magic_buffer(RMagic* m, const void *b, size_t s) { return magic_buffer(m, b, s); }
+R_API const char *r_magic_error(RMagic* m) { return magic_error(m); }
+R_API void r_magic_setflags(RMagic* m, int f) { magic_setflags(m, f); }
+R_API bool r_magic_load(RMagic* m, const char *f) { return magic_load(m, f) != -1; }
+R_API bool r_magic_compile(RMagic* m, const char *x) { return magic_compile(m, x) != -1; }
+R_API bool r_magic_check(RMagic* m, const char *x) { return magic_check(m, x) != -1; }
+R_API int r_magic_errno(RMagic* m) { return magic_errno(m); }
 
 #else
 
@@ -42,7 +48,7 @@ R_API int r_magic_errno(RMagic* m) { return magic_errno (m); }
 
 #include "file.h"
 
-#ifndef PIPE_BUF 
+#ifndef PIPE_BUF
 /* Get the PIPE_BUF from pathconf */
 #ifdef _PC_PIPE_BUF
 #define PIPE_BUF pathconf(".", _PC_PIPE_BUF)
@@ -89,7 +95,7 @@ static int info_from_stat(RMagic *ms, unsigned short md) {
 	return 0;
 }
 
-static void close_and_restore (const RMagic *ms, const char *name, int fd, const struct stat *sb) {
+static void close_and_restore(const RMagic *ms, const char *name, int fd, const struct stat *sb) {
 	if (fd >= 0) {
 		close (fd);
 	}
@@ -106,7 +112,7 @@ static const char *file_or_fd(RMagic *ms, const char *inname, int fd) {
 	 * one extra for terminating '\0', and
 	 * some overlapping space for matches near EOF
 	 */
-#define SLOP (1 + sizeof(union VALUETYPE))
+#define SLOP (1 + sizeof (union VALUETYPE))
 	if (!(buf = malloc (HOWMANY + SLOP))) {
 		return NULL;
 	}
@@ -126,10 +132,10 @@ static const char *file_or_fd(RMagic *ms, const char *inname, int fd) {
 			ispipe = true;
 		}
 	} else {
-		int flags = O_RDONLY|O_BINARY;
+		int flags = O_RDONLY | O_BINARY;
 
 		if (stat (inname, &sb) == 0 && S_ISFIFO (sb.st_mode)) {
-#if O_NONBLOCK
+#ifdef O_NONBLOCK
 			flags |= O_NONBLOCK;
 #endif
 			ispipe = true;
@@ -198,12 +204,15 @@ done:
 
 /* API */
 
+extern void init_file_tables(RMagic *m);
+
 // TODO: reinitialize all the time
 R_API RMagic* r_magic_new(int flags) {
 	RMagic *ms = R_NEW0 (RMagic);
 	if (!ms) {
 		return NULL;
 	}
+	init_file_tables (ms);
 	r_magic_setflags (ms, flags);
 	ms->o.buf = ms->o.pbuf = NULL;
 	ms->c.li = malloc ((ms->c.len = 10) * sizeof (*ms->c.li));
@@ -228,9 +237,9 @@ R_API void r_magic_free(RMagic *ms) {
 	}
 }
 
-R_API bool r_magic_load_buffer(RMagic* ms, const char *magicdata) {
-	if (*magicdata == '#') {
-		struct mlist *ml = file_apprentice (ms, magicdata, FILE_LOAD);
+R_API bool r_magic_load_buffer(RMagic* ms, const ut8 *magicdata, size_t magicdata_size) {
+	if (magicdata_size > 0 && *magicdata == '#') {
+		struct mlist *ml = file_apprentice (ms, (const char *)magicdata, magicdata_size, FILE_LOAD);
 		if (ml) {
 			free_mlist (ms->mlist);
 			ms->mlist = ml;
@@ -243,7 +252,7 @@ R_API bool r_magic_load_buffer(RMagic* ms, const char *magicdata) {
 }
 
 R_API bool r_magic_load(RMagic* ms, const char *magicfile) {
-	struct mlist *ml = file_apprentice (ms, magicfile, FILE_LOAD);
+	struct mlist *ml = file_apprentice (ms, magicfile, strlen (magicfile), FILE_LOAD);
 	if (ml) {
 		free_mlist (ms->mlist);
 		ms->mlist = ml;
@@ -253,26 +262,26 @@ R_API bool r_magic_load(RMagic* ms, const char *magicfile) {
 }
 
 R_API bool r_magic_compile(RMagic *ms, const char *magicfile) {
-	struct mlist *ml = file_apprentice (ms, magicfile, FILE_COMPILE);
+	struct mlist *ml = file_apprentice (ms, magicfile, strlen (magicfile), FILE_COMPILE);
 	free_mlist (ml);
-	return ml != NULL;
+	return ml;
 }
 
 R_API bool r_magic_check(RMagic *ms, const char *magicfile) {
-	struct mlist *ml = file_apprentice (ms, magicfile, FILE_CHECK);
+	struct mlist *ml = file_apprentice (ms, magicfile, strlen (magicfile), FILE_CHECK);
 	free_mlist (ml);
-	return ml != NULL;
+	return ml;
 }
 
 R_API const char* r_magic_descriptor(RMagic *ms, int fd) {
 	return file_or_fd (ms, NULL, fd);
 }
 
-R_API const char * r_magic_file(RMagic *ms, const char *inname) {
+R_API const char *r_magic_file(RMagic *ms, const char *inname) {
 	return file_or_fd (ms, inname, 0); // 0 = stdin
 }
 
-R_API const char * r_magic_buffer(RMagic *ms, const void *buf, size_t nb) {
+R_API const char *r_magic_buffer(RMagic *ms, const void *buf, size_t nb) {
 	if (file_reset (ms) == -1) {
 		return NULL;
 	}

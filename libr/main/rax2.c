@@ -1,23 +1,26 @@
-/* radare - LGPL - Copyright 2007-2020 - pancake */
+/* radare - LGPL - Copyright 2007-2023 - pancake */
+
+#define R_LOG_ORIGIN "rax2"
 
 #include <r_main.h>
 #include <r_util.h>
 #include <r_util/r_print.h>
 
-// don't use fixed sized buffers
+// XXX don't use fixed sized buffers
 #define STDIN_BUFFER_SIZE 354096
-static int rax(RNum *num, char *str, int len, int last, ut64 *flags, int *fm);
+static bool rax(RNum *num, char *str, int len, int last, ut64 *flags, int *fm);
 
 static int use_stdin(RNum *num, ut64 *flags, int *fm) {
+	r_return_val_if_fail (num && flags, -1);
 	if (!flags) {
 		return 0;
 	}
 	char *buf = calloc (1, STDIN_BUFFER_SIZE + 1);
-	int l;
 	if (!buf) {
 		return 0;
 	}
-	if (!(*flags & (1<<14))) {
+	int l;
+	if (!(*flags & (1 << 14))) {
 		for (l = 0; l >= 0 && l < STDIN_BUFFER_SIZE; l++) {
 			// make sure we don't read beyond boundaries
 			int n = read (0, buf + l, STDIN_BUFFER_SIZE - l);
@@ -40,15 +43,24 @@ static int use_stdin(RNum *num, ut64 *flags, int *fm) {
 	} else {
 		l = 1;
 	}
+	int rc = 0;
 	if (l > 0) {
-		rax (num, buf, l, 0, flags, fm);
+		if (!rax (num, buf, l, 0, flags, fm)) {
+			rc = 1;
+		}
 	}
 	free (buf);
-	return 0;
+	return rc;
 }
 
-static int format_output(RNum *num, char mode, const char *s, int force_mode, ut64 flags) {
-	ut64 n = r_num_math (num, s);
+static bool format_output(RNum *num, char mode, const char *s, int force_mode, ut64 flags) {
+	const char *errstr = NULL;
+	ut64 n = r_num_calc (num, s, &errstr);
+	if (errstr) {
+		R_LOG_ERROR (errstr);
+		// eprintf ("%s\n", num->nc.calc_err);
+		return false;
+	}
 	char strbits[65];
 	if (force_mode) {
 		mode = force_mode;
@@ -71,8 +83,11 @@ static int format_output(RNum *num, char mode, const char *s, int force_mode, ut
 		int n2 = (int) n;
 		float *f = (float *) &n2;
 		printf ("%ff\n", *f);
-	} break;
-	case 'f': printf ("%.01lf\n", num->fvalue); break;
+		}
+		break;
+	case 'f':
+		printf ("%.01lf\n", num->fvalue);
+		break;
 	case 'l':
 		R_STATIC_ASSERT (sizeof (float) == 4);
 		float f = (float) num->fvalue;
@@ -97,14 +112,18 @@ static int format_output(RNum *num, char mode, const char *s, int force_mode, ut
 		}
 		break;
 	default:
-		eprintf ("Unknown output mode %d\n", mode);
-		break;
+		R_LOG_ERROR ("Unknown output mode %d", mode);
+		return false;
 	}
 	return true;
 }
 
 static void print_ascii_table(void) {
 	printf ("%s", ret_ascii_table());
+}
+
+static void help_usage(void) {
+	printf ("Usage: rax2 [-h|...] [- | expr ...] # convert between numeric bases\n");
 }
 
 static int help(void) {
@@ -128,7 +147,6 @@ static int help(void) {
 		"  hex     ->  ternary          ;  rax2 Tx23\n"
 		"  raw     ->  hex              ;  rax2 -S < /binfile\n"
 		"  hex     ->  raw              ;  rax2 -s 414141\n"
-		"  -l                           ;  append newline to output (for -E/-D/-r/..\n"
 		"  -a      show ascii table     ;  rax2 -a\n"
 		"  -b      bin -> str           ;  rax2 -b 01000101 01110110\n"
 		"  -B      str -> bin           ;  rax2 -B hello\n"
@@ -143,28 +161,33 @@ static int help(void) {
 		"  -I      IP address <-> LONG  ;  rax2 -I 3530468537\n"
 		"  -k      keep base            ;  rax2 -k 33+3 -> 36\n"
 		"  -K      randomart            ;  rax2 -K 0x34 1020304050\n"
+		"  -l                           ;  append newline to output (for -E/-D/-r/..\n"
 		"  -L      bin -> hex(bignum)   ;  rax2 -L 111111111 # 0x1ff\n"
 		"  -n      binary number        ;  rax2 -n 0x1234 # 34120000\n"
-		"  -o      octalstr -> raw      ;  rax2 -o \\162 \\62 # r2\n"
 		"  -N      binary number        ;  rax2 -N 0x1234 # \\x34\\x12\\x00\\x00\n"
+		"  -o      octalstr -> raw      ;  rax2 -o \\162 \\62 # r2\n"
 		"  -r      r2 style output      ;  rax2 -r 0x1234\n"
 		"  -s      hexstr -> raw        ;  rax2 -s 43 4a 50\n"
 		"  -S      raw -> hexstr        ;  rax2 -S < /bin/ls > ls.hex\n"
+		"  -rS     raw -> hex.r2        ;  rax2 -rS < /bin/ls > ls.r2  # script for r2\n"
 		"  -t      tstamp -> str        ;  rax2 -t 1234567890\n"
-		"  -x      hash string          ;  rax2 -x linux osx\n"
 		"  -u      units                ;  rax2 -u 389289238 # 317.0M\n"
+		"  -v      version              ;  rax2 -v\n"
 		"  -w      signed word          ;  rax2 -w 16 0xffff\n"
-		"  -v      version              ;  rax2 -v\n");
+		"  -x      hash string          ;  rax2 -x linux osx\n"
+	);
 	return true;
 }
 
-static int rax(RNum *num, char *str, int len, int last, ut64 *_flags, int *fm) {
+static bool rax(RNum *num, char *str, int len, int last, ut64 *_flags, int *fm) {
+	const char *errstr = NULL;
 	ut64 flags = *_flags;
 	const char *nl = "";
 	ut8 *buf;
 	char *p, out_mode = (flags & 128)? 'I': '0';
 	int i;
-	if (!(flags & 4) || !len) {
+	// For -S and -E we do not compute the length again since it may contain null byte.
+	if ((!(flags & 4) && !(flags & 4096)) || !len) {
 		len = strlen (str);
 	}
 	if ((flags & 4)) {
@@ -226,7 +249,7 @@ static int rax(RNum *num, char *str, int len, int last, ut64 *_flags, int *fm) {
 					}
 					return format_output (num, out_mode, str, *fm, flags);
 				}
-				printf ("Usage: rax2 [options] [expr ...]\n");
+				help_usage ();
 				return help ();
 			}
 			str++;
@@ -252,7 +275,7 @@ dotherax:
 		int n = ((strlen (str)) >> 1) + 1;
 		buf = malloc (n);
 		if (buf) {
-			memset (buf, '\0', n);
+			memset (buf, 0, n);
 			n = r_hex_str2bin (str, (ut8 *) buf);
 			if (n > 0) {
 				fwrite (buf, n, 1, stdout);
@@ -260,7 +283,7 @@ dotherax:
 #if __EMSCRIPTEN__
 			puts ("");
 #else
-			if (nl && *nl) {
+			if (R_STR_ISNOTEMPTY (nl)) {
 				puts ("");
 			}
 #endif
@@ -270,10 +293,24 @@ dotherax:
 		return true;
 	}
 	if (flags & (1 << 2)) { // -S
-		for (i = 0; i < len; i++) {
-			printf ("%02x", (ut8) str[i]);
+		if (flags & (1 << 18)) {
+			int j;
+			printf ("s+0\n");
+			for (i = 0; i < len;) {
+				printf ("wx+");
+				for (j = 0; j < 80 && i < len; j++, i++) {
+					printf ("%02x", (ut8) str[i]);
+				}
+				printf ("\n");
+			}
+			printf ("s-\n");
+			printf ("\n");
+		} else {
+			for (i = 0; i < len; i++) {
+				printf ("%02x", (ut8) str[i]);
+			}
+			printf ("\n");
 		}
-		printf ("\n");
 		return true;
 	} else if (flags & (1 << 3)) { // -b
 		int i;
@@ -301,8 +338,13 @@ dotherax:
 		ut32 *m = (ut32 *) buf;
 		memset (buf, '\0', n);
 		n = r_hex_str2bin (str, (ut8 *) buf);
-		if (n < 1 || !memcmp (str, "0x", 2)) {
-			ut64 q = r_num_math (num, str);
+		if (n < 1 || r_str_startswith (str, "0x")) {
+			ut64 q = r_num_calc (num, str, &errstr);
+			if (errstr) {
+				R_LOG_ERROR (errstr);
+				free (buf);
+				return false;
+			}
 			s = r_print_randomart ((ut8 *) &q, sizeof (q), q);
 			printf ("%s\n", s);
 			free (s);
@@ -314,7 +356,11 @@ dotherax:
 		free (m);
 		return true;
 	} else if (flags & (1 << 9)) { // -n
-		ut64 n = r_num_math (num, str);
+		ut64 n = r_num_calc (num, str, &errstr);
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
 		if (n >> 32) {
 			/* is 64 bit value */
 			if (flags & 1) {
@@ -360,7 +406,11 @@ dotherax:
 		}
 		return true;
 	} else if (flags & (1 << 16)) { // -w
-		ut64 n = r_num_math (num, str);
+		ut64 n = r_num_calc (num, str, &errstr);
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
 		if (n >> 31) {
 			// is >32bit
 			n = (st64) (st32) n;
@@ -372,7 +422,11 @@ dotherax:
 		printf ("%" PFMT64d "\n", n);
 		return true;
 	} else if (flags & (1 << 15)) { // -N
-		ut64 n = r_num_math (num, str);
+		ut64 n = r_num_calc (num, str, &errstr);
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
 		if (n >> 32) {
 			/* is 64 bit value */
 			if (flags & 1) {
@@ -401,8 +455,12 @@ dotherax:
 		}
 		return true;
 	} else if (flags & (1 << 10)) { // -u
-		char buf[8];
-		r_num_units (buf, sizeof (buf), r_num_math (NULL, str));
+		char buf[8] = {0};
+		r_num_units (buf, sizeof (buf), r_num_calc (NULL, str, &errstr));
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
 		printf ("%s\n", buf);
 		return true;
 	} else if (flags & (1 << 11)) { // -t
@@ -412,34 +470,44 @@ dotherax:
 		if (r_list_length (split) >= 2 && strlen (r_list_head (split)->n->data) > 2) {
 			gmt = (const char*) r_list_head (split)->n->data + 2;
 		}
-		ut32 n = r_num_math (num, ts);
+		ut32 n = r_num_calc (num, ts, &errstr);
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
 		RPrint *p = r_print_new ();
-		p->big_endian = R_SYS_ENDIAN;
 		if (gmt) {
-			p->datezone = r_num_math (num, gmt);
+			p->datezone = r_num_calc (num, gmt, &errstr);
+			if (errstr) {
+				R_LOG_ERROR (errstr);
+				return false;
+			}
 		}
 		r_print_date_unix (p, (const ut8 *) &n, sizeof (ut32));
 		r_print_free (p);
 		r_list_free (split);
 		return true;
 	} else if (flags & (1 << 12)) { // -E
-		const int n = strlen (str);
 		/* http://stackoverflow.com/questions/4715415/base64-what-is-the-worst-possible-increase-in-space-usage */
-		char *out = calloc (1, (n + 2) / 3 * 4 + 1); // ceil(n/3)*4 plus 1 for NUL
+		char *out = calloc (1, (len + 2) / 3 * 4 + 1); // ceil(n/3)*4 plus 1 for NUL
 		if (out) {
-			r_base64_encode (out, (const ut8 *) str, n);
+			r_base64_encode (out, (const ut8 *)str, len);
 			printf ("%s%s", out, nl);
 			fflush (stdout);
 			free (out);
 		}
 		return true;
 	} else if (flags & (1 << 13)) { // -D
-		const int n = strlen (str);
+		int n = strlen (str);
 		ut8 *out = calloc (1, n / 4 * 3 + 1);
 		if (out) {
-			r_base64_decode (out, str, n);
-			printf ("%s%s", out, nl);
-			fflush (stdout);
+			n = r_base64_decode (out, str, n);
+			if (n > 0) {
+				fwrite (out, n, 1, stdout);
+				fflush (stdout);
+			} else {
+				R_LOG_ERROR ("Cannot decode");
+			}
 			free (out);
 		}
 		return true;
@@ -452,7 +520,7 @@ dotherax:
 				fflush (stdout);
 				free (res);
 			} else {
-				eprintf ("Invalid input.\n");
+				R_LOG_ERROR ("Invalid input");
 			}
 			free (s);
 		}
@@ -463,10 +531,14 @@ dotherax:
 		ut32 n32, s, a;
 		double d;
 		float f;
-		ut64 n = r_num_math (num, str);
-
-		if (num->dbz) {
-			eprintf ("RNum ERROR: Division by Zero\n");
+		const char *errstr = NULL;
+		ut64 n = r_num_calc (num, str, &errstr);
+		if (errstr) {
+			R_LOG_ERROR (errstr);
+			return false;
+		}
+		if (num->dbz) { // XXX should be done in errstr already
+			R_LOG_ERROR ("division by zero");
 			return false;
 		}
 		n32 = (ut32) (n & UT32_MAX);
@@ -497,15 +569,17 @@ dotherax:
 		eprintf ("%s %.01lf %ff %lf\n",
 			out, num->fvalue, f, d);
 #endif
+				if (n >> 32) {
+					printf ("int64   %"PFMT64d"\n", (st64)n);
+					printf ("uint64  %"PFMT64u"\n", (ut64)n);
+				} else {
+					printf ("int32   %d\n", (st32)n);
+					printf ("uint32  %u\n", (ut32)n);
+				}
 				printf ("hex     0x%"PFMT64x"\n", n);
 				printf ("octal   0%"PFMT64o"\n", n);
 				printf ("unit    %s\n", unit);
 				printf ("segment %04x:%04x\n", s, a);
-				if (n >> 32) {
-					printf ("int64   %"PFMT64d"\n", (st64)n);
-				} else {
-					printf ("int32   %d\n", (st32)n);
-				}
 				if (asnum) {
 					printf ("string  \"%s\"\n", asnum);
 					free (asnum);
@@ -514,38 +588,47 @@ dotherax:
 				r_str_bits64 (out, n);
 				memcpy (&f, &n, sizeof (f));
 				memcpy (&d, &n, sizeof (d));
+				printf ("float   %ff\n", f);
+				printf ("double  %lf\n", d);
 				printf ("binary  0b%s\n", out);
-				printf ("float:  %ff\n", f);
-				printf ("double: %lf\n", d);
 
 				/* ternary */
 				r_num_to_ternary (out, n);
 				printf ("ternary 0t%s\n", out);
 
+				// base36
+				char b36str[16];
+				b36_fromnum (b36str, n);
+				printf ("base36  %s\n", b36str);
 		return true;
 	} else if (flags & (1 << 19)) { // -L
 		r_print_hex_from_bin (NULL, str);
 		return true;
 	} else if (flags & (1 << 21)) { // -i
-		static const char start[] = "unsigned char buf[] = {";
-		printf (start);
+		RStrBuf *sb = r_strbuf_new ("unsigned char buf[] = {");
 		/* reasonable amount of bytes per line */
 		const int byte_per_col = 12;
 		for (i = 0; i < len-1; i++) {
 			/* wrapping every N bytes */
 			if (i % byte_per_col == 0) {
-				printf ("\n  ");
+				r_strbuf_append (sb, "\n  ");
 			}
-			printf ("0x%02x, ", (ut8) str[i]);
+			r_strbuf_appendf (sb, "0x%02x, ", (ut8) str[i]);
 		}
 		/* some care for the last element */
 		if (i % byte_per_col == 0) {
-			printf("\n  ");
+			r_strbuf_append (sb, "\n  ");
 		}
-		printf ("0x%02x\n", (ut8) str[len - 1]);
-		printf ("};\n");
-		printf ("unsigned int buf_len = %d;\n", len);
-		return true;
+		r_strbuf_appendf (sb, "0x%02x\n", (ut8) str[len - 1]);
+		r_strbuf_append (sb, "};\n");
+		r_strbuf_appendf (sb, "unsigned int buf_len = %d;\n", len);
+		char *s = r_strbuf_drain (sb);
+		if (s) {
+			printf ("%s", s);
+			free (s);
+			return true;
+		}
+		return false;
 	} else if (flags & (1 << 22)) { // -o
 		// check -r
 		// flags & (1 << 18)
@@ -558,10 +641,15 @@ dotherax:
 			modified_str = r_str_new (str);
 		}
 
-		ut64 n = r_num_math (num, modified_str);
+		const char *errstr = NULL;
+		ut64 n = r_num_calc (num, modified_str, &errstr);
 		free (modified_str);
+		if (errstr) {
+			R_LOG_ERROR ("Division by Zero");
+			return false;
+		}
 		if (num->dbz) {
-			eprintf ("RNum ERROR: Division by Zero\n");
+			R_LOG_ERROR ("Division by Zero");
 			return false;
 		}
 
@@ -570,7 +658,7 @@ dotherax:
 			printf ("%s", asnum);
 			free (asnum);
 		} else {
-			eprintf ("No String Possible\n");
+			R_LOG_ERROR ("Not a string");
 			return false;
 		}
 		return true;
@@ -581,14 +669,19 @@ dotherax:
 			ut32 ip32 = ip[0] | (ip[1] << 8) | (ip[2] << 16) | (ip[3] << 24);
 			printf ("0x%08x\n", ip32);
 		} else {
-			ut32 ip32 = (ut32)r_num_math (NULL, str);
+			const char *errstr = NULL;
+			ut32 ip32 = (ut32)r_num_calc (NULL, str, &errstr);
+			if (errstr) {
+				R_LOG_ERROR (errstr);
+				return false;
+			}
 			ut8 ip[4] = { ip32 & 0xff, (ip32 >> 8) & 0xff, (ip32 >> 16) & 0xff, ip32 >> 24 };
 			printf ("%d.%d.%d.%d\n", ip[0], ip[1], ip[2], ip[3]);
 		}
 		return true;
 	}
 
-	if  (str[0] == '0' && (tolower ((unsigned char)str[1]) == 'x')) {
+	if  (str[0] == '0' && (tolower ((ut8)str[1]) == 'x')) {
 		out_mode = (flags & 32)? '0': 'I';
 	} else if (r_str_startswith (str, "b")) {
 		out_mode = 'B';
@@ -621,30 +714,39 @@ dotherax:
 	}
 	while ((p = strchr (str, ' '))) {
 		*p = 0;
-		format_output (num, out_mode, str, *fm, flags);
+		if (!format_output (num, out_mode, str, *fm, flags)) {
+			return false;
+		}
 		str = p + 1;
 	}
 	if (*str) {
-		format_output (num, out_mode, str, *fm, flags);
+		return format_output (num, out_mode, str, *fm, flags);
 	}
 	return true;
 }
 
 R_API int r_main_rax2(int argc, const char **argv) {
 	int i, fm = 0;
-	RNum *num = r_num_new (NULL, NULL, NULL);
-	if (argc == 1) {
-		use_stdin (num, 0, &fm);
+	int rc = 0;
+	int len = 0;
+
+	if (argc < 2) {
+		help_usage ();
+		// use_stdin (num, NULL, &fm);
 	} else {
+		RNum *num = r_num_new (NULL, NULL, NULL);
 		ut64 flags = 0;
 		for (i = 1; i < argc; i++) {
 			char *argv_i = strdup (argv[i]);
-			r_str_unescape (argv_i);
-			rax (num, argv_i, 0, i == argc - 1, &flags, &fm);
-			free (argv_i);
+			if (argv_i) {
+				len = r_str_unescape (argv_i);
+				if (!rax (num, argv_i, len, i == argc - 1, &flags, &fm)) {
+					rc = 1;
+				}
+				free (argv_i);
+			}
 		}
+		r_num_free (num);
 	}
-	r_num_free (num);
-	num = NULL;
-	return 0;
+	return rc;
 }

@@ -91,12 +91,12 @@ typedef struct r_egg_lang_t {
 } REggLang;
 
 typedef struct r_egg_t {
-	RBuffer *src;
-	RBuffer *buf;
-	RBuffer *bin;
+	RBuffer *src; // input source code
+	RBuffer *buf; // output compiled bytes
+	RBuffer *bin; // input binary data
 	RList *list;
-	//RList *shellcodes; // XXX is plugins nao?
 	RAsm *rasm;
+	RAnal *anal;/// XXX this is temporary hack until asm can use arch
 	RSyscall *syscall;
 	REggLang lang;
 	Sdb *db;
@@ -112,6 +112,7 @@ typedef struct r_egg_t {
 
 /* XXX: this may fail in different arches */
 #if 0
+// XXX should be a ph subcommand to hash strings. ?h must be removed
 r2 -q - <<EOF
 ?e #define R_EGG_OS_LINUX \`?h linux\`
 ?e #define R_EGG_OS_OSX \`?h osx\`
@@ -139,7 +140,7 @@ EOF
 #define R_EGG_OS_DEFAULT R_EGG_OS_OSX
 #define R_EGG_OS_NAME "darwin"
 #define R_EGG_FORMAT_DEFAULT "mach0"
-#elif __WINDOWS__
+#elif R2__WINDOWS__
 #define R_EGG_OS_DEFAULT R_EGG_OS_W32
 #define R_EGG_OS_NAME "windows"
 #define R_EGG_FORMAT_DEFAULT "pe"
@@ -181,13 +182,14 @@ typedef struct r_egg_emit_t {
 } REggEmit;
 
 #ifdef R_API
-R_API REgg *r_egg_new (void);
+R_API REgg *r_egg_new(void);
 R_API void r_egg_lang_init(REgg *egg);
 R_API void r_egg_lang_free(REgg *egg);
-R_API char *r_egg_to_string (REgg *egg);
-R_API void r_egg_free (REgg *egg);
-R_API bool r_egg_add (REgg *a, REggPlugin *foo);
-R_API void r_egg_reset (REgg *egg);
+R_API char *r_egg_tostring(REgg *egg);
+R_API void r_egg_free(REgg *egg);
+R_API bool r_egg_plugin_add(REgg *a, REggPlugin *plugin);
+R_API bool r_egg_plugin_remove(REgg *a, REggPlugin *plugin);
+R_API void r_egg_reset(REgg *egg);
 R_API bool r_egg_setup(REgg *egg, const char *arch, int bits, int endian, const char *os);
 R_API bool r_egg_include(REgg *egg, const char *file, int format);
 R_API bool r_egg_include_str(REgg *egg, const char *arg);
@@ -199,8 +201,8 @@ R_API bool r_egg_raw(REgg *egg, const ut8 *b, int len);
 R_API bool r_egg_encode(REgg *egg, const char *name);
 R_API bool r_egg_shellcode(REgg *egg, const char *name);
 #define r_egg_get_shellcodes(x) x->plugins
-R_API void r_egg_option_set (REgg *egg, const char *k, const char *v);
-R_API char *r_egg_option_get (REgg *egg, const char *k);
+R_API void r_egg_option_set(REgg *egg, const char *k, const char *v);
+R_API char *r_egg_option_get(REgg *egg, const char *k);
 R_API void r_egg_if(REgg *egg, const char *reg, char cmp, int v);
 R_API void r_egg_printf(REgg *egg, const char *fmt, ...) R_PRINTF_CHECK(2, 3);
 R_API bool r_egg_compile(REgg *egg);
@@ -219,14 +221,14 @@ R_API int r_egg_run_rop(REgg *egg);
 R_API bool r_egg_patch(REgg *egg, int off, const ut8 *b, int l);
 R_API void r_egg_finalize(REgg *egg);
 
-/* r_egg_Cfile.c */
-R_API char* r_egg_Cfile_parser(const char *file, const char *arch, const char *os, int bits);
+/* r_egg_cfile.c */
+R_API char* r_egg_cfile_parser(const char *file, const char *arch, const char *os, int bits);
 
 /* lang.c */
 R_API char *r_egg_mkvar(REgg *egg, char *out, const char *_str, int delta);
 R_API int r_egg_lang_parsechar(REgg *egg, char c);
-R_API void r_egg_lang_include_path (REgg *egg, const char *path);
-R_API void r_egg_lang_include_init (REgg *egg);
+R_API void r_egg_lang_include_path(REgg *egg, const char *path);
+R_API void r_egg_lang_include_init(REgg *egg);
 
 /* plugin pointers */
 extern REggPlugin r_egg_plugin_xor;
