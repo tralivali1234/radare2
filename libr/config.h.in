@@ -4,6 +4,7 @@
 #define R_DEBUG 0
 #define R_RTDEBUG 1
 #define WANT_THREADS @WANT_THREADS@
+#define WANT_QJS @WANT_QJS@
 
 /* inlined APIs */
 #define R_INLINE 0
@@ -23,7 +24,6 @@
 #define R_ESIL_STATIC_PLUGINS @plugins_esil@
 #define R_CORE_STATIC_PLUGINS @plugins_core@
 #define R_LANG_STATIC_PLUGINS @plugins_lang@
-#define R_PARSE_STATIC_PLUGINS @plugins_parse@
 #define R_CRYPTO_STATIC_PLUGINS @plugins_crypto@
 
 #endif

@@ -1,8 +1,8 @@
-/* radare2 - LGPL - Copyright 2014-2022 - pancake */
+/* radare2 - LGPL - Copyright 2014-2024 - pancake */
 
 #include <r_asm.h>
-#include <r_lib.h>
 #include "../../include/disas-asm.h"
+
 #if 0
 
 Documentation
@@ -327,15 +327,15 @@ static char *get_reg_profile(RArchSession *as) {
 
 static int archinfo(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 1;
-	case R_ANAL_ARCHINFO_DATA_ALIGN:
+	case R_ARCH_INFO_DATA_ALIGN:
 		return 1;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 8;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 4;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 2;
 	}
 	return 4;
@@ -345,7 +345,7 @@ const RArchPlugin r_arch_plugin_cris = {
 	.meta = {
 		.name = "cris",
 		.desc = "Axis Communications 32-bit embedded processor",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "cris",
 	.bits = R_SYS_BITS_PACK1 (32),

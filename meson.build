@@ -1,4 +1,39 @@
-project('radare2', 'c', license : 'LGPL3', meson_version : '>=0.50', version : '5.8.9')
+project('radare2', 'c', license : 'LGPL3', meson_version : '>=0.50', version : '5.9.9')
+
+# Global Arguments First
+
+# system dependencies
+cc = meson.get_compiler('c')
+
+if get_option('wasan')
+  add_global_arguments('/DEBUG', language: 'c')
+  add_global_arguments('/MD', language: 'c')
+  add_global_arguments('/fsanitize=address', language: 'c')
+  # add_global_arguments('/Zi', language: 'c') # generate .pdb iirc
+  # add_global_arguments('/Z7', language: 'c') # generate .symbols instead of .pdb
+  # add_global_arguments('/guard:cf', language: 'c')
+endif
+
+if cc.get_id() == 'msvc'
+  # add_project_arguments('/Zc:preprocessor', language: 'c')
+  if get_option('static_runtime')
+    add_global_arguments('/MT', language: 'c')
+  endif
+endif
+
+if cc.get_id() == 'clang-cl'
+  add_global_arguments('-D__STDC__=1', language: 'c')
+  add_global_arguments('-D_CRT_DECLARE_NONSTDC_NAMES ', language: 'c')
+  add_global_arguments('-D_CRT_SECURE_NO_WARNINGS', language: 'c')
+  add_global_arguments('-D_CRT_NONSTDC_NO_DEPRECATE', language: 'c')
+endif
+
+if get_option('default_library') == 'shared'
+  if host_machine.system() != 'windows' or cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
+    add_global_arguments('-fvisibility=hidden', language: 'c')
+  endif
+endif
+
 
 py3_exe = import('python').find_installation('python3')
 gen_py = '@0@/libr/syscall/d/gen.py'.format(meson.current_source_dir())
@@ -96,8 +131,6 @@ endif
 r2_libversion = host_machine.system() == 'windows' ? '' : r2_version
 message('r2 lib version: ' + r2_libversion)
 
-# system dependencies
-cc = meson.get_compiler('c')
 # required for linux
 ldl = cc.find_library('dl', required: false)
 pth = dependency('threads', required: false)
@@ -116,38 +149,11 @@ if host_machine.system() == 'windows'
 endif
 platform_inc = include_directories(platform_inc)
 
-if get_option('static_runtime')
-  if cc.get_id() == 'msvc'
-    add_project_arguments('/MT', language: 'c')
-  endif
-endif
 
 if get_option('threadsafety')
   r2_critical_enabled = 1
 else
   r2_critical_enabled = 0
-endif
-
-if get_option('wasan')
-  add_project_arguments('/DEBUG', language: 'c')
-  add_project_arguments('/MD', language: 'c')
-  add_project_arguments('/fsanitize=address', language: 'c')
-  # add_project_arguments('/Zi', language: 'c') # generate .pdb iirc
-  # add_project_arguments('/Z7', language: 'c') # generate .symbols instead of .pdb
-  # add_project_arguments('/guard:cf', language: 'c')
-endif
-
-if cc.get_id() == 'clang-cl'
-  add_project_arguments('-D__STDC__=1', language: 'c')
-  add_project_arguments('-D_CRT_DECLARE_NONSTDC_NAMES ', language: 'c')
-  add_project_arguments('-D_CRT_SECURE_NO_WARNINGS', language: 'c')
-  add_project_arguments('-D_CRT_NONSTDC_NO_DEPRECATE', language: 'c')
-endif
-
-if get_option('default_library') == 'shared'
-  if host_machine.system() != 'windows' or cc.get_id() != 'msvc' and cc.get_id() != 'clang-cl'
-    add_project_arguments('-fvisibility=hidden', language: 'c')
-  endif
 endif
 
 library_cflags = ['-DR2_PLUGIN_INCORE=1']
@@ -173,7 +179,9 @@ if host_machine.system() == 'windows'
   r2_wwwroot = join_paths(r2_datdir, 'www')
   r2_sdb = join_paths(r2_datdir)
   r2_zigns = join_paths(r2_datdir, 'zigns')
+  r2_scripts = join_paths(r2_datdir, 'scripts')
   r2_themes = join_paths(r2_datdir, 'cons')
+  r2_platform = join_paths(r2_datdir, 'platform')
   r2_fortunes = join_paths(r2_datdir, 'doc')
   r2_flags = join_paths(r2_datdir, 'flag')
   r2_hud = join_paths(r2_datdir, 'hud')
@@ -181,6 +189,7 @@ if host_machine.system() == 'windows'
   opts2 = [
     'r2_wwwroot',
     'r2_sdb',
+    'r2_platform',
     'r2_zigns',
     'r2_themes',
     'r2_fortunes',
@@ -216,7 +225,9 @@ else
   r2_datdir_r2 = join_paths(r2_datdir, 'radare2')
   r2_wwwroot = join_paths(r2_datdir_r2, r2_version, 'www')
   r2_sdb = join_paths(r2_datdir_r2, r2_version)
+  r2_scripts = join_paths(r2_datdir_r2, r2_version, 'scripts')
   r2_zigns = join_paths(r2_datdir_r2, r2_version, 'zigns')
+  r2_platform = join_paths(r2_datdir_r2, r2_version, 'platform')
   r2_themes = join_paths(r2_datdir_r2, r2_version, 'cons')
   r2_fortunes = join_paths(r2_datdir, 'doc', 'radare2')
   r2_flags = join_paths(r2_datdir_r2, r2_version, 'flag')
@@ -224,6 +235,10 @@ else
   r2_plugins = join_paths(r2_libdir, 'radare2', r2_version)
   r2_extras = join_paths(r2_libdir, 'radare2-extras', r2_version)
   r2_bindings = join_paths(r2_libdir, 'radare2-bindings', r2_version)
+endif
+
+if host_machine.system() == 'aix'
+  library_cflags += ['-D_LINUX_SOURCE_COMPAT']
 endif
 
 r2_zsh_compdir = join_paths(r2_datdir, 'zsh', 'site-functions')
@@ -247,8 +262,8 @@ conf_data.set('plugins_fs', '&r_fs_plugin_' + ', &r_fs_plugin_'.join(fs_plugins)
 conf_data.set('plugins_debug', '&r_debug_plugin_' + ', &r_debug_plugin_'.join(debug_plugins) + ', 0')
 conf_data.set('plugins_egg', '&r_egg_plugin_' + ', &r_egg_plugin_'.join(egg_plugins) + ', 0')
 conf_data.set('plugins_lang', '&r_lang_plugin_' + ', &r_lang_plugin_'.join(lang_plugins) + ', 0')
-conf_data.set('plugins_parse', '&r_parse_plugin_' + ', &r_parse_plugin_'.join(parse_plugins) + ', 0')
 conf_data.set('WANT_THREADS', get_option('want_threads')? '1': '0')
+conf_data.set('WANT_QJS', get_option('want_qjs')? '1': '0')
 
 config_h = configure_file(
   input: 'libr/config.h.in',
@@ -320,8 +335,20 @@ else
   message('Not using libuv, thus using fallback server implementations')
 endif
 
+use_libsqsh = false
+if get_option('use_libsqsh')
+  libsqsh_dep = dependency('libsqsh', version: '>=1.4.0', required: false)
+  use_libsqsh = libsqsh_dep.found()
+  if not libsqsh_dep.found()
+    use_libsqsh = false
+    warning('use_libsqsh option was set to true, but libsqsh was not found.')
+  endif
+else
+  use_libsqsh = false
+endif
+
 has_debugger = get_option('debugger')
-have_ptrace = not ['haiku', 'windows', 'cygwin', 'sunos'].contains(host_machine.system())
+have_ptrace = not ['haiku', 'windows', 'cygwin', 'sunos', 'aix'].contains(host_machine.system())
 can_ptrace_wrap = ['linux'].contains(host_machine.system())
 
 have_ptrace = have_ptrace and has_debugger
@@ -351,6 +378,7 @@ userconf.set10('HAVE_LINUX_CAN_H', false)
 userconf.set10('DEBUGGER', has_debugger)
 userconf.set('ETCDIR', join_paths(r2_prefix, 'etc'))
 userconf.set('PREFIX', r2_prefix)
+userconf.set('BINDIR', join_paths(r2_prefix, 'bin'))
 if host_machine.system() == 'windows'
   userconf.set('LIBDIR', r2_libdir)
   userconf.set('INCLUDEDIR', r2_incdir)
@@ -367,6 +395,7 @@ userconf.set('WITH_STATIC_THEMES', get_option('static_themes'))
 userconf.set('DATADIR', join_paths(r2_prefix, r2_datdir))
 userconf.set('WWWROOT', join_paths(r2_prefix, r2_wwwroot))
 userconf.set('SDB', r2_sdb)
+userconf.set('PLATFORM', r2_platform)
 userconf.set('ZIGNS', r2_zigns)
 userconf.set('THEMES', r2_themes)
 userconf.set('FORTUNES', r2_fortunes)
@@ -376,17 +405,22 @@ userconf.set('PLUGINS', r2_plugins)
 userconf.set('EXTRAS', r2_extras)
 userconf.set('BINDINGS', r2_bindings)
 userconf.set('R2_BUILDSYSTEM', 'meson')
+userconf.set10('USE_SQSH', use_libsqsh)
 capstone_version = get_option('use_capstone_version')
 userconf.set10('USE_CS4', capstone_version == 'v4')
+userconf.set10('USE_CSNEXT', capstone_version == 'v6')
 userconf.set10('HAVE_OPENSSL', use_sys_openssl)
 userconf.set10('WANT_SSL_CRYPTO', use_ssl_crypto)
 userconf.set10('HAVE_LIBUV', use_libuv)
 userconf.set10('HAVE_FORK', use_fork)
 userconf.set10('HAVE_GPERF', get_option('sdb_cgen'))
 userconf.set10('WANT_DYLINK', use_dylink)
+userconf.set10('WANT_QJS', get_option('want_qjs'))
 userconf.set10('WANT_THREADS', get_option('want_threads'))
 userconf.set10('WANT_CAPSTONE', get_option('want_capstone'))
+userconf.set10('USE_NEW_ABI', get_option('use_new_abi'))
 userconf.set10('HAVE_PTRACE', have_ptrace)
+userconf.set10('WANT_DEBUGSTUFF', get_option('debugstuff'))
 userconf.set('R_CRITICAL_ENABLED', r2_critical_enabled)
 userconf.set10('USE_PTRACE_WRAP', use_ptrace_wrap)
 userconf.set10('WITH_GPL', not get_option('nogpl'))
@@ -452,117 +486,58 @@ libr_pc = configure_file(
 
 subdir('shlr/zip')
 
-# handle sdb dependency
-# NOTE: copying most of the stuff from sdb to here for the moment, since we
-# should use subpackages to handle this well
-sdb_files = [
-  'shlr/sdb/src/array.c',
-  'shlr/sdb/src/base64.c',
-  'shlr/sdb/src/buffer.c',
-  'shlr/sdb/src/set.c',
-  'shlr/sdb/src/cdb.c',
-  'shlr/sdb/src/cdb_make.c',
-  'shlr/sdb/src/dict.c',
-  'shlr/sdb/src/diff.c',
-  'shlr/sdb/src/disk.c',
-  'shlr/sdb/src/fmt.c',
-  'shlr/sdb/src/ht_uu.c',
-  'shlr/sdb/src/ht_up.c',
-  'shlr/sdb/src/ht_pp.c',
-  'shlr/sdb/src/ht_pu.c',
-  'shlr/sdb/src/journal.c',
-  'shlr/sdb/src/json.c',
-  'shlr/sdb/src/lock.c',
-  'shlr/sdb/src/ls.c',
-  'shlr/sdb/src/match.c',
-  'shlr/sdb/src/ns.c',
-  'shlr/sdb/src/num.c',
-  'shlr/sdb/src/query.c',
-  'shlr/sdb/src/sdb.c',
-  'shlr/sdb/src/main.c',
-  'shlr/sdb/src/heap.c',
-  'shlr/sdb/src/ht.c',
-  'shlr/sdb/src/util.c',
-  'shlr/sdb/src/text.c'
+script_files = [
+  'scripts/il2cpp.r2.js',
+  'scripts/ipsw-kernel-symbolicate.r2.js',
+  'scripts/licenses.r2.js',
+  'scripts/parseplug.r2.js',
+  'scripts/r2sptrace.py',
+  'scripts/tags.r2.js',
+  'scripts/symbols.r2.js',
+  'scripts/unzip.r2.js',
+  'scripts/vsmap.r2.js',
 ]
+install_data(script_files, install_dir: r2_scripts)
 
-sdb_inc = [platform_inc, include_directories(join_paths('shlr','sdb','include'))]
-
-# XXX we have sdb/meson.build for this!! dont dup
-# Create sdb_version.h
-r = run_command(py3_exe, join_paths('sys','sdb_version.py'), join_paths('shlr','sdb','config.mk'))
-if r.returncode() == 0
-  sdb_version = r.stdout().strip().split('\n')[0]
-else
-  sdb_version = 'unknown'
-endif
-run_command(py3_exe, '-c', 'with open("shlr/sdb/include/sdb/version.h", "w") as f: f.write("#define SDB_VERSION \"' + sdb_version + '\"")')
-
-sdb_inc_files = [
-  'shlr/sdb/include/sdb/buffer.h',
-  'shlr/sdb/include/sdb/cdb.h',
-  'shlr/sdb/include/sdb/cdb_make.h',
-  'shlr/sdb/include/sdb/config.h',
-  'shlr/sdb/include/sdb/dict.h',
-  'shlr/sdb/include/sdb/heap.h',
-  'shlr/sdb/include/sdb/ht.h',
-  'shlr/sdb/include/sdb/ht_inc.h',
-  'shlr/sdb/include/sdb/ht_pp.h',
-  'shlr/sdb/include/sdb/ht_pu.h',
-  'shlr/sdb/include/sdb/ht_up.h',
-  'shlr/sdb/include/sdb/ht_uu.h',
-  'shlr/sdb/include/sdb/ls.h',
-  'shlr/sdb/include/sdb/rangstr.h',
-  'shlr/sdb/include/sdb/sdb.h',
-  'shlr/sdb/include/sdb/set.h',
-  'shlr/sdb/include/sdb/types.h',
-  'shlr/sdb/include/sdb/version.h',
-]
-install_headers(sdb_inc_files, install_dir: join_paths(r2_incdir, 'sdb'))
-
-libr2sdb = static_library('r2sdb', sdb_files,
-  include_directories: sdb_inc,
-  implicit_include_directories: false,
-  c_args: host_machine.system() == 'windows' ? '-DSDB_IPI= -DSDB_API=__declspec(dllexport)' : [],
-)
+libsdb_sp = subproject('sdb')
+libsdb_static = libsdb_sp.get_variable('libsdb_static')
+libsdb_includes = libsdb_sp.get_variable('sdb_inc')
 
 sdb_dep = declare_dependency(
-  link_whole: libr2sdb,
-  include_directories: sdb_inc
+  link_whole: libsdb_static,
+  include_directories: libsdb_includes
 )
 
-sdb_exe = executable('sdb', ['shlr/sdb/src/entry.c'] + sdb_files,
-  include_directories: [
-    include_directories('shlr/sdb/include')
-  ],
-  implicit_include_directories: false,
-  native: true,
-)
+sdb_exe = libsdb_sp.get_variable('sdb_exe')
 
-sdb_gen_cmd_cgen = [
-  sdb_exe,
-  '-t',
-  '-C',
-  '-o',
-  '@OUTPUT@',
-  '@INPUT@'
-]
+sdb_install = custom_target('r2sdb',
+  input : sdb_exe,
+  output : 'r2sdb',
+  command : ['cp', '-f', '@INPUT@', '@OUTPUT@'],
+  install : true,
+  install_dir : get_option('bindir'))
 
-sdb_gen_cmd = [
-  sdb_exe,
-  '@OUTPUT@',
-  '==',
-  '@INPUT@'
-]
+os_name = host_machine.system()
+lib_extension = '.so'  # Default for Linux
+
+if os_name == 'darwin'
+    lib_extension = '.dylib'
+elif os_name == 'windows'
+    lib_extension = '.dll'
+endif
+
+libsdb_install = custom_target('libr2sdb',
+  input : libsdb_static,
+  output : 'libr2sdb' + lib_extension,
+  command : ['cp', '-f', '@INPUT@', '@OUTPUT@'],
+  install : true,
+  install_dir : get_option('libdir'))
+
+sdb_gen_cmd_cgen = [ sdb_exe, '-t', '-C', '-o', '@OUTPUT@', '@INPUT@' ]
+sdb_gen_cmd = [ sdb_exe, '@OUTPUT@', '==', '@INPUT@' ]
 
 py_cmd = '__import__("os").readlink(r"@0@"))'.format(repo)
-syscall_sdb_gen_cmd = [
-  py3_exe,
-  gen_py,
-  sdb_exe,
-  '@INPUT@',
-  '@OUTPUT@',
-]
+syscall_sdb_gen_cmd = [ py3_exe, gen_py, sdb_exe, '@INPUT@', '@OUTPUT@', ]
 
 # handle spp dependency
 spp_files = [
@@ -572,8 +547,8 @@ spp_files = [
 spp_inc = [platform_inc, include_directories(join_paths('shlr','spp'))]
 
 libr2spp = static_library('r2spp', spp_files,
-  dependencies: sdb_dep,
-  include_directories: spp_inc,
+  link_with: [ libsdb_static ], # libsdb_static,
+  include_directories: [ libsdb_includes, spp_inc ],
   c_args: ['-DHAVE_R_UTIL', '-DUSE_R2=1'],
   implicit_include_directories: false
 )
@@ -676,6 +651,12 @@ install_data(
   'doc/fortunes.fun',
   'doc/fortunes.tips',
   install_dir: r2_fortunes
+)
+
+install_data(
+  'libr/arch/d/nes-init.r2',
+  'libr/arch/d/nes-fini.r2',
+  install_dir: r2_platform
 )
 
 if cli_enabled

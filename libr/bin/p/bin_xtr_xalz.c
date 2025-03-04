@@ -1,9 +1,8 @@
-/* radare - LGPL - Copyright 2022 - pancake */
+/* radare - LGPL - Copyright 2022-2024 - pancake */
 
-#include <r_lib.h>
 #include <r_bin.h>
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) >= 0x20) {
 		ut8 magic[4] = {0};
 		if (r_buf_read_at (b, 0, magic, sizeof (magic)) != 4) {
@@ -60,11 +59,14 @@ static RList *oneshotall_buffer(RBin *bin, RBuffer *b) {
 }
 
 RBinXtrPlugin r_bin_xtr_plugin_xtr_xalz = {
-	.name = "xtr.xalz",
-	.desc = "XAmarin LZ4 assemblies",
-	.license = "MIT",
+	.meta = {
+		.name = "xtr.xalz",
+		.author = "pancake",
+		.desc = "XAmarin LZ4 assemblies",
+		.license = "MIT",
+	},
 	.extractall_from_buffer = &oneshotall_buffer,
-	.check_buffer = check_buffer,
+	.check = check,
 };
 
 #ifndef R2_PLUGIN_INCORE

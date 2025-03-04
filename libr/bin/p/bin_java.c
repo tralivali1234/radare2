@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2022 - pancake, nibble, Adam Pridgen <dso@rice.edu || adam.pridgen@thecoverofnight.com> */
+/* radare - LGPL - Copyright 2009-2024 - pancake, nibble, dso */
 
 #define R_LOG_ORIGIN "bin.java"
 
@@ -6,114 +6,67 @@
 #include "../../shlr/java/class.h"
 #include "../../shlr/java/code.h"
 
-#define IFDBG_BIN_JAVA if (0)
-
-// R2_590 XXX we need to refactor rbin to get rid of this
-static R_TH_LOCAL Sdb *DB = NULL;
-
-static void add_bin_obj_to_sdb(RBinJavaObj *bin);
-static int add_sdb_bin_obj(const char *key, RBinJavaObj *bin_obj);
-
-static int init(void *user) {
-	R_LOG_DEBUG ("Calling plugin init = %d", DB? 1: 0);
-	if (!DB) {
-		R_LOG_DEBUG ("plugin DB beeing initted");
-		DB = sdb_new ("bin.java", NULL, 0);
-	} else {
-		R_LOG_DEBUG ("plugin DB already initted");
+static bool add_sdb_bin_obj(const char *key, RBinJavaObj *bin_obj) {
+	char value[SDB_NUM_BUFSZ] = {0};
+	char *addr = sdb_itoa ((ut64) (size_t) bin_obj, 16, value, sizeof (value));
+	if (key && bin_obj && bin_obj->kv) {
+		R_LOG_DEBUG ("Adding %s:%s to the bin_objs db", key, addr);
+		sdb_set (bin_obj->kv, key, addr, 0);
+		return true;
 	}
-	return 0;
+	return false;
 }
 
-static int fini(void *user) {
-	R_LOG_DEBUG ("Calling plugin fini = %d", DB? 1: 0);
-	if (!DB) {
-		IFDBG_BIN_JAVA eprintf ("plugin DB already uninited.\n");
-	} else {
-		IFDBG_BIN_JAVA eprintf ("plugin DB beeing uninited.\n");
-		sdb_free (DB);
-		DB = NULL;
-	}
-	return 0;
-}
-
-static int add_sdb_bin_obj(const char *key, RBinJavaObj *bin_obj) {
-	int result = false;
-	char *addr, value[SDB_NUM_BUFSZ] = {
-		0
-	};
-	addr = sdb_itoa ((ut64) (size_t) bin_obj, 16, value, sizeof (value));
-	if (key && bin_obj && DB) {
-		IFDBG_BIN_JAVA eprintf("Adding %s:%s to the bin_objs db\n", key, addr);
-		sdb_set (DB, key, addr, 0);
-		result = true;
-	}
-	return result;
-}
-
-static void add_bin_obj_to_sdb(RBinJavaObj *bin) {
-	if (!bin) {
-		return;
-	}
-	char *jvcname = r_bin_java_build_obj_key (bin);
-	add_sdb_bin_obj (jvcname, bin);
-	bin->AllJavaBinObjs = DB;
+static void add_bin_obj_to_sdb(RBinJavaObj *bj) {
+	R_RETURN_IF_FAIL (bj);
+	char *jvcname = r_bin_java_build_obj_key (bj);
+	add_sdb_bin_obj (jvcname, bj);
+	bj->AllJavaBinObjs = bj->kv; // XXX that was a global.. so this must be inside bin->sdb namespace
 	free (jvcname);
 }
 
 static Sdb *get_sdb(RBinFile *bf) {
-	RBinObject *o = bf->o;
-	struct r_bin_java_obj_t *bin;
-	if (!o) {
-		return NULL;
-	}
-	bin = (struct r_bin_java_obj_t *) o->bin_obj;
-	if (bin->kv) {
-		return bin->kv;
-	}
-	return NULL;
+	struct r_bin_java_obj_t *bin = R_UNWRAP3 (bf, bo, bin_obj);
+	return bin? bin->kv: NULL;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	struct r_bin_java_obj_t *tmp_bin_obj = NULL;
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 	RBuffer *tbuf = r_buf_ref (buf);
-	tmp_bin_obj = r_bin_java_new_buf (tbuf, loadaddr, sdb);
-	if (!tmp_bin_obj) {
-		return false;
+	struct r_bin_java_obj_t *tbo = r_bin_java_new_buf (tbuf, loadaddr, bf->sdb);
+	if (tbo) {
+		bf->bo->bin_obj = tbo;
+		add_bin_obj_to_sdb (tbo);
+		if (bf && bf->file) {
+			tbo->file = strdup (bf->file);
+		}
+		r_buf_free (tbuf);
+		return true;
 	}
-	*bin_obj = tmp_bin_obj;
-	add_bin_obj_to_sdb (tmp_bin_obj);
-	if (bf && bf->file) {
-		tmp_bin_obj->file = strdup (bf->file);
-	}
-	r_buf_free (tbuf);
-	return true;
+	return false;
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_java_free ((struct r_bin_java_obj_t *) bf->o->bin_obj);
-	sdb_free (DB);
-	DB = NULL;
+	r_bin_java_free ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
 }
 
 static RList *entries(RBinFile *bf) {
-	return r_bin_java_get_entrypoints (bf->o->bin_obj);
+	return r_bin_java_get_entrypoints (bf->bo->bin_obj);
 }
 
 static RList *classes(RBinFile *bf) {
-	return r_bin_java_get_classes ((struct r_bin_java_obj_t *) bf->o->bin_obj);
+	return r_bin_java_get_classes ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
 }
 
 static RList *symbols(RBinFile *bf) {
-	return r_bin_java_get_symbols ((struct r_bin_java_obj_t *) bf->o->bin_obj);
+	return r_bin_java_get_symbols ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
 }
 
 static RList *strings(RBinFile *bf) {
-	return r_bin_java_get_strings ((struct r_bin_java_obj_t *) bf->o->bin_obj);
+	return r_bin_java_get_strings ((struct r_bin_java_obj_t *) bf->bo->bin_obj);
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	RBinJavaObj *jo = bf->o->bin_obj;
+	RBinJavaObj *jo = bf->bo->bin_obj;
 	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret) {
 		return NULL;
@@ -121,7 +74,7 @@ static RBinInfo *info(RBinFile *bf) {
 	ret->lang = (jo && jo->lang) ? jo->lang : "java";
 	ret->file = strdup (bf->file);
 	ret->type = strdup ("JAVA CLASS");
-	ret->bclass = r_bin_java_get_version (bf->o->bin_obj);
+	ret->bclass = r_bin_java_get_version (bf->bo->bin_obj);
 	ret->has_va = 0;
 	// ret->has_lit = true;
 	ret->rclass = strdup ("class");
@@ -135,7 +88,7 @@ static RBinInfo *info(RBinFile *bf) {
 	return ret;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) > 32) {
 		ut8 buf[4];
 		r_buf_read_at (b, 0, buf, sizeof (buf));
@@ -155,7 +108,7 @@ static int retdemangle(const char *str) {
 }
 
 static RBinAddr *binsym(RBinFile *bf, int sym) {
-	return r_bin_java_get_entrypoint (bf->o->bin_obj, sym);
+	return r_bin_java_get_entrypoint (bf->bo->bin_obj, sym);
 }
 
 static R_BORROW RList *lines(RBinFile *bf) {
@@ -167,7 +120,7 @@ static R_BORROW RList *lines(RBinFile *bf) {
 	file = r_str_replace (file, ".class", ".java", 0);
 	/*
 	   int i;
-	   RBinJavaObj *b = bf->o->bin_obj;
+	   RBinJavaObj *b = bf->bo->bin_obj;
 	   for (i = 0; i < b->lines.count; i++) {
 	        RBinDwarfRow *row = R_NEW0 (RBinDwarfRow);
 	        r_bin_dwarf_line_new (row, b->lines.addr[i], file, b->lines.line[i]);
@@ -179,27 +132,28 @@ static R_BORROW RList *lines(RBinFile *bf) {
 }
 
 static RList *sections(RBinFile *bf) {
-	return r_bin_java_get_sections (bf->o->bin_obj);
+	return r_bin_java_get_sections (bf->bo->bin_obj);
 }
 
 static RList *imports(RBinFile *bf) {
-	return r_bin_java_get_imports (bf->o->bin_obj);
+	return r_bin_java_get_imports (bf->bo->bin_obj);
 }
 
 static RList *libs(RBinFile *bf) {
-	return r_bin_java_get_lib_names (bf->o->bin_obj);
+	return r_bin_java_get_lib_names (bf->bo->bin_obj);
 }
 
 RBinPlugin r_bin_plugin_java = {
-	.name = "java",
-	.desc = "java bin plugin",
-	.license = "LGPL3",
-	.init = init,
-	.fini = fini,
-	.get_sdb = &get_sdb,
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "java",
+		.author = "pancake",
+		.desc = "java bin plugin",
+		.license = "LGPL-3.0-only",
+	},
+	.get_sdb = &get_sdb, // XXX we should remove this imho
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.binsym = binsym,
 	.entries = &entries,
 	.sections = sections,

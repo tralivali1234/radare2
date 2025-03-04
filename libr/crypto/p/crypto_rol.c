@@ -1,8 +1,6 @@
-/* radare - LGPL - Copyright 2016-2022 - pancake */
+/* radare - LGPL - Copyright 2016-2024 - pancake */
 
-#include <r_lib.h>
 #include <r_crypto.h>
-#include <r_util/r_log.h>
 
 #define NAME "rol"
 
@@ -52,7 +50,7 @@ static bool fini(RCryptoJob *cj) {
 }
 
 static bool update(RCryptoJob *cj, const ut8 *buf, int len) {
-	if (cj->flag) {
+	if (cj->flag == R_CRYPTO_DIR_DECRYPT) {
 		R_LOG_ERROR ("Use ROR instead of ROL");
 		return false;
 	}
@@ -68,10 +66,14 @@ static bool update(RCryptoJob *cj, const ut8 *buf, int len) {
 }
 
 RCryptoPlugin r_crypto_plugin_rol = {
-	.name = NAME,
+	.type = R_CRYPTO_TYPE_ENCODER,
+	.meta = {
+		.name = NAME,
+		.desc = "Rotate Left N bits",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.implements = NAME,
-	.author = "pancake",
-	.license = "LGPL",
 	.set_key = rol_set_key,
 	.get_key_size = rol_get_key_size,
 	.update = update,

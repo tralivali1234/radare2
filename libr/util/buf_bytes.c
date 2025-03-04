@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2020 - ret2libc */
+/* radare - LGPL - Copyright 2009-2024 - ret2libc */
 
 #include <r_util.h>
 
@@ -9,122 +9,129 @@ struct buf_bytes_user {
 	bool steal;
 };
 
-struct buf_bytes_priv {
-	ut8 *buf;
-	ut64 length;
-	ut64 offset;
-	bool is_bufowner;
-};
-
-static inline struct buf_bytes_priv *get_priv_bytes(RBuffer *b) {
-	struct buf_bytes_priv *priv = (struct buf_bytes_priv *)b->priv;
-	r_warn_if_fail (priv);
-	return priv;
-}
-
 static bool buf_bytes_init(RBuffer *b, const void *user) {
-	const struct buf_bytes_user *u = (const struct buf_bytes_user *)user;
-	struct buf_bytes_priv *priv = R_NEW0 (struct buf_bytes_priv);
-	if (!priv) {
+	const struct buf_bytes_user *u = user;
+	b->rb_bytes = R_NEW0 (RBufferBytes);
+	if (!b->rb_bytes) {
 		return false;
 	}
 
-	priv->offset = 0;
-	priv->length = u->length;
+	b->rb_bytes->offset = 0;
+	b->rb_bytes->length = u->length;
 	if (u->data_steal) {
-		priv->buf = (ut8 *)u->data_steal;
-		priv->is_bufowner = u->steal;
+		b->rb_bytes->buf = (ut8 *)u->data_steal;
+		b->rb_bytes->is_bufowner = u->steal;
 	} else {
-		priv->buf = malloc (priv->length);
-		if (!priv->buf) {
-			free (priv);
+#if 0
+		size_t length = b->rb_bytes->length > 0? b->rb_bytes->length: 1;
+		b->rb_bytes->buf = malloc (length);
+		if (!b->rb_bytes->buf) {
+			free (b->rb_bytes);
 			return false;
 		}
-		if (priv->length) {
-			memmove (priv->buf, u->data, priv->length);
+		if (b->rb_bytes->length > 0) {
+			memmove (b->rb_bytes->buf, u->data, b->rb_bytes->length);
 		}
-		priv->is_bufowner = true;
+#else
+		if (b->rb_bytes->length > 0) {
+			b->rb_bytes->buf = malloc (b->rb_bytes->length);
+			if (!b->rb_bytes->buf) {
+				free (b->rb_bytes);
+				return false;
+			}
+			memmove (b->rb_bytes->buf, u->data, b->rb_bytes->length);
+		}
+#endif
+		b->rb_bytes->is_bufowner = true;
 	}
-	b->priv = priv;
 	return true;
 }
 
 static bool buf_bytes_fini(RBuffer *b) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	if (priv->is_bufowner) {
-		free (priv->buf);
+	R_WARN_IF_FAIL (b->rb_bytes);
+	if (b->rb_bytes->is_bufowner) {
+		free (b->rb_bytes->buf);
 	}
-	R_FREE (b->priv);
+	R_FREE (b->rb_bytes);
 	return true;
 }
 
 static bool buf_bytes_resize(RBuffer *b, ut64 newsize) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	if (newsize > priv->length) {
-		ut8 *t = realloc (priv->buf, newsize);
+	R_WARN_IF_FAIL (b->rb_bytes);
+	if (newsize > b->rb_bytes->length) {
+		ut8 *t = realloc (b->rb_bytes->buf, newsize);
 		if (!t) {
 			return false;
 		}
-		priv->buf = t;
-		memset (priv->buf + priv->length, b->Oxff_priv, newsize - priv->length);
+		b->rb_bytes->buf = t;
+		memset (b->rb_bytes->buf + b->rb_bytes->length, b->Oxff_priv, newsize - b->rb_bytes->length);
 	}
-	priv->length = newsize;
+	b->rb_bytes->length = newsize;
 	return true;
 }
 
 static st64 buf_bytes_read(RBuffer *b, ut8 *buf, ut64 len) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	if (!priv->buf) {
+	R_WARN_IF_FAIL (b->rb_bytes);
+	if (!b->rb_bytes->buf) {
 		return 0;
 	}
-	ut64 real_len = priv->length < priv->offset? 0: R_MIN (priv->length - priv->offset, len);
-	memmove (buf, priv->buf + priv->offset, real_len);
-	priv->offset += real_len;
+	ut64 real_len = b->rb_bytes->length < b->rb_bytes->offset? 0: R_MIN (b->rb_bytes->length - b->rb_bytes->offset, len);
+	// memmove (buf, b->rb_bytes->buf + b->rb_bytes->offset, real_len);
+	memcpy (buf, b->rb_bytes->buf + b->rb_bytes->offset, real_len);
+	b->rb_bytes->offset += real_len;
 	return real_len;
 }
 
 static st64 buf_bytes_write(RBuffer *b, const ut8 *buf, ut64 len) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	if (priv->offset > priv->length || priv->offset + len >= priv->length) {
-		bool r = r_buf_resize (b, priv->offset + len);
+	R_WARN_IF_FAIL (b->rb_bytes);
+	if (b->rb_bytes->offset > b->rb_bytes->length || b->rb_bytes->offset + len >= b->rb_bytes->length) {
+		bool r = r_buf_resize (b, b->rb_bytes->offset + len);
 		if (!r) {
 			return -1;
 		}
 	}
-	memmove (priv->buf + priv->offset, buf, len);
-	priv->offset += len;
+	memmove (b->rb_bytes->buf + b->rb_bytes->offset, buf, len);
+	b->rb_bytes->offset += len;
 	return len;
 }
 
 static ut64 buf_bytes_get_size(RBuffer *b) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	return priv->length;
+	R_WARN_IF_FAIL (b->rb_bytes);
+	return b->rb_bytes->length;
 }
 
 static st64 buf_bytes_seek(RBuffer *b, st64 addr, int whence) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
-	if (addr < 0 && (-addr) > (st64)priv->offset) {
-		return -1;
+	R_WARN_IF_FAIL (b->rb_bytes);
+	if (R_UNLIKELY (addr < 0)) {
+		if (addr > -(st64)UT48_MAX) {
+	       		if (-addr > (st64)b->rb_bytes->offset) {
+				return -1;
+			}
+		} else {
+			return -1;
+		}
 	}
+	ut64 po = b->rb_bytes->offset;
 	if (R_LIKELY (whence == R_BUF_SET)) {
 		// 50%
-		priv->offset = addr;
+		po = addr;
 	} else if (whence == R_BUF_CUR) {
 		// 20%
-		priv->offset += addr;
+		po += addr;
 	} else {
 		// 5%
-		priv->offset = priv->length + addr;
+		po = b->rb_bytes->length + addr;
 	}
-	return priv->offset;
+	b->rb_bytes->offset = po;
+	return po;
 }
 
 static ut8 *buf_bytes_get_whole_buf(RBuffer *b, ut64 *sz) {
-	struct buf_bytes_priv *priv = get_priv_bytes (b);
+	R_WARN_IF_FAIL (b->rb_bytes);
 	if (sz) {
-		*sz = priv->length;
+		*sz = b->rb_bytes->length;
 	}
-	return priv->buf;
+	return b->rb_bytes->buf;
 }
 
 static const RBufferMethods buffer_bytes_methods = {

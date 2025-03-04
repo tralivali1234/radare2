@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2020-2021 - nimmumanoj, pancake */
+/* radare2 - LGPL - Copyright 2020-2024 - nimmumanoj, pancake */
 
 #include <r_core.h>
 #include <r_codemeta.h>
@@ -6,8 +6,11 @@
 #define USE_TRI 1
 
 R_API RCodeMetaItem *r_codemeta_item_clone(RCodeMetaItem *code) {
-	r_return_val_if_fail (code, NULL);
+	R_RETURN_VAL_IF_FAIL (code, NULL);
 	RCodeMetaItem *mi = r_codemeta_item_new ();
+	if (!mi) {
+		return NULL;
+	}
 	memcpy (mi, code, sizeof (RCodeMetaItem));
 	switch (mi->type) {
 	case R_CODEMETA_TYPE_FUNCTION_NAME:
@@ -27,22 +30,28 @@ R_API RCodeMetaItem *r_codemeta_item_clone(RCodeMetaItem *code) {
 }
 
 R_API RCodeMeta *r_codemeta_clone(RCodeMeta *code) {
+	R_RETURN_VAL_IF_FAIL (code, NULL);
 	RCodeMeta *r = r_codemeta_new (code->code);
-	RCodeMetaItem *mi;
-	r_vector_foreach (&code->annotations, mi) {
-		r_codemeta_add_item (r, r_codemeta_item_clone (mi));
+	if (r) {
+		RCodeMetaItem *mi;
+		r_vector_foreach (&code->annotations, mi) {
+			r_codemeta_add_item (r, r_codemeta_item_clone (mi));
+		}
 	}
 	return r;
 }
 
 R_API RCodeMeta *r_codemeta_new(const char *code) {
+#if R2_600
+	R_RETURN_VAL_IF_FAIL (code, NULL);
+#endif
 	RCodeMeta *r = R_NEW0 (RCodeMeta);
-	if (!r) {
-		return NULL;
+	if (r) {
+		r->tree = r_crbtree_new (NULL);
+		r->code = strdup (code);
+		r_vector_init (&r->annotations, sizeof (RCodeMetaItem),
+				(RVectorFree)r_codemeta_item_fini, NULL);
 	}
-	r->tree = r_crbtree_new (NULL);
-	r->code = code? strdup (code): NULL;
-	r_vector_init (&r->annotations, sizeof (RCodeMetaItem), (RVectorFree)r_codemeta_item_fini, NULL);
 	return r;
 }
 
@@ -58,7 +67,7 @@ R_API void r_codemeta_item_free(RCodeMetaItem *mi) {
 }
 
 R_API void r_codemeta_item_fini(RCodeMetaItem *mi) {
-	r_return_if_fail (mi);
+	R_RETURN_IF_FAIL (mi);
 	switch (mi->type) {
 	case R_CODEMETA_TYPE_FUNCTION_NAME:
 		free (mi->reference.name);
@@ -76,12 +85,12 @@ R_API void r_codemeta_item_fini(RCodeMetaItem *mi) {
 }
 
 R_API bool r_codemeta_item_is_reference(RCodeMetaItem *mi) {
-	r_return_val_if_fail (mi, false);
+	R_RETURN_VAL_IF_FAIL (mi, false);
 	return (mi->type == R_CODEMETA_TYPE_GLOBAL_VARIABLE || mi->type == R_CODEMETA_TYPE_CONSTANT_VARIABLE || mi->type == R_CODEMETA_TYPE_FUNCTION_NAME);
 }
 
 R_API bool r_codemeta_item_is_variable(RCodeMetaItem *mi) {
-	r_return_val_if_fail (mi, false);
+	R_RETURN_VAL_IF_FAIL (mi, false);
 	return (mi->type == R_CODEMETA_TYPE_LOCAL_VARIABLE || mi->type == R_CODEMETA_TYPE_FUNCTION_PARAMETER);
 }
 
@@ -151,17 +160,18 @@ static int cmp_find_min_mid(void *incoming, void *in, void *user) {
 #endif
 
 R_API void r_codemeta_add_item(RCodeMeta *code, RCodeMetaItem *mi) {
-	r_return_if_fail (code && mi);
+	R_RETURN_IF_FAIL (code && mi);
 	r_vector_push (&code->annotations, mi);
 	r_crbtree_insert (code->tree, mi, cmp_ins, NULL);
 }
 
 R_API RPVector *r_codemeta_at(RCodeMeta *code, size_t offset) {
+	R_RETURN_VAL_IF_FAIL (code, NULL);
 	return r_codemeta_in (code, offset, offset + 1);
 }
 
 R_API RPVector *r_codemeta_in(RCodeMeta *code, size_t start, size_t end) {
-	r_return_val_if_fail (code, NULL);
+	R_RETURN_VAL_IF_FAIL (code, NULL);
 	RPVector *r = r_pvector_new (NULL);
 	if (!r) {
 		return NULL;
@@ -211,7 +221,7 @@ R_API RPVector *r_codemeta_in(RCodeMeta *code, size_t start, size_t end) {
 }
 
 R_API RVector *r_codemeta_line_offsets(RCodeMeta *code) {
-	r_return_val_if_fail (code, NULL);
+	R_RETURN_VAL_IF_FAIL (code, NULL);
 	RVector *r = r_vector_new (sizeof (ut64), NULL, NULL);
 	if (!r) {
 		return NULL;
@@ -375,7 +385,7 @@ static void print_disasm_in_binary_line_bar(RCodeMeta *code, ut64 offset, size_t
 		if (anal && anal->coreb.core) {
 			RCore *core = anal->coreb.core;
 			char *c = r_str_newf ("pid 1 @ 0x%" PFMT64x " @e:asm.flags=0@e:asm.lines=0@e:asm.bytes=0", offset);
-			char *res = anal->coreb.cmdstrf (core, c);
+			char *res = anal->coreb.cmdStrF (core, c);
 			free (c);
 			r_str_trim (res);
 			int w = r_str_ansi_len (res);

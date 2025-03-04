@@ -43,18 +43,14 @@ NAME=: sections
 FILE=bins/mdmp/calc.dmp
 CMDS=iS~calc
 EXPECT=<<EOF
-9   0x00000000   0xe3000 0xfffe0000      0xe3000 ---- ---- C:\Windows\System32\calc.exe
+9   0x00000000   0xe3000 0xfffe0000      0xe3000 ---- 0x0   ---- C:\Windows\System32\calc.exe
 EOF
 RUN
 
 NAME=: entrypoints nomem .dmp
 FILE=bins/mdmp/calc.dmp
 CMDS=ie
-EXPECT=<<EOF
-[Entrypoints]
-
-0 entrypoints
-EOF
+EXPECT=
 RUN
 
 NAME=: resolve vaddr to paddr
@@ -100,10 +96,9 @@ RUN
 
 NAME=: 32bit - libraries count
 FILE=bins/mdmp/hello.dmp
-CMDS=il~libraries
+CMDS=il~?
 EXPECT=<<EOF
-[Linked libraries]
-57 libraries
+57
 EOF
 RUN
 
@@ -118,12 +113,12 @@ RUN
 NAME=: 32bit - entrypoints count
 FILE=bins/mdmp/hello.dmp
 CMDS=<<EOF
-ie~entrypoints
-iee~entrypoints
+ie~?
+iee~?
 EOF
 EXPECT=<<EOF
-9 entrypoints
-2 entrypoints
+11
+4
 EOF
 RUN
 
@@ -131,7 +126,7 @@ NAME=: 32bit - entrypoints resolving
 FILE=bins/mdmp/hello.dmp
 CMDS=ie~0x004014e0
 EXPECT=<<EOF
-vaddr=0x004014e0 paddr=0x000990b2 haddr=0x00097c7a type=program
+0x000990b2 0x004014e0 0x00097c7a ---------- program
 EOF
 RUN
 
@@ -139,7 +134,7 @@ NAME=: 32bit - symbols count
 FILE=bins/mdmp/hello.dmp
 CMDS=is~?
 EXPECT=<<EOF
-7469
+7468
 EOF
 RUN
 
@@ -163,7 +158,7 @@ NAME=: 32bit - imports count
 FILE=bins/mdmp/hello.dmp
 CMDS=ii~?
 EXPECT=<<EOF
-2031
+2030
 EOF
 RUN
 
@@ -179,7 +174,7 @@ NAME=: 32bit - exports count
 FILE=bins/mdmp/hello.dmp
 CMDS=iE~?
 EXPECT=<<EOF
-5441
+5440
 EOF
 RUN
 
@@ -193,9 +188,9 @@ RUN
 
 NAME=: 32bit - relocs count
 FILE=bins/mdmp/hello.dmp
-CMDS=ir~relocations
+CMDS=ir~?
 EXPECT=<<EOF
-2028 relocations
+2030
 EOF
 RUN
 
@@ -203,7 +198,7 @@ NAME=: 32bit - relocs resolving
 FILE=bins/mdmp/hello.dmp
 CMDS=ir~__dllonexit
 EXPECT=<<EOF
-0x00406160 0x0009dd32 SET_32 msvcrt.dll___dllonexit
+0x00406160 0x0009dd32 SET_32 0     msvcrt.dll___dllonexit
 EOF
 RUN
 
@@ -231,16 +226,15 @@ NAME=: 32bit - strings count
 FILE=bins/mdmp/hello.dmp
 CMDS=iz~?
 EXPECT=<<EOF
-10261
+10228
 EOF
 RUN
 
 NAME=: 64bit - libraries count
 FILE=bins/mdmp/hello64.dmp
-CMDS=il~libraries
+CMDS=il~?
 EXPECT=<<EOF
-[Linked libraries]
-49 libraries
+49
 EOF
 RUN
 
@@ -254,17 +248,17 @@ RUN
 
 NAME=: 64bit - entrypoints count
 FILE=bins/mdmp/hello64.dmp
-CMDS=ie~entrypoints
+CMDS=ie~?
 EXPECT=<<EOF
-5 entrypoints
+7
 EOF
 RUN
 
 NAME=: 64bit - entrypoints resolving
 FILE=bins/mdmp/hello64.dmp
-CMDS=ie~0x00401500
+CMDS=ie=~0x00401500
 EXPECT=<<EOF
-vaddr=0x00401500 paddr=0x0009418f haddr=0x00092d37 type=program
+paddr=0x0009418f vaddr=0x00401500 haddr=0x00092d37 type=program
 EOF
 RUN
 
@@ -272,7 +266,7 @@ NAME=: 64bit - symbols count
 FILE=bins/mdmp/hello64.dmp
 CMDS=is~?
 EXPECT=<<EOF
-6827
+6826
 EOF
 RUN
 
@@ -296,7 +290,7 @@ NAME=: 64bit - imports count
 FILE=bins/mdmp/hello64.dmp
 CMDS=ii~?
 EXPECT=<<EOF
-1512
+1511
 EOF
 RUN
 
@@ -312,7 +306,7 @@ NAME=: 64bit - exports count
 FILE=bins/mdmp/hello64.dmp
 CMDS=iE~?
 EXPECT=<<EOF
-5318
+5317
 EOF
 RUN
 
@@ -326,9 +320,9 @@ RUN
 
 NAME=: 64bit - relocs count
 FILE=bins/mdmp/hello64.dmp
-CMDS=ir~relocations
+CMDS=ir~?
 EXPECT=<<EOF
-1509 relocations
+1511
 EOF
 RUN
 
@@ -336,7 +330,7 @@ NAME=: 64bit - relocs resolving
 FILE=bins/mdmp/hello64.dmp
 CMDS=ir~KERNEL32.dll_DeleteCriticalSection
 EXPECT=<<EOF
-0x004081fc    0x0009ae8b SET_64 KERNEL32.dll_DeleteCriticalSection
+0x004081fc    0x0009ae8b SET_64 0     KERNEL32.dll_DeleteCriticalSection
 EOF
 RUN
 
@@ -349,7 +343,7 @@ EXPECT=<<EOF
             0x7fefdb0a1a8      4c89442420     mov qword [rsp + 0x20], r8
             0x7fefdb0a1ad      4c8bc2         mov r8, rdx
             0x7fefdb0a1b0      488bd1         mov rdx, rcx
-            0x7fefdb0a1b3      488d0dea7ffa.  lea rcx, [0x7fefdab21a4]
+            0x7fefdb0a1b3      488d0dea7f..   lea rcx, [0x7fefdab21a4]
             0x7fefdb0a1ba      4533c9         xor r9d, r9d
             0x7fefdb0a1bd      e87efdffff     call 0x7fefdb09f40
             0x7fefdb0a1c2      4883c438       add rsp, 0x38
@@ -365,7 +359,7 @@ izq~Alpc
 izq~Timer
 EOF
 EXPECT=<<EOF
-22884
+22883
 0x77820352 10 4 Alpc
 0x77825ffd 41 40 AlpcAdjustCompletionListConcurrencyCount
 0x77826026 30 29 AlpcFreeCompletionListMessage
@@ -599,7 +593,7 @@ RUN
 NAME=: reload file
 FILE=bins/mdmp/calc.dmp
 CMDS=<<EOF
-ib
+ooi
 ?e ok
 EOF
 EXPECT=<<EOF

@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2022-2023 - pancake, Sylvain Pelissier */
+/* radare2 - LGPL - Copyright 2022-2025 - pancake, Sylvain Pelissier */
 
 #define R_LOG_ORIGIN "arch.evm"
 
@@ -86,7 +86,7 @@ static bool encode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
 }
 
 static bool decode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
-	r_return_val_if_fail (s && op && s->data, false);
+	R_RETURN_VAL_IF_FAIL (s && op && s->data, false);
 	const ut64 addr = op->addr;
 	const ut8 *buf = op->bytes;
 	const int len = op->size;
@@ -168,6 +168,15 @@ static bool decode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
 	case EVM_INS_CODECOPY:
 	case EVM_INS_SWAP1:
 	case EVM_INS_SWAP2:
+	case EVM_INS_SWAP3:
+	case EVM_INS_SWAP4:
+	case EVM_INS_SWAP5:
+	case EVM_INS_SWAP6:
+	case EVM_INS_SWAP7:
+	case EVM_INS_SWAP8:
+	case EVM_INS_SWAP9:
+	case EVM_INS_SWAP10:
+	case EVM_INS_SWAP11:
 	case EVM_INS_SWAP12:
 		op->type = R_ANAL_OP_TYPE_MOV;
 		break;
@@ -180,9 +189,15 @@ static bool decode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
 		op->type = R_ANAL_OP_TYPE_MUL;
 		break;
 	case EVM_INS_STOP:
+#if CS_API_MAJOR >= 6
+	case EVM_INS_SELFDESTRUCT:
+		op->type = R_ANAL_OP_TYPE_TRAP;
+		break;
+#else
 	case EVM_INS_SUICIDE:
 		op->type = R_ANAL_OP_TYPE_TRAP;
 		break;
+#endif
 	case EVM_INS_DELEGATECALL:
 	case EVM_INS_CALLDATACOPY:
 	case EVM_INS_CALLDATALOAD:
@@ -226,6 +241,15 @@ static bool decode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
 	case EVM_INS_DUP16:
 		op->type = R_ANAL_OP_TYPE_PUSH;
 		break;
+#if 0
+#if CS_API_MAJOR >= 6
+	case EVM_INS_PUSH0:
+		esilprintf (op, "0x0,sp,=[1],32,sp,+=");
+		op->type = R_ANAL_OP_TYPE_PUSH;
+		evm_add_push_to_db (s, op, addr, buf, len);
+		break;
+#endif
+#endif
 	case EVM_INS_PUSH1:
 		esilprintf (op, "0x%s,sp,=[1],32,sp,+=", insn->op_str);
 		op->type = R_ANAL_OP_TYPE_PUSH;
@@ -345,7 +369,7 @@ static char *regs(RArchSession *as) {
 }
 
 static bool init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	if (s->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -362,7 +386,7 @@ static bool init(RArchSession *s) {
 }
 
 static bool fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	EvmPluginData *epd = (EvmPluginData*)s->data;
 	sdb_free (epd->pushs_db);
 	cs_close (&epd->cs_handle);
@@ -372,11 +396,11 @@ static bool fini(RArchSession *s) {
 
 static int archinfo(RArchSession *a, ut32 q) {
 	switch (q) {
-	case R_ARCH_INFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 0;
-	case R_ARCH_INFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 33;
-	case R_ARCH_INFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 1;
 	}
 	return 0;
@@ -390,8 +414,9 @@ static char *mnemonics(RArchSession *s, int id, bool json) {
 const RArchPlugin r_arch_plugin_evm = {
 	.meta = {
 		.name = "evm",
-		.desc = "EthereumVM plugin",
-		.license = "BSD",
+		.author = "pancake,Sylvain Pelissier",
+		.desc = "EthereumVM bytecode (EVM)",
+		.license = "BSD-3-Clause",
 	},
 	.arch = "evm",
 	.regs = regs,

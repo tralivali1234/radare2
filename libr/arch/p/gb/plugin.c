@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2012-2023 - pancake, condret */
+/* radare - LGPL - Copyright 2012-2024 - pancake, condret */
 
 #include <r_arch.h>
 #include "./gbdis.c"
@@ -20,7 +20,7 @@ static ut8 gb_op_calljump(RArchSession *a, RAnalOp *op, const ut8 *data, ut64 ad
 		return false;
 	}
 	if (!GB_IS_VBANK_DST (data[1], data[2])) {
-		op->jump = GB_SOFTCAST(data[1], data[2]);
+		op->jump = GB_SOFTCAST (data[1], data[2]);
 	} else {
 		op->jump = GB_IB_DST (data[1], data[2], addr);
 	}
@@ -57,7 +57,7 @@ static inline void gb_anal_esil_ccall(RAnalOp *op, const ut8 data) {
 		cond = 'C';
 		break;
 	}
-	if (op->cond == R_ANAL_COND_EQ) {
+	if (op->cond == R_ANAL_CONDTYPE_EQ) {
 		r_strbuf_setf (&op->esil, "%c,?{,2,sp,-=,pc,sp,=[2],%"PFMT64d",pc,:=,}", cond, (op->jump & 0xffff));
 	} else {
 		r_strbuf_setf (&op->esil, "%c,!,?{,2,sp,-=,pc,sp,=[2],%" PFMT64d ",pc,:=,}", cond, (op->jump & 0xffff));
@@ -75,7 +75,7 @@ static inline void gb_anal_esil_cret(RAnalOp *op, const ut8 data) {
 	} else {
 		cond = 'Z';
 	}
-	if (op->cond == R_ANAL_COND_EQ) {
+	if (op->cond == R_ANAL_CONDTYPE_EQ) {
 		r_strbuf_setf (&op->esil, "%c,?{,sp,[2],pc,:=,2,sp,+=,}", cond);
 	} else {
 		r_strbuf_setf (&op->esil, "%c,!,?{,sp,[2],pc,:=,2,sp,+=,}", cond);
@@ -94,7 +94,7 @@ static inline void gb_anal_esil_cjmp(RAnalOp *op, const ut8 data) {
 		default:
 			cond = 'C';
 	}
-	if (op->cond == R_ANAL_COND_EQ) {
+	if (op->cond == R_ANAL_CONDTYPE_EQ) {
 		r_strbuf_setf (&op->esil, "%c,?{,0x%"PFMT64x",pc,:=,}", cond, (op->jump & 0xffff));
 	} else {
 		r_strbuf_setf (&op->esil, "%c,!,?{,0x%"PFMT64x",pc,:=,}", cond, (op->jump & 0xffff));
@@ -271,9 +271,9 @@ static inline void gb_anal_cond(RAnalOp *op, const ut8 data) {
 	src = r_vector_push (&op->srcs, NULL);
 	src->imm = 1;
 	if (data & 0x8) {
-		op->cond = R_ANAL_COND_EQ;
+		op->cond = R_ANAL_CONDTYPE_EQ;
 	} else {
-		op->cond = R_ANAL_COND_NE;
+		op->cond = R_ANAL_CONDTYPE_NE;
 	}
 	switch (data) {
 	case 0x20:
@@ -685,9 +685,7 @@ static inline void gb_anal_cb_srl(RAnalOp *op, const ut8 data) {
 }
 
 static bool gb_custom_daa(REsil *esil) {
-	if (!esil || !esil->anal || !esil->anal->reg) {
-		return false;
-	}
+	R_RETURN_VAL_IF_FAIL (esil, false);
 	char *v = r_esil_pop (esil);
 	ut64 n;
 	if (!v || !r_esil_get_parm (esil, v, &n)) {
@@ -695,11 +693,17 @@ static bool gb_custom_daa(REsil *esil) {
 	}
 	R_FREE (v);
 	ut8 val = (ut8)n;
-	r_esil_reg_read (esil, "H", &n, NULL);
+	if (R_UNLIKELY (!r_esil_reg_read (esil, "H", &n, NULL))) {
+		return false;
+	}
 	const ut8 H = (ut8)n;
-	r_esil_reg_read (esil, "C", &n, NULL);
+	if (R_UNLIKELY (!r_esil_reg_read (esil, "C", &n, NULL))) {
+		return false;
+	}
 	const ut8 C = (ut8)n;
-	r_esil_reg_read (esil, "N", &n, NULL);
+	if (R_UNLIKELY (!r_esil_reg_read (esil, "N", &n, NULL))) {
+		return false;
+	}
 	if (n) {
 		if (C) {
 			val = (val - 0x60) & 0xff;
@@ -707,13 +711,13 @@ static bool gb_custom_daa(REsil *esil) {
 		if (H) {
 			val = (val - 0x06) & 0xff;
 		}
-	} else {
-		if (C || (val > 0x99)) {
-			val = (val + 0x60) & 0xff;
-		}
-		if (H || ((val & 0x0f) > 0x09)) {
-			val += 0x06;
-		};
+		return r_esil_pushnum (esil, val);
+	}
+	if (C || (val > 0x99)) {
+		val = (val + 0x60) & 0xff;
+	}
+	if (H || ((val & 0x0f) > 0x09)) {
+		val += 0x06;
 	}
 	return r_esil_pushnum (esil, val);
 }
@@ -1223,12 +1227,21 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 		gb_anal_jmp_hl (op);
 		break;
 	case 0x76:
+#if 0
 		op->type = R_ANAL_OP_TYPE_CJMP;
 		op->eob = true;			//halt might wait for interrupts
 		op->fail = addr + ilen;
 		if (len > 1) {
 			op->jump = addr + gbOpLength (gb_op[data[1]].type) + ilen;
 		}
+#else
+		//so the above is only semi correct, the exact behaviour of the halt instruction
+		//cannot be expressed as op->type or a in a simple esil expression
+		//see https://github.com/nitro2k01/little-things-gb/tree/main/double-halt-cancel
+		op->type = R_ANAL_OP_TYPE_NULL;
+		op->cycles = 4;
+		r_strbuf_set (&op->esil, "halt");
+#endif
 		break;
 	case 0xcd:
 		if (gb_op_calljump (as, op, data, addr)) {
@@ -1339,7 +1352,8 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 		break;
 	case 0x10:				//stop
 		op->type = R_ANAL_OP_TYPE_NULL;
-		r_strbuf_set (&op->esil, "TODO,stop");
+		op->cycles = 4;
+		r_strbuf_set (&op->esil, "stop");
 		break;
 	case 0xcb:
 		op->nopcode = 2;
@@ -1493,47 +1507,28 @@ static char* regs(RArchSession *as) {
 }
 
 static int esil_gb_init(REsil *esil) {
-	r_return_val_if_fail (esil, false);
-
-	// XXX esil-init shouldnt touch the registers or write into memory or antyhing like dat
-	GBUser *user = R_NEW0 (GBUser);
-	r_esil_set_op (esil, "daa", gb_custom_daa, 1, 1, R_ESIL_OP_TYPE_MATH | R_ESIL_OP_TYPE_CUSTOM);
-	if (user) {
-		if (esil->anal) {
-			esil->anal->iob.read_at (esil->anal->iob.io, 0x147, &user->mbc_id, 1);
-			esil->anal->iob.read_at (esil->anal->iob.io, 0x148, &user->romsz_id, 1);
-			esil->anal->iob.read_at (esil->anal->iob.io, 0x149, &user->ramsz_id, 1);
-			if (esil->anal->reg) { //initial values
-				r_reg_setv (esil->anal->reg, "mpc", 0x100);
-				r_reg_setv (esil->anal->reg, "sp", 0xfffe);
-				r_reg_setv (esil->anal->reg, "af", 0x01b0);
-				r_reg_setv (esil->anal->reg, "bc", 0x0013);
-				r_reg_setv (esil->anal->reg, "de", 0x00d8);
-				r_reg_setv (esil->anal->reg, "hl", 0x014d);
-				r_reg_setv (esil->anal->reg, "ime", true);
-			}
-		}
-		esil->cb.user = user;
-	}
+	R_RETURN_VAL_IF_FAIL (esil, false);
+	REsilOp *op = r_esil_get_op (esil, "}{");
+	r_esil_set_op (esil, "halt", op->code, 0, 0, R_ESIL_OP_TYPE_CUSTOM, NULL);
+	r_esil_set_op (esil, "stop", op->code, 0, 0, R_ESIL_OP_TYPE_CUSTOM, NULL);
+	r_esil_set_op (esil, "daa", gb_custom_daa, 1, 1, R_ESIL_OP_TYPE_MATH | R_ESIL_OP_TYPE_CUSTOM, NULL);
 	return true;
 }
 
 static int esil_gb_fini(REsil *esil) {
-	r_return_val_if_fail (esil, false);
-
-	R_FREE (esil->cb.user);
+	R_RETURN_VAL_IF_FAIL (esil, false);
 	return true;
 }
 
 static int info(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 0;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 3;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 1;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 1;
 	}
 	return -1;
@@ -1545,10 +1540,10 @@ static bool esil_cb(RArchSession *as, RArchEsilAction action) {
 		return false;
 	}
 	switch (action) {
-	case R_ARCH_ESIL_INIT:
+	case R_ARCH_ESIL_ACTION_INIT:
 		esil_gb_init (esil);
 		break;
-	case R_ARCH_ESIL_FINI:
+	case R_ARCH_ESIL_ACTION_FINI:
 		esil_gb_fini (esil);
 		break;
 	default:
@@ -1560,8 +1555,9 @@ static bool esil_cb(RArchSession *as, RArchEsilAction action) {
 const RArchPlugin r_arch_plugin_gb = {
 	.meta = {
 		.name = "gb",
-		.desc = "Gameboy CPU code analysis plugin",
-		.license = "LGPL3",
+		.author = "condret",
+		.desc = "Gameboy CPU analysis (modified Z80)",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "z80",
 	.info = info,

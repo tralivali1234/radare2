@@ -1,6 +1,7 @@
-/* radare - LGPL - Copyright 2007-2019 - pancake */
+/* radare - LGPL - Copyright 2007-2024 - pancake */
 
-#include <r_util.h>
+#define R_LOG_ORIGIN "line"
+
 #include <r_cons.h>
 
 static R_TH_LOCAL RLine r_line_instance;
@@ -67,7 +68,7 @@ R_API void r_line_completion_fini(RLineCompletion *completion) {
 }
 
 R_API void r_line_completion_push(RLineCompletion *completion, const char *str) {
-	r_return_if_fail (completion && str);
+	R_RETURN_IF_FAIL (completion && str);
 	if (completion->quit) {
 		return;
 	}
@@ -83,7 +84,7 @@ R_API void r_line_completion_push(RLineCompletion *completion, const char *str) 
 }
 
 R_API void r_line_completion_set(RLineCompletion *completion, int argc, const char **argv) {
-	r_return_if_fail (completion && (argc >= 0));
+	R_RETURN_IF_FAIL (completion && (argc >= 0));
 	r_line_completion_clear (completion);
 	if (argc > completion->args_limit) {
 		argc = completion->args_limit;
@@ -100,9 +101,10 @@ R_API void r_line_completion_set(RLineCompletion *completion, int argc, const ch
 }
 
 R_API void r_line_completion_clear(RLineCompletion *completion) {
-	r_return_if_fail (completion);
+	R_RETURN_IF_FAIL (completion);
 	completion->quit = false;
 	r_pvector_clear (&completion->args);
 }
+
 
 #include "dietline.c"

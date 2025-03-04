@@ -47,8 +47,8 @@ typedef struct r_num_calc_t {
 } RNumCalc;
 
 typedef struct r_num_t {
-	ut64 (*callback)(struct r_num_t *userptr, const char *str, int *ok);
-	const char *(*cb_from_value)(struct r_num_t *userptr, ut64 value, int *ok);
+	ut64 (*callback)(struct r_num_t *userptr, const char *str, bool *ok);
+	const char *(*cb_from_value)(struct r_num_t *userptr, ut64 value, bool *ok);
 //	RNumCallback callback;
 	ut64 value;
 	double fvalue;
@@ -58,8 +58,8 @@ typedef struct r_num_t {
 // R2_590 R_REF_TYPE
 } RNum;
 
-typedef ut64 (*RNumCallback)(struct r_num_t *self, const char *str, int *ok);
-typedef const char *(*RNumCallback2)(struct r_num_t *self, ut64, int *ok);
+typedef ut64 (*RNumCallback)(struct r_num_t *self, const char *str, bool *ok);
+typedef const char *(*RNumCallback2)(struct r_num_t *self, ut64, bool *ok);
 
 static inline ut64 r_num_bitmask(ut8 width) {
 	if (width >= 64) {
@@ -68,6 +68,8 @@ static inline ut64 r_num_bitmask(ut8 width) {
 	return ((ut64)1ULL << (ut64)width) - 1;
 }
 
+// R2_600 - make this an api instead of a define
+#define r_num_failed(x) ((x)->nc.errors)
 R_API RNum *r_num_new(RNumCallback cb, RNumCallback2 cb2, void *ptr);
 R_API void r_num_free(RNum *num);
 R_API char *r_num_units(char *buf, size_t len, ut64 number);
@@ -90,6 +92,7 @@ R_API ut64 r_num_get(RNum *num, const char *str);
 R_API int r_num_to_bits(char *out, ut64 num);
 R_API int r_num_to_ternary(char *out, ut64 num);
 R_API int r_num_rand(int max);
+R_API ut64 r_num_genmask(int max);
 R_API void r_num_irand(void);
 R_API ut64 r_get_input_num_value(RNum *num, const char *input_value);
 R_API bool r_is_valid_input_num_value(RNum *num, const char *input_value);
@@ -106,7 +109,7 @@ R_API size_t r_num_bit_clz32(ut32 val);
 R_API size_t r_num_bit_clz64(ut64 val);
 R_API size_t r_num_bit_ctz32(ut32 val);
 R_API size_t r_num_bit_ctz64(ut64 val);
-R_API double r_num_get_float(RNum *num, const char *str);
+R_API double r_num_get_double(RNum *num, const char *str);
 
 static inline st64 r_num_abs(st64 num) {
 	return num < 0 ? -num : num;

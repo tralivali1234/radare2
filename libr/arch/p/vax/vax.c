@@ -1,6 +1,5 @@
 /* radare - GPL - Copyright 2015-2023 - pancake, condret */
 
-#include <r_lib.h>
 #include <r_arch.h>
 #include "../../include/disas-asm.h"
 #include "vax.h"
@@ -239,16 +238,16 @@ static char *get_reg_profile(RArchSession *as) {
 }
 
 static int archinfo(RArchSession *as, ut32 q) {
-	if (q == R_ANAL_ARCHINFO_DATA_ALIGN) {
+	if (q == R_ARCH_INFO_DATA_ALIGN) {
 		return 1;
 	}
-	if (q == R_ANAL_ARCHINFO_ALIGN) {
+	if (q == R_ARCH_INFO_CODE_ALIGN) {
 		return 1;
 	}
-	if (q == R_ANAL_ARCHINFO_MAX_OP_SIZE) {
+	if (q == R_ARCH_INFO_MAXOP_SIZE) {
 		return 56;
 	}
-	if (q == R_ANAL_ARCHINFO_MIN_OP_SIZE) {
+	if (q == R_ARCH_INFO_MINOP_SIZE) {
 		return 1;
 	}
 	return 1;
@@ -257,8 +256,9 @@ static int archinfo(RArchSession *as, ut32 q) {
 const RArchPlugin r_arch_plugin_vax = {
 	.meta = {
 		.name = "vax",
+		.author = "pancake,condret",
 		.desc = "VAX code analysis plugin",
-		.license = "GPL",
+		.license = "GPL-3.0-only",
 	},
 	.arch = "vax",
 	.bits = R_SYS_BITS_PACK1 (32),

@@ -1,8 +1,6 @@
-/* radare - LGPL - Copyright 2010-2022 - pancake, nibble, condret */
+/* radare - LGPL - Copyright 2010-2024 - pancake, nibble, condret */
 
 #include <r_arch.h>
-#include <r_util.h>
-#include <r_list.h>
 
 // XXX this is unused
 
@@ -19,13 +17,29 @@ R_API bool r_anal_op_set_mnemonic(RAnalOp *op, ut64 addr, const char *s) {
 
 R_API bool r_anal_op_set_bytes(RAnalOp *op, ut64 addr, const ut8* data, int size) {
 	if (op) {
+		// TODO: use maxopsz from archbits
 		op->addr = addr;
 		if (op->weakbytes) {
 			op->weakbytes = false;
 		} else {
-			free (op->bytes);
+			if (op->bytes != op->bytes_buf) {
+				free (op->bytes);
+			}
 		}
-		op->bytes = r_mem_dup (data, size);
+#if 0
+		if (size > 512) {
+			R_LOG_DEBUG ("large opsetbytes of %d. check backtrace to fix", size);
+		}
+#endif
+		size = R_MIN (size, 64); // sizeof (op->bytes_buf));
+		if (size <= sizeof (op->bytes_buf)) {
+			op->weakbytes = true;
+			op->bytes = op->bytes_buf;
+			memcpy (op->bytes_buf, data, size);
+		} else {
+			op->bytes = r_mem_dup (data, size);
+			op->weakbytes = false;
+		}
 		op->size = size;
 		return true;
 	}
@@ -40,9 +54,6 @@ R_API RAnalOp *r_anal_op_new(void) {
 
 R_API RAnalOp *r_anal_op_clone(RAnalOp *op) {
 	RAnalOp *nop = R_NEW0 (RAnalOp);
-	if (!nop) {
-		return NULL;
-	}
 	*nop = *op;
 	if (op->mnemonic) {
 		nop->mnemonic = strdup (op->mnemonic);
@@ -73,14 +84,11 @@ R_API RAnalOp *r_anal_op_clone(RAnalOp *op) {
 	return nop;
 }
 
-
+#if 0
 R_API RList *r_anal_op_list_new(void) {
-	RList *list = r_list_new ();
-	if (list) {
-		list->free = &r_anal_op_free;
-	}
-	return list;
+	return r_list_newf (r_anal_op_free);
 }
+#endif
 
 R_API void r_anal_op_init(RAnalOp *op) {
 	if (op) {

@@ -108,10 +108,10 @@ static RDebugReasonType r_debug_winkd_wait(RDebug *dbg, int pid) {
 static bool r_debug_winkd_attach(RDebug *dbg, int pid) {
 	RIODesc *desc = dbg->iob.io->desc;
 
-	if (!desc || !desc->plugin || !desc->plugin->name || !desc->data) {
+	if (!desc || !desc->plugin || !desc->plugin->meta.name || !desc->data) {
 		return false;
 	}
-	if (strncmp (desc->plugin->name, "winkd", 6)) {
+	if (!r_str_startswith (desc->plugin->meta.name, "winkd")) {
 		return false;
 	}
 	if (dbg->arch && strcmp (dbg->arch, "x86")) {
@@ -146,15 +146,15 @@ static bool r_debug_winkd_detach(RDebug *dbg, int pid) {
 }
 
 static char *r_debug_winkd_reg_profile(RDebug *dbg) {
-	r_return_val_if_fail (dbg, NULL);
+	R_RETURN_VAL_IF_FAIL (dbg, NULL);
 	if (dbg->arch && strcmp (dbg->arch, "x86")) {
 		return NULL;
 	}
 	r_debug_winkd_attach (dbg, 0);
-	if (dbg->bits == R_SYS_BITS_32) {
-#include "native/reg/windows-x86.h"
-	} else if (dbg->bits == R_SYS_BITS_64) {
+	if (R_SYS_BITS_CHECK (dbg->bits, 64)) {
 #include "native/reg/windows-x64.h"
+	} else if (R_SYS_BITS_CHECK (dbg->bits, 32)) {
+#include "native/reg/windows-x86.h"
 	}
 	return NULL;
 }
@@ -308,14 +308,13 @@ static RList *r_debug_winkd_modules(RDebug *dbg) {
 }
 
 static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
-
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 	ds->plugin_data = R_NEW0 (PluginData);
 	return !!ds->plugin_data;
 }
 
 static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	if (!ds->plugin_data) {
 		return false;
@@ -330,10 +329,10 @@ RDebugPlugin r_debug_plugin_winkd = {
 		.name = "winkd",
 		.author = "The Lemon Man",
 		.desc = "winkd debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "x86",
-	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_PACK2 (32, 64),
 	.init_plugin = init_plugin,
 	.fini_plugin = fini_plugin,
 	.init_debugger = &r_debug_winkd_init,

@@ -21,7 +21,7 @@ R_API bool r_type_set(Sdb *TDB, ut64 at, const char *field, ut64 val) {
 }
 
 R_API RTypeKind r_type_kind(Sdb *TDB, const char *name) {
-	r_return_val_if_fail (TDB && R_STR_ISNOTEMPTY (name), -1);
+	R_RETURN_VAL_IF_FAIL (TDB && R_STR_ISNOTEMPTY (name), -1);
 	const char *type = sdb_const_get (TDB, name, 0);
 	if (!type) {
 		return R_TYPE_INVALID;
@@ -84,7 +84,7 @@ R_API void r_type_enum_free(RTypeEnum *member) {
 }
 
 R_API char *r_type_enum_member(Sdb *TDB, const char *name, const char *member, ut64 val) {
-	r_return_val_if_fail (TDB && name, NULL);
+	R_RETURN_VAL_IF_FAIL (TDB && name, NULL);
 	if (r_type_kind (TDB, name) != R_TYPE_ENUM) {
 		return NULL;
 	}
@@ -509,11 +509,12 @@ R_API void r_type_del(Sdb *TDB, const char *name) {
 		sdb_unset (TDB, r_strf ("type.%s.meta", name), 0);
 		sdb_unset (TDB, name, 0);
 	} else if (!strcmp (kind, "struct") || !strcmp (kind, "union")) {
-		int i, n = sdb_array_length (TDB, r_strf ("%s.%s", kind, name));
 		char *elements_key = r_str_newf ("%s.%s", kind, name);
+		int i, n = sdb_array_length (TDB, elements_key);
 		for (i = 0; i < n; i++) {
 			char *p = sdb_array_get (TDB, elements_key, i, NULL);
 			sdb_unset (TDB, r_strf ("%s.%s", elements_key, p), 0);
+			sdb_unset (TDB, r_strf ("%s.%s.meta", elements_key, p), 0);
 			free (p);
 		}
 		sdb_unset (TDB, elements_key, 0);
@@ -689,8 +690,8 @@ static void clean_function_name(char *func_name) {
 R_API R_OWN char *r_type_func_guess(Sdb *TDB, R_NONNULL char *func_name) {
 	char *str = func_name;
 	char *result = NULL;
-	r_return_val_if_fail (TDB, false);
-	r_return_val_if_fail (func_name, false);
+	R_RETURN_VAL_IF_FAIL (TDB, false);
+	R_RETURN_VAL_IF_FAIL (func_name, false);
 
 	size_t slen = strlen (str);
 	if (slen < MIN_MATCH_LEN || is_auto_named(str, slen)) {
@@ -715,4 +716,20 @@ R_API R_OWN char *r_type_func_guess(Sdb *TDB, R_NONNULL char *func_name) {
 
 	free (str);
 	return result;
+}
+
+R_API char *r_type_func_name(Sdb *types, const char *fname) {
+	const char *str = fname;
+	const char *name = fname;
+	if (r_type_func_exist (types, fname)) {
+		return strdup (fname);
+	}
+	while ((str = strchr (str, '.'))) {
+		str++;
+		name = str;
+	}
+	if (r_type_func_exist (types, name)) {
+		return strdup (name);
+	}
+	return r_type_func_guess (types, (char*)fname);
 }

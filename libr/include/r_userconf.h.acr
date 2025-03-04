@@ -7,22 +7,32 @@ extern "C" {
 
 #include "r_version.h"
 
+#define WANT_DEBUGSTUFF @WANT_DEBUGSTUFF@
 #define R_CHECKS_LEVEL @R_CHECKS_LEVEL@
 #define R_CRITICAL_ENABLED @R_CRITICAL_ENABLED@
 #define DEBUGGER @DEBUGGER@
 #define HAVE_DECL_ADDR_NO_RANDOMIZE @HAVE_DECL_ADDR_NO_RANDOMIZE@
+#ifdef __EMSCRIPTEN__
+#define HAVE_ARC4RANDOM_UNIFORM 0
+#else
 #define HAVE_ARC4RANDOM_UNIFORM @HAVE_ARC4RANDOM_UNIFORM@
+#endif
 #define HAVE_EXPLICIT_BZERO @HAVE_EXPLICIT_BZERO@
 #define HAVE_EXPLICIT_MEMSET @HAVE_EXPLICIT_MEMSET@
 #define HAVE_CLOCK_NANOSLEEP @HAVE_CLOCK_NANOSLEEP@
 #define HAVE_SIGACTION @HAVE_SIGACTION@
 #define WANT_THREADS @WANT_THREADS@
+#define WANT_QJS @WANT_QJS@
 #define WANT_CAPSTONE @WANT_CAPSTONE@
 #define HAVE_LINUX_CAN_H @HAVE_LINUX_CAN_H@
+#define R2_USE_NEW_ABI @USE_NEW_ABI@
+#define R2_USE_SQSH @USE_SQSH@
 
 #define R_BUILDSYSTEM "@R2_BUILDSYSTEM@"
-#if @USE_CS4@ > 0
+#if @USE_CS4@ == 1
 #define R2_CSVERSION 4
+#elif @USE_CSNEXT@ == 1
+#define R2_CSVERSION 6
 #else
 #define R2_CSVERSION 5
 #endif
@@ -40,6 +50,7 @@ extern "C" {
 #define R2_PREFIX "@PREFIX@"
 #define R2_ETCDIR "@ETCDIR@"
 #define R2_LIBDIR "@LIBDIR@"
+#define R2_BINDIR "@BINDIR@"
 #define R2_INCDIR "@INCLUDEDIR@"
 #define R2_DATDIR "@DATADIR@"
 #define R2_WWWROOT "@WWWROOT@"
@@ -57,6 +68,7 @@ extern "C" {
 #if R2__WINDOWS__ || _MSC_VER
 #define R2_PREFIX "."
 #define R2_ETCDIR "etc"
+#define R2_BINDIR "bin"
 #define R2_LIBDIR "lib"
 #define R2_INCDIR "include\\libr"
 #define R2_DATDIR "share"
@@ -68,6 +80,7 @@ extern "C" {
 #define R2_PREFIX "@PREFIX@"
 #define R2_ETCDIR "@ETCDIR@"
 #define R2_LIBDIR "@LIBDIR@"
+#define R2_BINDIR "@BINDIR@"
 #define R2_INCDIR "@INCLUDEDIR@/libr"
 #define R2_DATDIR "@DATADIR@"
 #define R2_WWWROOT R2_DATDIR "/radare2/" R2_VERSION "/www"

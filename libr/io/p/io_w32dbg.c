@@ -1,11 +1,9 @@
-/* radare - LGPL - Copyright 2008-2021 - pancake */
+/* radare - LGPL - Copyright 2008-2025 - pancake */
 
 #include <r_userconf.h>
 
 #include <r_io.h>
-#include <r_lib.h>
 #include <r_cons.h>
-#include <r_util.h>
 
 #if R2__WINDOWS__
 
@@ -210,7 +208,7 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 		io->off += (int)offset;
 		break;
 	case 2: // end
-		io->off = UT64_MAX;
+		io->off = UT64_MAX - 1; // UT64_MAX reserved for error case
 		break;
 	}
 	return io->off;
@@ -274,9 +272,12 @@ static bool __getbase(RIODesc *fd, ut64 *base) {
 }
 
 RIOPlugin r_io_plugin_w32dbg = {
-	.name = "w32dbg",
-	.desc = "w32 debugger io plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "w32dbg",
+		.author = "pancake",
+		.desc = "w32 debugger io plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "w32dbg://,attach://",
 	.open = __open,
 	.close = __close,
@@ -292,7 +293,9 @@ RIOPlugin r_io_plugin_w32dbg = {
 };
 #else
 RIOPlugin r_io_plugin_w32dbg = {
-	.name = NULL
+	.meta = {
+		.name = NULL
+	},
 };
 #endif
 

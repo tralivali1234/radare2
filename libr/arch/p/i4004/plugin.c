@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2016-2022 - pancake, condret */
+/* radare - LGPL - Copyright 2016-2024 - pancake, condret */
 
 #include <r_arch.h>
 #include "./gperfdb.c"
@@ -196,12 +196,10 @@ static bool i4004_decode(RArchSession *s, RAnalOp *op, RArchDecodeMask mask) {
 		}
 		break;
 	case 14:
-		strncpy (basm, i4004_e[low], basz);
-		basm[basz - 1] = '\0';
+		r_str_ncpy (basm, i4004_e[low], basz);
 		break;
 	case 15:
-		strncpy (basm, i4004_f[low], basz);
-		basm[basz - 1] = '\0';
+		r_str_ncpy (basm, i4004_f[low], basz);
 		if (!strcmp (basm, "dac")) {
 			op->type = R_ANAL_OP_TYPE_SUB;
 		}
@@ -358,9 +356,9 @@ static bool i4004_encode(RArchSession *se, RAnalOp *op, RArchEncodeMask mask) {
 const RArchPlugin r_arch_plugin_i4004 = {
 	.meta = {
 		.name = "i4004",
-		.author = "pancake, condret",
-		.desc = "i4004 decoder plugin",
-		.license = "LGPL3",
+		.author = "pancake,condret",
+		.desc = "The classic Intel 4004",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "i4004",
 	.endian = R_SYS_ENDIAN_BIG,

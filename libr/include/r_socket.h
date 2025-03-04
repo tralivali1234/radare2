@@ -93,6 +93,11 @@ typedef struct r_socket_http_options {
 #define R_SOCKET_PROTO_NONE 0
 #define R_SOCKET_PROTO_DEFAULT R_SOCKET_PROTO_TCP
 
+// backward compat for yara-r2
+#define r2p_cmd r2pipe_cmd
+#define r2p_open r2pipe_open
+#define r2p_close r2pipe_close
+
 #ifdef R_API
 R_API RSocket *r_socket_new_from_fd(int fd);
 R_API RSocket *r_socket_new(bool is_ssl);
@@ -108,9 +113,9 @@ R_API int r_socket_connect_serial(RSocket *sock, const char *path, int speed, in
 #endif
 R_API bool r_socket_listen(RSocket *s, const char *port, const char *certfile);
 R_API int r_socket_port_by_name(const char *name);
-R_API int r_socket_close_fd(RSocket *s);
-R_API int r_socket_close(RSocket *s);
-R_API int r_socket_free(RSocket *s);
+R_API bool r_socket_close_fd(RSocket *s);
+R_API bool r_socket_close(RSocket *s);
+R_API void r_socket_free(RSocket *s);
 R_API RSocket *r_socket_accept(RSocket *s);
 R_API RSocket *r_socket_accept_timeout(RSocket *s, unsigned int timeout);
 R_API bool r_socket_block_time(RSocket *s, bool block, int sec, int usec);
@@ -142,8 +147,8 @@ R_API void r_socket_proc_printf(RSocketProc *sp, const char *fmt, ...) R_PRINTF_
 R_API int r_socket_proc_ready(RSocketProc *sp, int secs, int usecs);
 
 /* HTTP */
-R_API char *r_socket_http_get(const char *url, int *code, int *rlen);
-R_API char *r_socket_http_post(const char *url, const char *data, int *code, int *rlen);
+R_API char *r_socket_http_get(const char *url, const char **headers, int *code, int *rlen);
+R_API char *r_socket_http_post(const char *url, const char **headers, const char *data, int *code, int *rlen);
 R_API void r_socket_http_server_set_breaked(bool *b);
 
 typedef struct r_socket_http_request {
@@ -209,7 +214,7 @@ R_API int r_socket_rap_client_open(RSocket *s, const char *file, int rw);
 R_API char *r_socket_rap_client_command(RSocket *s, const char *cmd, RCoreBind *c);
 R_API int r_socket_rap_client_write(RSocket *s, const ut8 *buf, int count);
 R_API int r_socket_rap_client_read(RSocket *s, ut8 *buf, int count);
-R_API int r_socket_rap_client_seek(RSocket *s, ut64 offset, int whence);
+R_API ut64 r_socket_rap_client_seek(RSocket *s, ut64 offset, int whence);
 
 /* run.c */
 #define R_RUN_PROFILE_NARGS 512
@@ -253,6 +258,7 @@ typedef struct r_run_profile_t {
 	int _timeout;
 	int _timeout_sig;
 	int _nice;
+	bool _stderrout;
 } RRunProfile;
 
 R_API RRunProfile *r_run_new(R_NULLABLE const char *str);

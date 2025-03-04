@@ -1,8 +1,27 @@
+NAME=emu x86-32 aaef via aaa
+FILE=bins/elf/libtest_32.so
+CMDS=<<EOF
+e anal.emu=true
+aaa
+aaef
+s 0x00000500
+pd 1
+axt
+EOF
+EXPECT=<<EOF
+            ;-- section..rodata:
+            ;-- str.Hello_World__n:
+            ; STRN XREF from sym.test @ 0x4d3(r)
+            0x00000500     .string "Hello World!\n" ; len=14           ; [13] -r-- section size 14 named .rodata
+sym.test 0x4d3 [STRN:r--] lea ecx, str.Hello_World__n
+EOF
+RUN
+
 NAME=emu ret0
 FILE=bins/mach0/ret0ret1restr
-ARGS=-2
+ARGS=-1
 CMDS=<<EOF
-aaa
+aaa 2> /dev/null
 aeim
 ?e ret0
 s sym._ret0
@@ -20,6 +39,7 @@ aeb
 psz@R0
 EOF
 EXPECT=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
 ret0
 0x00000000
 ---
@@ -33,15 +53,16 @@ RUN
 
 NAME=emu paths
 FILE=bins/mach0/ret0ret1restr
-ARGS=-2
+ARGS=-1
 CMDS=<<EOF
+e asm.var.summary=0
 aeim
 ?e ret paths
 s sym._retbool
 af
 agf
 ?e path
-abp $$ 0x100007f1c
+abp 0x100007f1c
 ?e fromblocks
 f final.block=0x100007f1c
 abf final.block
@@ -54,8 +75,8 @@ afbe $$ 0x100007f10;aeb 0x100007f10;aeb final.block
 dr?R0
 EOF
 EXPECT=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
 ret paths
-[0x100007ed8]>  # sym._retbool (int64_t arg_20h);
          .-------------------------------------.
          |  0x100007ed8                        |
          |   ;-- func.100007ed8:               |
@@ -63,8 +84,8 @@ ret paths
          | ; arg int64_t arg_20h @ sp+0x40     |
          | ; var int64_t var_10h @ sp+0x10     |
          | sub sp, sp, 0x20                    |
-         | stp x29, x30, [sp, 0x10]            |
-         | add x29, var_10h                    |
+         | stp x29, x30, [var_10h]             |
+         | add x29, sp, 0x10                   |
          | mov w8, 1                           |
          | mov x0, x8                          |
          | mov w9, 0                           |
@@ -97,11 +118,13 @@ ret paths
    | and w8, w8, 1                                  |
    | and w0, w8, 0xff                               |
    | ldp x29, x30, [var_10h]                        |
-   | add sp, arg_20h                                |
+   | add sp, sp, 0x20                               |
    | ret                                            |
    `------------------------------------------------'
 path
 0x100007ed8
+0x100007f10
+0x100007f1c
 fromblocks
 0x100007f00
 0x100007f10
@@ -114,14 +137,14 @@ RUN
 
 NAME=emu paths with a macro
 FILE=bins/mach0/ret0ret1restr
-ARGS=-2
+ARGS=-1
 CMDS=<<EOF
 aeim
 ?e ret paths
 s sym._retbool
 af
 ?e path
-abp $$ 0x100007f1c
+abp 0x100007f1c
 ?e fromblocks
 f final.block=0x100007f1c
 abf final.block
@@ -134,9 +157,12 @@ dr?R0
 dr?R0
 EOF
 EXPECT=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
 ret paths
 path
 0x100007ed8
+0x100007f10
+0x100007f1c
 fromblocks
 0x100007f10
 0x100007f00
@@ -144,6 +170,40 @@ walk path one mustt be one
 0x00000001
 walk path two must be zero
 0x00000000
+EOF
+RUN
+
+NAME=emu trace infloop
+FILE=bins/mach0/infloop
+CMDS=<<EOF
+af
+aeim
+e asm.var.summary=0
+e dbg.trace=true
+e asm.trace=true
+e asm.comments=false
+e asm.lines=0
+e asm.bytes=0
+30ds
+pdf
+EOF
+EXPECT=<<EOF
+  ;-- section.0.__TEXT.__text:
+  ;-- entry0:
+  ;-- _main:
+  ;-- func.100003f88:
+32: int main (int argc);
+; arg int argc @ x0
+; var int64_t var_8h @ sp+0x8
+0x100003f88 01:0001        sub sp, sp, 0x10
+0x100003f8c 01:0002        str wzr, [sp, 0xc]
+0x100003f90 01:0003        str wzr, [var_8h]
+0x100003f94 01:0004        b 0x100003f98
+0x100003f98 07:001d        ldr w8, [var_8h]
+0x100003f9c 07:001e        add w8, w8, 1
+;-- pc:
+0x100003fa0 06:001b        str w8, [var_8h]
+0x100003fa4 06:001c        b 0x100003f98
 EOF
 RUN
 

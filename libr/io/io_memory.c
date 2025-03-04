@@ -3,13 +3,13 @@
 #include "io_memory.h"
 
 static inline ut32 _io_malloc_sz(RIODesc *desc) {
-	r_return_val_if_fail (desc, 0);
+	R_RETURN_VAL_IF_FAIL (desc, 0);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal? mal->size: 0;
 }
 
 static inline ut8* _io_malloc_buf(RIODesc *desc) {
-	r_return_val_if_fail (desc, NULL);
+	R_RETURN_VAL_IF_FAIL (desc, NULL);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal->buf;
 }
@@ -25,19 +25,19 @@ static inline ut8* _io_malloc_set_buf(RIODesc *desc, ut8* buf) {
 #endif
 
 static inline ut64 _io_malloc_off(RIODesc *desc) {
-	r_return_val_if_fail (desc, 0);
+	R_RETURN_VAL_IF_FAIL (desc, 0);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	return mal->offset;
 }
 
 static inline void _io_malloc_set_off(RIODesc *desc, ut64 off) {
-	r_return_if_fail (desc);
+	R_RETURN_IF_FAIL (desc);
 	RIOMalloc *mal = (RIOMalloc*)desc->data;
 	mal->offset = off;
 }
 
-int io_memory_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	r_return_val_if_fail (io && fd && buf, -1);
+R_IPI int io_memory_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
+	R_RETURN_VAL_IF_FAIL (io && fd && buf, -1);
 	if (count < 0 || !fd->data) {
 		return -1;
 	}
@@ -55,8 +55,8 @@ int io_memory_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	return -1;
 }
 
-bool io_memory_resize(RIO *io, RIODesc *fd, ut64 count) {
-	r_return_val_if_fail (io && fd, false);
+R_IPI bool io_memory_resize(RIO *io, RIODesc *fd, ut64 count) {
+	R_RETURN_VAL_IF_FAIL (io && fd, false);
 	if (count == 0) { // TODO: why cant truncate to 0 bytes
 		return false;
 	}
@@ -77,9 +77,9 @@ bool io_memory_resize(RIO *io, RIODesc *fd, ut64 count) {
 	return true;
 }
 
-int io_memory_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	r_return_val_if_fail (io && fd && buf, -1);
-	memset (buf, 0xff, count);
+R_IPI int io_memory_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
+	R_RETURN_VAL_IF_FAIL (io && fd && buf, -1);
+	memset (buf, io->Oxff, count);
 	if (!fd->data) {
 		return -1;
 	}
@@ -95,7 +95,7 @@ int io_memory_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	return count;
 }
 
-bool io_memory_close(RIODesc *fd) {
+R_IPI bool io_memory_close(RIODesc *fd) {
 	if (!fd || !fd->data) {
 		return false;
 	}
@@ -105,8 +105,8 @@ bool io_memory_close(RIODesc *fd) {
 	return true;
 }
 
-ut64 io_memory_lseek(RIO* io, RIODesc *fd, ut64 offset, int whence) {
-	r_return_val_if_fail (io && fd, offset);
+R_IPI ut64 io_memory_lseek(RIO* io, RIODesc *fd, ut64 offset, int whence) {
+	R_RETURN_VAL_IF_FAIL (io && fd, offset);
 	ut64 r_offset = offset;
 	if (!fd || !fd->data) {
 		return offset;

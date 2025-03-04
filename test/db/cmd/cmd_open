@@ -11,10 +11,26 @@ EXPECT=<<EOF
             ;-- func.100003c0c:
             0x100003c0c      55             push rbp
             0x100003c0d      4889e5         mov rbp, rsp
-[Entrypoints]
-vaddr=0x100003c0c paddr=0x00007c0c haddr=0x00000658 type=program
+paddr      vaddr       phaddr     vhaddr     type
+-------------------------------------------------
+0x00007c0c 0x100003c0c 0x00000658 ---------- program
+EOF
+RUN
 
-1 entrypoints
+NAME=o3
+FILE=--
+CMDS=<<EOF
+on file://bins/elf/ezpz 0x4000 r
+?ee ok
+o
+om
+EOF
+EXPECT=<<EOF
+ 3 - r-- 0x0000c3ef bins/elf/ezpz
+- 1 fd: 3 +0x00000000 0x00004000 - 0x000103ee r--
+EOF
+EXPECT_ERR=<<EOF
+ok
 EOF
 RUN
 
@@ -31,10 +47,9 @@ EXPECT=<<EOF
             ;-- func.100003a90:
             0x100003a90      7f2303d5       pacibsp
             0x100003a94      fc6fbaa9       stp x28, x27, [sp,  -0x60]!
-[Entrypoints]
-vaddr=0x100003a90 paddr=0x0001ba90 haddr=0x00000600 type=program
-
-1 entrypoints
+paddr      vaddr       phaddr     vhaddr     type
+-------------------------------------------------
+0x0001ba90 0x100003a90 0x00000600 ---------- program
 EOF
 RUN
 
@@ -69,7 +84,7 @@ oon
 o
 EOF
 EXPECT=<<EOF
- 4 * r-- 0x00009730 bins/mach0/mac-ls2
+ 5 * r-- 0x00009730 bins/mach0/mac-ls2
 EOF
 RUN
 
@@ -127,7 +142,7 @@ o bins/mach0/mac-ls
 s
 obo 3
 s
-obo 4
+obo 5
 s
 EOF
 EXPECT=<<EOF
@@ -246,15 +261,19 @@ e bin.baddr = 0xf00000
 k old_v=`ieq`
 oob
 iI~baddr[1]
-ie~vaddr[1]
+ie
 p8 10 @ entry0
 p8 10 @ `k old_v`
+ie,:quiet
 EOF
 EXPECT=<<EOF
 0xf00000
-0x00f01058
+paddr      vaddr      phaddr     vhaddr     type
+------------------------------------------------
+0x00001058 0x00f01058 0x00000648 ---------- program
 554889e5415741564155
 ffffffffffffffffffff
+0x00001058 0x00f01058 0x00000648 ---------- program
 EOF
 RUN
 
@@ -397,7 +416,7 @@ px 16~:1
 ?e
 om
 ?e
-omp 1
+omr 1
 px 16~:1
 EOF
 EXPECT=<<EOF
@@ -439,6 +458,7 @@ EXPECT=<<EOF
     "iofd": 3,
     "bfid": 0,
     "size": 512,
+    "addr": -1,
     "obj": {
       "arch": "x86",
       "bits": 64,
@@ -594,13 +614,13 @@ ob 1
 is~?
 EOF
 EXPECT=<<EOF
-133
-139
+132
+138
 --
-272
+270
 --
-133
-139
+132
+138
 EOF
 RUN
 
@@ -621,9 +641,9 @@ o
 ob
 EOF
 EXPECT=<<EOF
-8
-138
-8
+7
+137
+7
 arch     arm
 baddr    0x4000
 binsz    65536
@@ -652,6 +672,7 @@ stripped false
 subsys   darwin
 va       true
 -- o
+ 4 - r-- 0x00003f14 null://16148
 -- ob
 - 0 3 arm-32 ba:0x00000000 sz:65536 ./bins/mach0/test-arm32
 * 1 3 arm-32 ba:0x00004000 sz:65536 ./bins/mach0/test-arm32

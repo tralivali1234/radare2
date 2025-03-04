@@ -119,9 +119,9 @@ typedef struct _utX {
 #define ASCII_MAX 127
 
 #define UT24_MAX 0xFFFFFF
-#define UT40_MAX 0xFFFFFFFFFF
-#define UT48_MAX 0xFFFFFFFFFFFF
-#define UT56_MAX 0xFFFFFFFFFFFFFF
+#define UT40_MAX 0xFFFFFFFFFFULL
+#define UT48_MAX 0xFFFFFFFFFFFFULL
+#define UT56_MAX 0xFFFFFFFFFFFFFFULL
 
 #if SSIZE_MAX == ST32_MAX
 #define SZT_MAX  UT32_MAX
@@ -258,14 +258,47 @@ typedef struct _utX {
 #define DEBUGGER 0
 #endif
 
+typedef ut64 RSysBits;
+typedef ut8 RSysBitValue;
+
+#define R_SYS_BITS_SIZE 8
+#define R_SYS_BITS_MASK 0xff
+#define R_SYS_BITS_PACK(x) (x)
+#define R_SYS_BITS_PACK1(x) (x)
+#define R_SYS_BITS_PACK2(x,y) ((x) | ((y)<<R_SYS_BITS_SIZE))
+#define R_SYS_BITS_PACK3(x,y,z) ((x) | ((y)<<R_SYS_BITS_SIZE) | ((z) << (R_SYS_BITS_SIZE*2)))
+#define R_SYS_BITS_PACK4(x,y,z,q) (RSysBits)((x) | ((y)<<R_SYS_BITS_SIZE) | ((z) << (R_SYS_BITS_SIZE*2)) | ((q) << (R_SYS_BITS_SIZE*3)) )
+#define R_SYS_BITS_CHECK(x, y) (bool)( \
+	(((x) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> R_SYS_BITS_SIZE) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> (R_SYS_BITS_SIZE*2)) & R_SYS_BITS_MASK) == (y)) || \
+	((((x) >> (R_SYS_BITS_SIZE*3)) & R_SYS_BITS_MASK) == (y)) \
+)
+#define R_SYS_BITS_CHECK3(x, a, b, c) (bool)( \
+	(((x) & R_SYS_BITS_MASK) == (a)) || \
+	(((x) & R_SYS_BITS_MASK) == (b)) || \
+	(((x) & R_SYS_BITS_MASK) == (c)) || \
+	((((x) >> R_SYS_BITS_SIZE) & R_SYS_BITS_MASK) == (a)) || \
+	((((x) >> R_SYS_BITS_SIZE) & R_SYS_BITS_MASK) == (b)) || \
+	((((x) >> R_SYS_BITS_SIZE) & R_SYS_BITS_MASK) == (c)) || \
+	((((x) >> (R_SYS_BITS_SIZE*2)) & R_SYS_BITS_MASK) == (a)) || \
+	((((x) >> (R_SYS_BITS_SIZE*2)) & R_SYS_BITS_MASK) == (b)) || \
+	((((x) >> (R_SYS_BITS_SIZE*2)) & R_SYS_BITS_MASK) == (c)) || \
+	((((x) >> (R_SYS_BITS_SIZE*3)) & R_SYS_BITS_MASK) == (a)) || \
+	((((x) >> (R_SYS_BITS_SIZE*3)) & R_SYS_BITS_MASK) == (b)) || \
+	((((x) >> (R_SYS_BITS_SIZE*3)) & R_SYS_BITS_MASK) == (c)) \
+)
+
+
 #define HEAPTYPE(x) \
 	static x* x##_new(x n) {\
 		x *m = malloc(sizeof (x));\
 		return m? *m = n, m: m; \
 	}
 
-#define R_DIRTY(x) (x)->is_dirty = true
-#define R_IS_DIRTY(x) (x)->is_dirty
+#define R_DIRTY_SET(x) (x)->is_dirty = true
+#define R_DIRTY_UNSET(x) (x)->is_dirty = false
+#define R_DIRTY_CHECK(x) (x)->is_dirty
 #define R_DIRTY_VAR bool is_dirty
 
 #define R_TAG(x) (void*)((size_t)(x)|1)

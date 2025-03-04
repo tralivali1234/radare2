@@ -7,9 +7,9 @@ on:
   pull_request:
 
 jobs:
-  build:
-    name: ubuntu-tcc-test
-    runs-on: ubuntu-latest
+  newabi:
+    name: ubuntu-tcc-newabi
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout TinyCC repository
       run: |
@@ -23,9 +23,9 @@ jobs:
           sh ./configure --prefix=/usr
           make -j
           sudo make install
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Checkout our Testsuite Binaries
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
           repository: radareorg/radare2-testbins
           path: test/bins
@@ -33,8 +33,50 @@ jobs:
       run: |
         sudo apt update --assume-yes
         sudo apt-get --assume-yes install gperf wheel setuptools || true
-        sudo python -m pip install --upgrade pip
-        pip install r2pipe
+        sudo pip install r2pipe --break-system-packages
+    - name: Configure, build and install (Using the new ABI)
+      env:
+          CC: tcc
+      run: |
+          ./configure --prefix=/usr --with-compiler=tcc --with-new-abi
+          make -j
+          sudo make install
+    - name: Run tests
+      env:
+        PKG_CONFIG_PATH: /usr/lib/x86_64-linux-gnu/pkgconfig
+      run: |
+        r2 -v
+        r2r -v
+        export R2R_SKIP_ASM=1
+        export R2R_SKIP_ARCHOS=1
+        make -j -C test
+  build:
+    name: ubuntu-tcc-test
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout TinyCC repository
+      run: |
+          git clone https://github.com/mirror/tinycc.git
+          cd tinycc
+          git checkout mob
+          git reset --hard 560526a49dfffef118bcb7fba83c727639ec0a1d
+    - name: Compiling and installing TinyCC
+      working-directory: tinycc
+      run: |
+          sh ./configure --prefix=/usr
+          make -j
+          sudo make install
+    - uses: actions/checkout@v4
+    - name: Checkout our Testsuite Binaries
+      uses: actions/checkout@v4
+      with:
+          repository: radareorg/radare2-testbins
+          path: test/bins
+    - name: Install dependencies
+      run: |
+        sudo apt update --assume-yes
+        sudo apt-get --assume-yes install gperf wheel setuptools || true
+        sudo pip install r2pipe --break-system-packages
     - name: Configure, build and install
       env:
           CC: tcc
@@ -53,7 +95,7 @@ jobs:
         make -j -C test
   nodbg:
     name: ubuntu-tcc-nodbg
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout TinyCC repository
       run: |
@@ -62,16 +104,15 @@ jobs:
           git reset --hard 560526a49dfffef118bcb7fba83c727639ec0a1d
           sudo apt update --assume-yes
           sudo apt-get --assume-yes install gperf wheel setuptools || true
-          sudo python -m pip install --upgrade pip
-          pip install r2pipe
+          sudo pip install r2pipe --break-system-packages
     - name: Compiling and installing TinyCC
       working-directory: tinycc
       run: |
           sh ./configure --prefix=/usr --without-debugger
           make -j && sudo make install
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Checkout our Testsuite Binaries
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
           repository: radareorg/radare2-testbins
           path: test/bins
@@ -94,7 +135,7 @@ jobs:
         make -j -C test
   r2pm:
     name: r2pm-tcc
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout TinyCC repository
       run: |
@@ -108,7 +149,7 @@ jobs:
           sh ./configure --prefix=/usr
           make -j
           sudo make install
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Configure, build and install
       env:
           CC: tcc
@@ -127,8 +168,8 @@ jobs:
       run: r2pm -i samurai
     - name: Install muon
       run: r2pm -i muon
-    - name: Install muon (native)
-      run: r2pm -i muon
+#    - name: Install muon (native)
+#      run: r2pm -i muon
     - name: Building r2 with muon+samu
       run: |
           r2pm -r muon setup b
@@ -136,7 +177,7 @@ jobs:
 
   syslibs:
     name: ubuntu-tcc-syslibs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
     - name: Checkout TinyCC repository
       run: |
@@ -145,16 +186,15 @@ jobs:
           git reset --hard 560526a49dfffef118bcb7fba83c727639ec0a1d
           sudo apt-get update --assume-yes
           sudo apt-get --assume-yes install gperf wheel setuptools || true
-          sudo python -m pip install --upgrade pip
-          pip install r2pipe
+          sudo pip install r2pipe --break-system-packages
     - name: Compiling and installing TinyCC
       working-directory: tinycc
       run: |
           sh ./configure --prefix=/usr --without-debugger
           make -j && sudo make install
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     - name: Checkout our Testsuite Binaries
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
           repository: radareorg/radare2-testbins
           path: test/bins

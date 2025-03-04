@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2012-2023 - dso, pancake */
+/* radare - LGPL - Copyright 2012-2024 - dso, pancake */
 
 // TODO: wrap with r_sandbox api
 
@@ -93,7 +93,7 @@ static bool r_io_zip_plugin_open(RIO *io, const char *file, bool many) {
 }
 
 static struct zip *r_io_zip_open_archive(const char *archivename, ut32 perm, int mode, int rw) {
-	r_return_val_if_fail (archivename, NULL);
+	R_RETURN_VAL_IF_FAIL (archivename, NULL);
 	int zip_errorp;
 	struct zip * za = zip_open (archivename, perm, &zip_errorp);
 	if (za) {
@@ -118,7 +118,7 @@ static struct zip *r_io_zip_open_archive(const char *archivename, ut32 perm, int
 }
 
 static bool r_io_zip_slurp_file(RIOZipFileObj *zfo) {
-	r_return_val_if_fail (zfo, -1);
+	R_RETURN_VAL_IF_FAIL (zfo, -1);
 	bool res = false;
 	struct zip *za = r_io_zip_open_archive (zfo->archivename, zfo->perm, zfo->mode, zfo->rw);
 	if (za && zfo && zfo->entry != -1) {
@@ -514,19 +514,17 @@ static ut64 r_io_zip_lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 	seek_val = r_buf_tell (zfo->b);
 
 	switch (whence) {
-	case SEEK_SET:
+	case R_IO_SEEK_SET:
 		seek_val = (r_buf_size (zfo->b) < offset)? r_buf_size (zfo->b): offset;
-		io->off = seek_val;
 		r_buf_seek (zfo->b, seek_val, R_BUF_SET);
 		return seek_val;
-	case SEEK_CUR:
-		seek_val = (r_buf_size (zfo->b) < (offset + r_buf_tell (zfo->b)))? r_buf_size (zfo->b): offset + r_buf_tell (zfo->b);
-		io->off = seek_val;
+	case R_IO_SEEK_CUR:
+		seek_val = (r_buf_size (zfo->b) < (offset + r_buf_tell (zfo->b)))?
+			r_buf_size (zfo->b): offset + r_buf_tell (zfo->b);
 		r_buf_seek (zfo->b, seek_val, R_BUF_SET);
 		return seek_val;
-	case SEEK_END:
+	case R_IO_SEEK_END:
 		seek_val = r_buf_size (zfo->b);
-		io->off = seek_val;
 		r_buf_seek (zfo->b, seek_val, R_BUF_SET);
 		return seek_val;
 	}
@@ -542,10 +540,16 @@ static int r_io_zip_read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	if (r_buf_size (zfo->b) < io->off) {
 		io->off = r_buf_size (zfo->b);
 	}
+#if 0
 	int r = r_buf_read_at (zfo->b, io->off, buf, count);
 	if (r >= 0) {
 		r_buf_seek (zfo->b, r, R_BUF_CUR);
 	}
+#else
+	const ut64 off = r_buf_tell (zfo->b);
+	const int r = r_buf_read (zfo->b, buf, count);
+	r_buf_seek (zfo->b, off + r, R_BUF_SET);
+#endif
 	return r;
 }
 
@@ -573,7 +577,6 @@ static bool r_io_zip_resize(RIO *io, RIODesc *fd, ut64 size) {
 
 static int r_io_zip_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	RIOZipFileObj *zfo;
-	int ret = 0;
 	if (!fd || !fd->data || !buf) {
 		return -1;
 	}
@@ -584,16 +587,10 @@ static int r_io_zip_write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 	if (r_buf_tell (zfo->b) + count >= r_buf_size (zfo->b)) {
 		r_io_zip_realloc_buf (zfo, count);
 	}
-	if (r_buf_size (zfo->b) < io->off) {
-		io->off = r_buf_size (zfo->b);
-	}
+	const ut64 off = r_buf_tell (zfo->b);
+	const int ret = r_buf_write (zfo->b, buf, count);
 	zfo->modified = 1;
-	ret = r_buf_write_at (zfo->b, io->off, buf, count);
-	if (ret >= 0) {
-		r_buf_seek (zfo->b, ret, R_BUF_CUR);
-	}
-	// XXX - Implement a flush of some sort, but until then, lets
-	// just write through
+	r_buf_seek (zfo->b, off + ret, R_BUF_SET);
 	r_io_zip_flush_file (zfo);
 	return ret;
 }
@@ -610,10 +607,13 @@ static bool r_io_zip_close(RIODesc *fd) {
 }
 
 RIOPlugin r_io_plugin_zip = {
-	.name = "zip",
-	.desc = "Open zip files",
+	.meta = {
+		.author = "pancake",
+		.name = "zip",
+		.desc = "Open zip files",
+		.license = "BSD-3-Clause",
+	},
 	.uris = "zip://,apk://,ipa://,jar://,zip0://,zipall://,apkall://,ipaall://,jarall://",
-	.license = "BSD",
 	.open = r_io_zip_open,
 	.open_many = r_io_zip_open_many,
 	.write = r_io_zip_write,

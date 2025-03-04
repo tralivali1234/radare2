@@ -113,13 +113,13 @@ static bool decode(RArchSession *as, RAnalOp *op, RArchDecodeMask mask) {
 
 static int archinfo(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 2;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 4;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 2;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 2;
 	}
 	return 0;
@@ -128,8 +128,9 @@ static int archinfo(RArchSession *as, ut32 q) {
 const RArchPlugin r_arch_plugin_cr16 = {
 	.meta = {
 		.name = "cr16",
+		.author = "Fedor Sakharov,pancake",
 		.desc = "Compact RISC processor",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.endian = R_SYS_ENDIAN_LITTLE,
 	.arch = "cr16",

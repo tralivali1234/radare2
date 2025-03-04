@@ -7,6 +7,7 @@ include ../mk/${COMPILER}.mk
 include ../mk/darwin.mk
 
 
+# TODO: Delete this checks:
 ifeq ($(shell test -f ../ChangeLog -a -d capstone -a ! -d capstone/.git && echo 1),1)
 WITHOUT_PULL=1
 CS_RELEASE=0
@@ -14,6 +15,7 @@ else
 WITHOUT_PULL=0
 
 # Build against last capstone release or next
+# TODO: Delete this checks:
 ifeq ($(shell test -e ../.git && echo 1),1)
 CS_RELEASE=0
 else
@@ -37,31 +39,18 @@ WGET?=curl -o
 endif
 
 ifeq ($(CS_RELEASE),1)
-CS_VER=5.0
-CS_TAR=https://codeload.github.com/capstone-engine/capstone/tar.gz/$(CS_VER)
-#CS_TAR=http://capstone-engine.org/download/$(CS_VER)/capstone-$(CS_VER).tgz
 CS_PATCHES=0
 else
-CS_TAR=
-CS_URL_BASE=github.com/capstone-engine/capstone
-CS_URL=$(GIT_PREFIX)$(CS_URL_BASE).git
-CS_ARCHIVE=https://$(CS_URL_BASE)/archive
-CS_UPD=20201203
-# NOTE: when you update CS_TIP or CS_BRA, also update them in shlr/meson.build
+ifeq ($(USE_CSNEXT),1)
+CS_ROOT=../subprojects/capstone-next
+else
 ifeq ($(USE_CS4),1)
-CS_TIP=1d230532840a37ac032c6ab80128238fc930c6c1
-CS_BRA=v4
+CS_ROOT=../subprojects/capstone-v4
 else
-CS_TIP=8ae8f68ea3abb7a68071908bad02baa39742870c
-CS_BRA=next
+CS_ROOT=../subprojects/capstone-v5
 endif
-ifeq ($(CS_COMMIT_ARCHIVE),1)
-CS_ARCHIVE_URL=$(CS_ARCHIVE)/$(CS_TIP).zip
-else
-CS_ARCHIVE_URL=
 endif
-# REVERT THIS COMMIT BECAUSE ITS WRONG
-CS_REV=
+
 CS_PATCHES=1
 endif
 
@@ -73,8 +62,7 @@ endif
 SHLR?=$(shell pwd)
 AR?=ar
 RANLIB?=ranlib
-# MODS=sdb zip java mpc
-MODS=zip java mpc
+MODS=zip java
 MODS+=gdb qnx ar
 # lz4
 ifneq ($(CC),cccl)
@@ -82,11 +70,8 @@ ifeq (1,$(WITH_GPL))
 MODS+=grub
 endif
 endif
-SDB_URL=https://github.com/radareorg/sdb
-#SDB_URL=/Users/pancake/prg/sdb
 SPP_URL=https://github.com/trufae/spp
 PWD=$(shell pwd)
-SDB_CONFIG=${PWD}/sdb-config.mk
 
 CFLAGS_SHARED=${PIC_CFLAGS}
 
@@ -102,12 +87,6 @@ preall: libwinkd capstone-build bochs sdbs
 		$(MAKE) -C $$MOD HAVE_VALA= ROOT="${PWD}/../" CC="${CC}" ; \
 	done
 
-SDBFILES=sdb/src/.sdb${EXT_EXE} sdb/sdb${EXT_EXE} sdb/src/.sdb sdb/sdb
-PREMODS=capstone gdb winkd sdb bochs ar
-
-clean mrproper:
-	rm -f ${SDBFILES}
-	@for MOD in ${PREMODS} ${MODS} ; do $(MAKE) -C $$MOD clean ; done
 
 ifeq ($(BUILD_OS),windows)
 BUILD_EXT_EXE=.exe
@@ -120,10 +99,18 @@ ifneq ($(CC),cccl)
 PIC=-fPIC
 endif
 
-SDB_HOST=sdb/sdb$(BUILD_EXT_EXE)
-SDB_LIBA=sdb/src/libsdb.$(EXT_AR)
+SDB_ROOT=../subprojects/sdb
+SDB_HOST=$(SDB_ROOT)/sdb$(BUILD_EXT_EXE)
+SDB_LIBA=$(SDB_ROOT)/src/libsdb.$(EXT_AR)
 
-$(SDB_HOST):
+SDBFILES=$(SDB_ROOT)/src/.sdb${EXT_EXE} $(SDB_ROOT)/sdb${EXT_EXE} $(SDB_ROOT)/src/.sdb $(SDB_ROOT)/sdb
+PREMODS=capstone gdb winkd sdb bochs ar
+
+clean mrproper:
+	rm -f ${SDBFILES}
+	@for MOD in ${PREMODS} ${MODS} ; do $(MAKE) -C $$MOD clean ; done
+
+$(SDB_HOST): $(SDB_ROOT)
 	$(MAKE) sdb-host HOST_CC=$(HOST_CC) CC=$(HOST_CC)
 
 $(SDB_LIBA):
@@ -132,18 +119,21 @@ $(SDB_LIBA):
 sdbs: $(SDB_HOST)
 	$(MAKE) $(SDB_LIBA) RANLIB="$(RANLIB)"
 
+$(SDB_ROOT):
+	$(MAKE) -C ../subprojects
+
 sdb-host:
 	@echo
 	@echo ">>>>>>>>"
 	@echo "HOST SDB"
 	@echo ">>>>>>>>"
 	@echo
-	$(MAKE) -C sdb clean ; rm -f sdb/src/*.o sdb/include/sdb/version.h
-	$(MAKE) -C sdb/src "CC=${HOST_CC}" LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='-I$(SHLR)/sdb/include' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
-	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/src/.sdb${BUILD_EXT_EXE}
-	cp -f sdb/src/sdb${BUILD_EXT_EXE} sdb/sdb$(BUILD_EXT_EXE)
+	$(MAKE) -C $(SDB_ROOT) clean ; rm -f $(SDB_ROOT)/src/*.o $(SDB_ROOT)/include/sdb/version.h
+	$(MAKE) -C $(SDB_ROOT)/src "CC=${HOST_CC}" LDFLAGS='${HOST_LDFLAGS}' CPPFLAGS='-I$(SDB_ROOT)/include' CFLAGS='${HOST_CFLAGS} ${PIC}' bin
+	cp -f $(SDB_ROOT)/src/sdb${BUILD_EXT_EXE} $(SDB_ROOT)/src/.sdb${BUILD_EXT_EXE}
+	cp -f $(SDB_ROOT)/src/sdb${BUILD_EXT_EXE} $(SDB_ROOT)/sdb$(BUILD_EXT_EXE)
 	rm -f $(SDB_LIBA)
-	-file sdb/sdb$(BUILD_EXT_EXE)
+	-file $(SDB_ROOT)/sdb$(BUILD_EXT_EXE)
 
 sdb-target:
 	@echo
@@ -152,18 +142,18 @@ sdb-target:
 	@echo ">>>>>>>>>>"
 	@echo
 	rm -f src/libsdb.$(EXT_AR)
-	$(MAKE) -C sdb clean ; rm -f sdb/src/*.o ../include/sdb/version.h
-	$(MAKE) -C sdb/src ../include/sdb/version.h
+	$(MAKE) -C $(SDB_ROOT) clean ; rm -f $(SDB_ROOT)/src/*.o ../include/sdb/version.h
+	$(MAKE) -C $(SDB_ROOT)/src ../include/sdb/version.h
 ifeq ($(EXT_EXE),.wasm)
-	$(MAKE) -C sdb/src ARCH=xxx EXT_AR=.$(EXT_AR) RANLIB="${RANLIB}" CPPFLAGS=-I$(SHLR)/sdb/include \
+	$(MAKE) -C $(SDB_ROOT)/src ARCH=xxx EXT_AR=.$(EXT_AR) RANLIB="${RANLIB}" CPPFLAGS=-I$(SDB_ROOT)/include \
 		CFLAGS_SHARED="${CFLAGS_SHARED} -DHAVE_MMAN=0" \
 		CC="${CC}" AR="${AR}" ARCH=undefined CFLAGS='${CFLAGS} -DHAVE_MMAN=0' LDFLAGS='${LDFLAGS}' libsdb.$(EXT_AR)
 else
-	$(MAKE) -C sdb/src ARCH=xxx EXT_AR=.$(EXT_AR) RANLIB="${RANLIB}" CPPFLAGS="-I$(SHLR)/sdb/include -DHAVE_SYSTEM=0" \
+	$(MAKE) -C $(SDB_ROOT)/src ARCH=xxx EXT_AR=.$(EXT_AR) RANLIB="${RANLIB}" CPPFLAGS="-I$(SDB_ROOT)/include -DHAVE_SYSTEM=0" \
 		CFLAGS_SHARED="${CFLAGS_SHARED}" \
 		CC="${CC}" AR="${AR}" ARCH=undefined LDFLAGS='${LDFLAGS}' libsdb.$(EXT_AR)
 endif
-	$(RANLIB) sdb/src/libsdb.$(EXT_AR)
+	$(RANLIB) $(SDB_ROOT)/src/libsdb.$(EXT_AR)
 
 .PHONY: sdb-sync sync-sdb sdbclean sdb-native sdb-target
 SDB_F=README.md config.mk src include Makefile meson.build wasi.mk wasi.sh
@@ -180,23 +170,9 @@ bochs:
 	$(MAKE) -C bochs all
 
 sdb-clean clean-sdb:
-	$(MAKE) -C sdb clean
-	rm -f sdb/sdb.exe
-	rm -f sdb/src/libsdb.${EXT_AR}
-
-sdb-sync sync-sdb:
-	rm -rf sdb sdb.vc
-	git clone --depth 1 ${SDB_URL} sdb.vc
-	mkdir -p sdb
-	cp -rf ${SDB_SYNCFILES} sdb
-	rm -rf sdb.vc
-	rm -f include/sdb/version.h
-	$(MAKE) -C sdb include/sdb/version.h
-	mkdir -p sdb/test sdb/memcache
-	sed -e 's,HAVE_VALA=,HAVE_VALA=#,' sdb/config.mk > .t
-	mv .t sdb/config.mk
-	echo all clean mrproper: | tee sdb/test/Makefile > sdb/memcache/Makefile
-	git add sdb
+	$(MAKE) -C $(SDB_ROOT) clean
+	rm -f $(SDB_ROOT)/sdb.exe
+	rm -f $(SDB_ROOT)/src/libsdb.${EXT_AR}
 
 ifeq ($(WITH_LIBR),1)
 install: libr_shlr.${EXT_AR}
@@ -213,6 +189,9 @@ install-symlink symstall:
 
 uninstall deinstall:
 	rm -f ${DESTDIR}${LIBDIR}/libr_shlr.${EXT_AR}
+
+.PHONY: capstone capstone-sync capstone-build capstone-patch
+
 
 ifeq ($(WANT_CAPSTONE),0)
 capstone:
@@ -232,46 +211,25 @@ capstone-build:
 else
 
 ifeq ($(CS_RELEASE),1)
-capstone-sync: capstone
 
-capstone-clean:
-	-$(MAKE) -C capstone clean
-
-capstone: capstone-$(CS_VER).tar.gz
-	tar xzvf capstone-$(CS_VER).tar.gz
-	rm -rf capstone
-	mv capstone-$(CS_VER) capstone
+capstone:
 	$(MAKE) patch-capstone
 
 # already implemented in capstone.sh
 patch-capstone capstone-patch:
 ifeq ($(CS_PATCHES),1)
-	if [ -d capstone -a -d capstone/.git ]; then \
+	if [ -d $(CS_ROOT) -a -d $(CS_ROOT)/.git ]; then \
 ifeq ($(USE_CS4),1)
-		cd capstone && for PATCH in ../capstone-patches/v4/* ; do patch -p1 < $$PATCH ; done ; \
+		cd $(CS_ROOT) && for PATCH in ../capstone-patches/v4/* ; do patch -p1 < $$PATCH ; done ; \
 else
-		cd capstone && for PATCH in ../capstone-patches/v5/* ; do patch -p1 < $$PATCH ; done ; \
+		cd $(CS_ROOT) && for PATCH in ../capstone-patches/v5/* ; do patch -p1 < $$PATCH ; done ; \
 endif
 	fi
 endif
-	mkdir -p capstone/include/capstone
-	cp -rf capstone/include/*.h capstone/include/capstone
+	mkdir -p $(CS_ROOT)/include/capstone
+	cp -rf $(CS_ROOT)/include/*.h $(CS_ROOT)/include/capstone
 
-capstone-$(CS_VER).tar.gz:
-	$(WGET) capstone-$(CS_VER).tar.gz $(CS_TAR)
-else
-
-capstone: capstone-sync
-
-
-capstone-sync:
-ifeq ($(WITHOUT_PULL),1)
-	@echo "Nothing to sync because of --without-pull"
-else
-	if [ ! -d capstone ] || [ ! -f capstone/libcapstone.a ] || [ $(shell [ -d capstone/.git ] && git --git-dir capstone/.git rev-parse HEAD) != $(CS_TIP) ]; then \
-		"$(SHELL)" capstone.sh "${CS_URL}" "${CS_BRA}" "${CS_TIP}" "${CS_REV}" "${CS_ARCHIVE_URL}" ; \
-	fi
-endif
+patch-capstone capstone-patch:
 
 .PHONY: capstone capstone-sync
 endif
@@ -284,11 +242,11 @@ endif
 
 capstone-build: capstone
 ifeq ($(CAPSTONE_LDFLAGS),)
-	cd capstone && CFLAGS="${CAPSTONE_CFLAGS} $(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
+	cd $(CS_ROOT) && CFLAGS="${CAPSTONE_CFLAGS} $(CFLAGS)" LDFLAGS="$(LDFLAGS)" \
 		$(MAKE) $(CAPSTONE_MAKEFLAGS) CC="$(CC)" AR_EXT=a IS_CYGWIN=0 CAPSTONE_STATIC=yes CAPSTONE_SHARED=no \
 		RANLIB="$(RANLIB)" LIBARCHS="" AR="$(AR)" IS_MINGW=0 libcapstone.a
 ifneq (${EXT_AR},a)
-	-cp -f capstone/libcapstone.a capstone/libcapstone.${EXT_AR}
+	-cp -f $(CS_ROOT)/libcapstone.a $(CS_ROOT)/libcapstone.${EXT_AR}
 endif
 else
 	echo "Using capstone from system"
@@ -298,7 +256,7 @@ endif
 endif
 
 headsup:
-	[ "`cd capstone && git rev-parse HEAD`" = "$(CS_TIP)" ]
+	[ "`cd $(CS_ROOT) && git rev-parse HEAD`" = "$(CS_TIP)" ]
 
 ../../radare2-webui:
 	cd ../.. ; git clone --depth 1 https://github.com/radareorg/radare2-webui
@@ -344,7 +302,7 @@ spp: spp-sync
 
 SHLRS+=ar/libr_ar.a
 SHLRS+=bochs/lib/libbochs.a
-SHLRS+=capstone/libcapstone.a
+SHLRS+=$(CS_ROOT)/libcapstone.a
 SHLRS+=gdb/lib/libgdbr.a
 SHLRS+=grub/libgrubfs.a
 SHLRS+=java/libr_java.a
@@ -355,20 +313,10 @@ SHLRS+=zip/librz.a
 libr_shlr.${EXT_AR}:
 	rm -rf .libr
 	mkdir .libr
-ifeq ($(CC),emcc)
-	for LIB in ${SHLRS} ; do \
-		if [ -f "$${LIB}" ]; then emcc -emit-llvm -nostdlib -Wl,--whole-archive -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
-	done
-	${AR} rs $@ .libr/*.o
-	$(RANLIB) $@
-else
 	for LIB in ${SHLRS} ; do \
 		if [ -f "$${LIB}" ]; then ${PARTIALLD} -o .libr/$$(basename $${LIB}.a).o $${LIB} ; fi ; \
 	done
 	${AR} rs $@ .libr/*.o
 	$(RANLIB) $@
-endif
 
 .PHONY: spp
-
-include mpc/deps.mk

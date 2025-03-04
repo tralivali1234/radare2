@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2022 - pancake */
+/* radare - LGPL - Copyright 2022-2024 - pancake */
 
 #include <r_io.h>
 #include <r_lib.h>
@@ -154,10 +154,13 @@ static char *__system(RIO *io, RIODesc *desc, const char *cmd) {
 }
 
 RIOPlugin r_io_plugin_serial = {
-	.name = "serial",
-	.desc = "Connect to a serial port (" SERIALURI_EXAMPLE ")",
+	.meta = {
+		.name = "serial",
+		.author = "pancake",
+		.desc = "Connect to a serial port (" SERIALURI_EXAMPLE ")",
+		.license = "MIT",
+	},
 	.uris = SERIALURI,
-	.license = "MIT",
 	.open = __open,
 	.close = __close,
 	.read = __read,

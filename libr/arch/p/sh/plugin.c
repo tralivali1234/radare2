@@ -1295,7 +1295,7 @@ static int disassemble(RArch *a, RAnalOp *op, const ut8 *buf, int len) {
 /* This is the basic operation analysis. Just initialize and jump to
  * routines defined in first_nibble_decode table */
 static bool decode(RArchSession *s, RAnalOp *op, RArchDecodeMask mask) {
-	r_return_val_if_fail (s && op, false);
+	R_RETURN_VAL_IF_FAIL (s && op, false);
 	RArch *a = s->arch;
 	if (op->size < 2) {
 		return false;
@@ -1323,8 +1323,9 @@ static bool decode(RArchSession *s, RAnalOp *op, RArchDecodeMask mask) {
 const RArchPlugin r_arch_plugin_sh = {
 	.meta = {
 		.name = "sh",
-		.desc = "SH-4 code analysis plugin",
-		.license = "LGPL3",
+		.author = "Eloi Sanfelix",
+		.desc = "Hitachi SH-4 CPU",
+		.license = "LGPL-3.0-only",
 	},
 	.endian = R_SYS_ENDIAN_LITTLE | R_SYS_ENDIAN_BIG,
 	.arch = "sh",

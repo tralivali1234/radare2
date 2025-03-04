@@ -81,10 +81,13 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 }
 
 RIOPlugin r_io_plugin_tcpslurp = {
-	.name = "tcp",
-	.desc = "Slurp/load remote files via TCP (tcp-slurp://:9999 or tcp-slurp://host:port)",
+	.meta = {
+		.name = "tcp",
+		.author = "pancake",
+		.desc = "Slurp/load remote files via TCP (tcp-slurp://:9999 or tcp-slurp://host:port)",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "tcp-slurp://",
-	.license = "LGPL3",
 	.open = __open,
 	.close = io_memory_close,
 	.read = io_memory_read,

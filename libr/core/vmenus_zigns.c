@@ -51,19 +51,19 @@ R_API int __core_visual_view_zigns_update(RCore *core, RCoreVisualViewZigns *sta
 
 	char *title = r_str_newf ("[r2-visual-signatures] 0x%08"PFMT64x" 0x%08"PFMT64x, status->addr, status->faddr);
 	if (title) {
-		r_cons_strcat_at (title, 0, 0, w - 1, 2);
+		r_cons_print_at (title, 0, 0, w - 1, 2);
 		free (title);
 	}
-	r_cons_strcat_at (col0str, 0, 2, colw, colh);
+	r_cons_print_at (col0str, 0, 2, colw, colh);
 	r_list_free (col0);
-	r_cons_flush();
+	r_cons_flush ();
 	return 0;
 }
 
 R_API int r_core_visual_view_zigns(RCore *core) {
 	RCoreVisualViewZigns status = {0};
 	status.core = core;
-	status.addr = core->offset;
+	status.addr = core->addr;
 	status.fcn = NULL;
 
 	while (true) {

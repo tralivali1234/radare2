@@ -26,7 +26,7 @@ static int lmf_header_load(lmf_header *lmfh, RBuffer *buf, Sdb *db) {
 	return true;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+static bool check(RBinFile *bf, RBuffer *buf) {
 	ut8 tmp[6];
 	int r = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
 	return r == sizeof (tmp) && !memcmp (tmp, QNX_MAGIC, sizeof (tmp));
@@ -34,14 +34,14 @@ static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 
 // Frees the bin_obj of the binary file
 static void destroy(RBinFile *bf) {
-	QnxObj *qo = bf->o->bin_obj;
+	QnxObj *qo = bf->bo->bin_obj;
 	r_list_free (qo->sections);
 	r_list_free (qo->fixups);
-	bf->o->bin_obj = NULL;
+	bf->bo->bin_obj = NULL;
 	free (qo);
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 	QnxObj *qo = R_NEW0 (QnxObj);
 	if (!qo) {
 		return false;
@@ -129,10 +129,10 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 		}
 		offset += lrec.data_nbytes;
 	}
-	sdb_ns_set (sdb, "info", qo->kv);
+	sdb_ns_set (bf->sdb, "info", qo->kv);
 	qo->sections = sections;
 	qo->fixups = fixups;
-	*bin_obj = qo;
+	bf->bo->bin_obj = qo;
 	return true;
 beach:
 	free (qo);
@@ -147,7 +147,7 @@ beach:
  * @return RBinInfo file with the info
  */
 static RBinInfo *info(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
 	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret) {
 		return NULL;
@@ -166,14 +166,17 @@ static RBinInfo *info(RBinFile *bf) {
 }
 
 static RList *relocs(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o, NULL);
-	QnxObj *qo = bf->o->bin_obj;
-	return r_list_clone (qo->fixups, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
+	QnxObj *qo = bf->bo->bin_obj;
+	if (qo && qo->fixups) {
+		return r_list_clone (qo->fixups, NULL);
+	}
+	return NULL;
 }
 
 static void header(RBinFile *bf) {
-	r_return_if_fail (bf && bf->o && bf->rbin);
-	QnxObj *bin = bf->o->bin_obj;
+	R_RETURN_IF_FAIL (bf && bf->bo && bf->rbin);
+	QnxObj *bin = bf->bo->bin_obj;
 	RBin *rbin = bf->rbin;
 	rbin->cb_printf ("QNX file header:\n");
 	rbin->cb_printf ("version : 0x%xH\n", bin->lmfh.version);
@@ -201,8 +204,8 @@ static RList* symbols(RBinFile *bf) {
 
 // Returns the sections
 static RList* sections(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o, NULL);
-	QnxObj *qo = bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
+	QnxObj *qo = bf->bo->bin_obj;
 	return r_list_clone (qo->sections, NULL);
 }
 
@@ -212,7 +215,7 @@ static RList* sections(RBinFile *bf) {
  * @return sdb of the bin_obj
  */
 static Sdb *get_sdb(RBinFile *bf) {
-	RBinObject *o = bf->o;
+	RBinObject *o = bf->bo;
 	if (!o) {
 		return NULL;
 	}
@@ -226,7 +229,7 @@ static Sdb *get_sdb(RBinFile *bf) {
  * @return image_base address
  */
 static ut64 baddr(RBinFile *bf) {
-	QnxObj *qo = bf->o->bin_obj;
+	QnxObj *qo = bf->bo->bin_obj;
 	return qo? qo->lmfh.image_base: 0;
 }
 
@@ -237,7 +240,7 @@ static ut64 baddr(RBinFile *bf) {
 static RList* entries(RBinFile *bf) {
 	RList *ret;
 	RBinAddr *ptr = NULL;
-	QnxObj *qo = bf->o->bin_obj;
+	QnxObj *qo = bf->bo->bin_obj;
 	if (!(ret = r_list_new ())) {
 		return NULL;
 	}
@@ -253,7 +256,7 @@ static RList* entries(RBinFile *bf) {
 
 static char *signature(RBinFile *bf, bool json) {
  	char buf[SDB_NUM_BUFSZ];
- 	QnxObj *qo = bf->o->bin_obj;
+ 	QnxObj *qo = bf->bo->bin_obj;
 	return qo? strdup (sdb_itoa (qo->rwend.signature, 10, buf, sizeof (buf))): NULL;
 }
 
@@ -263,15 +266,18 @@ static ut64 get_vaddr(RBinFile *bf, ut64 baddr, ut64 paddr, ut64 vaddr) {
 
 // Declaration of the plugin
 RBinPlugin r_bin_plugin_qnx = {
-	.name = "qnx",
-	.desc = "QNX executable file support",
-	.license = "LGPL3",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "qnx",
+		.author = "deepakchethan",
+		.desc = "QNX executable file support",
+		.license = "LGPL-3.0-only",
+	},
+	.weak_guess = true,
+	.load = &load,
 	.destroy = &destroy,
 	.relocs = &relocs,
 	.baddr = &baddr,
-	.author = "deepakchethan",
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.header = &header,
 	.get_sdb = &get_sdb,
 	.entries = &entries,

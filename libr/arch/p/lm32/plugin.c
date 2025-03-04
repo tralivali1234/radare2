@@ -1,4 +1,4 @@
-/* lm32 for r2 - BSD - Copyright 2015-2023 - Felix Held */
+/* lm32 for r2 - BSD - Copyright 2015-2024 - Felix Held */
 
 #include <r_arch.h>
 #include "lm32_isa.h"
@@ -478,9 +478,9 @@ static char *get_reg_profile(RArchSession *as) {
 const RArchPlugin r_arch_plugin_lm32 = {
 	.meta = {
 		.name = "lm32",
-		.desc = "disassembly plugin for Lattice Micro 32 ISA",
+		.desc = "Lattice Micro 32 ISA",
 		.author = "Felix Held",
-		.license = "BSD",
+		.license = "BSD-3-Clause",
 	},
 	.arch = "lm32",
 	.decode = &decode,

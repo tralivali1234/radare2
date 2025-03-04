@@ -35,6 +35,8 @@ typedef ut64 (*RListComparatorItem)(const void *a);
 
 #endif
 
+#define R_LIST_FREE if (x) { r_list_free (x); (x) = NULL; }
+
 #ifdef R_API
 #define r_list_foreach(list, it, pos)\
 	if (list)\
@@ -95,9 +97,8 @@ R_API void r_list_split(RList *list, void *ptr);
 R_API void r_list_split_iter(RList *list, RListIter *iter);
 R_API int r_list_join(RList *list1, RList *list2);
 R_API void *r_list_get_n(const RList *list, int n);
+R_API RListIter *r_list_get_nth(const RList *list, int n);
 R_API int r_list_del_n(RList *list, int n);
-R_DEPRECATE R_API void *r_list_get_top(const RList *list);
-R_DEPRECATE R_API void *r_list_get_bottom(const RList *list);
 R_API void r_list_iter_to_top(RList *list, RListIter *iter);
 R_API void *r_list_pop(RList *list);
 R_API void *r_list_pop_head(RList *list);

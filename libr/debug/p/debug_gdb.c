@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, defragger */
+/* radare - LGPL - Copyright 2009-2024 - pancake, defragger */
 
 #include <r_core.h>
 #include <libgdbr.h>
@@ -185,7 +185,8 @@ static RList *r_debug_gdb_map_get(RDebug* dbg) { // TODO
 	ut64 buflen = 0;
 	ut8 *buf = (ut8*) read_remote_maps (dbg, &buflen);
 	if (!buf) {
-		R_LOG_ERROR ("Cannot read /proc/pid/maps");
+		// makes no sense on non-linux targets
+		R_LOG_DEBUG ("Cannot read /proc/pid/maps");
 		return NULL;
 	}
 
@@ -235,12 +236,8 @@ static RList *r_debug_gdb_map_get(RDebug* dbg) { // TODO
 		r_list_free (words);
 		free (wordstr);
 #else
-		// We assume Linux target, for now, so -
-		// 7ffff7dda000-7ffff7dfd000 r-xp 00000000 08:05 265428 /usr/lib/ld-2.25.so
-		// Android
-		// "12c00000-12c40000 rw-p 00000000 00:00 0                                  [anon:dalvik-main space (region space)]";
-		ret = sscanf (ptr, "%s %s %"PFMT64x" %*s %*s %[^\n]", &region1[2],
-			      perms, &offset, name);
+		ret = r_str_scanf (ptr, "%.s %.s %Lx %*s %*s %.[^\n]",
+			sizeof (region1) - 2, region1 + 2, sizeof (perms), perms, offset, sizeof (name), name);
 #endif
 		// eprintf ("RET = %d (%s)\n", ret, ptr);
 		if (ret == 3) {
@@ -272,7 +269,7 @@ static RList *r_debug_gdb_map_get(RDebug* dbg) { // TODO
 		map_start = r_num_get (NULL, region1);
 		map_end = r_num_get (NULL, region2);
 		if (map_start == map_end || map_end == 0) {
-			R_LOG_WARN ("%s: ignoring invalid map size: %s - %s", region1, region2);
+			R_LOG_WARN ("ignoring invalid map size: %s - %s", region1, region2);
 			ptr = r_str_tok_r (NULL, "\n", &save_ptr);
 			continue;
 		}
@@ -346,8 +343,7 @@ static bool gdb_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
 	}
 	int buflen = 0;
 	int bits = dbg->anal->config->bits;
-	const char *pcname = r_reg_get_name (dbg->anal->reg, R_REG_NAME_PC);
-	RRegItem *reg = r_reg_get (dbg->anal->reg, pcname, 0);
+	RRegItem *reg = r_reg_get (dbg->anal->reg, "PC", 0);
 	if (reg) {
 		if (bits != reg->size) {
 			bits = reg->size;
@@ -443,8 +439,8 @@ static bool r_debug_gdb_attach(RDebug *dbg, int pid) {
 	RIODesc *d = dbg->iob.io->desc;
 	// TODO: the core must update the dbg.swstep config var when this var is changed
 	dbg->swstep = false;
-	if (d && d->plugin && d->plugin->name && d->data) {
-		if (!strcmp ("gdb", d->plugin->name)) {
+	if (d && d->plugin && d->plugin->meta.name && d->data) {
+		if (!strcmp ("gdb", d->plugin->meta.name)) {
 			RIOGdb *g = d->data;
 			pd->origriogdb = (RIOGdb **)&d->data;	//TODO bit of a hack, please improve
 			pd->support_sw_bp = UNKNOWN;
@@ -646,7 +642,7 @@ static RList* r_debug_gdb_frames(RDebug *dbg, ut64 at) {
 }
 
 static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	PluginData *pd = R_NEW0 (PluginData);
 	if (!pd) {
@@ -660,7 +656,7 @@ static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
 }
 
 static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	PluginData *pd = ds->plugin_data;
 	if (!pd) {
@@ -679,11 +675,11 @@ RDebugPlugin r_debug_plugin_gdb = {
 		.name = "gdb",
 		.author = "pancake, defragger",
 		.desc = "gdb debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	/* TODO: Add support for more architectures here */
 	.arch = "x86,arm,sh,mips,avr,lm32,v850,ba2",
-	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_PACK3 (16, 32, 64),
 	.init_plugin = init_plugin,
 	.fini_plugin = fini_plugin,
 	.step = r_debug_gdb_step,

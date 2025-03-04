@@ -1,4 +1,4 @@
-/* radare - LGPL3 - Copyright 2016-2022 - c0riolis, x0urc3 */
+/* radare - LGPL3 - Copyright 2016-2023 - c0riolis, x0urc3 */
 
 #include <r_bin.h>
 #include "../format/pyc/pyc.h"
@@ -8,7 +8,7 @@ static R_TH_LOCAL struct pyc_version version;
 static R_TH_LOCAL RList *sections_cache = NULL;
 RList R_TH_LOCAL *interned_table = NULL; // used from marshall.c
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	if (r_buf_size (b) > 4) {
 		ut32 buf;
 		r_buf_read_at (b, 0, (ut8 *)&buf, sizeof (buf));
@@ -18,8 +18,8 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (bf, buf);
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
+	return check (bf, buf);
 }
 
 static ut64 get_entrypoint(RBuffer *buf) {
@@ -53,7 +53,7 @@ static RBinInfo *info(RBinFile *arch) {
 	ret->machine = r_str_newf ("Python %s VM (rev %s)", version.version,
 		version.revision);
 	ret->os = strdup ("any");
-	ret->bits = 32; // version2double (version.version) < 3.6? 16: 8;
+	ret->bits = 32; // TODO py_version_cmp (version.version, "3.6") >= 0? 32: 16;????
 	ret->cpu = strdup (version.version); // pass version info in cpu, Asm plugin will get it
 	return ret;
 }
@@ -102,17 +102,17 @@ static RList *symbols(RBinFile *arch) {
 	}
 	r_list_append (shared, cobjs);
 	r_list_append (shared, interned_table);
-	arch->o->bin_obj = shared;
+	arch->bo->bin_obj = shared;
 	RList *sections = r_list_newf (NULL); // (RListFree)free);
 	if (!sections) {
 		r_list_free (shared);
-		arch->o->bin_obj = NULL;
+		arch->bo->bin_obj = NULL;
 		return NULL;
 	}
 	RList *symbols = r_list_newf ((RListFree)free);
 	if (!symbols) {
 		r_list_free (shared);
-		arch->o->bin_obj = NULL;
+		arch->bo->bin_obj = NULL;
 		r_list_free (sections);
 		return NULL;
 	}
@@ -124,12 +124,15 @@ static RList *symbols(RBinFile *arch) {
 }
 
 RBinPlugin r_bin_plugin_pyc = {
-	.name = "pyc",
-	.desc = "Python byte-compiled file plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "pyc",
+		.author = "c0riolis,x0urc3",
+		.desc = "Python byte-compiled file plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.info = &info,
-	.load_buffer = &load_buffer,
-	.check_buffer = &check_buffer,
+	.load = &load,
+	.check = &check,
 	.entries = &entries,
 	.sections = &sections,
 	.baddr = &baddr,

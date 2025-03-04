@@ -61,7 +61,7 @@ R_API int r_core_setup_debugger(RCore *r, const char *debugbackend, bool attach)
 }
 
 R_API int r_core_seek_base(RCore *core, const char *hex) {
-	ut64 addr = r_num_tail (core->num, core->offset, hex);
+	ut64 addr = r_num_tail (core->num, core->addr, hex);
 	return r_core_seek (core, addr, true);
 }
 
@@ -77,7 +77,7 @@ R_API bool r_core_dump(RCore *core, const char *file, ut64 addr, ut64 size, int 
 		fd = r_sandbox_fopen (file, "wb");
 	}
 	if (!fd) {
-		R_LOG_ERROR ("Cannot open '%s' for writing", file);
+		R_LOG_ERROR ("Cannot open coredump '%s' for writing", file);
 		return false;
 	}
 	/* some io backends seems to be buggy in those cases */
@@ -159,9 +159,11 @@ R_API ut8* r_core_transform_op(RCore *core, const char *arg, char op) {
 			len = xlen;
 		} else {  // use clipboard as key
 			const ut8 *tmp = r_buf_data (core->yank_buf, &len);
-			str = r_mem_dup (tmp, len);
-			if (!str) {
-				goto beach;
+			if (tmp && len > 0) {
+				str = r_mem_dup (tmp, len);
+				if (!str) {
+					goto beach;
+				}
 			}
 		}
 	} else {
@@ -305,22 +307,24 @@ R_API ut8* r_core_transform_op(RCore *core, const char *arg, char op) {
 				len = numsize;
 			}
 		}
-		for (i = j = 0; i < core->blocksize; i++) {
-			switch (op) {
-			case 'x': buf[i] ^= str[j]; break;
-			case 'a': buf[i] += str[j]; break;
-			case 's': buf[i] -= str[j]; break;
-			case 'm': buf[i] *= str[j]; break;
-			case 'w': buf[i] = str[j]; break;
-			case 'd': buf[i] = (str[j])? (buf[i] / str[j]): 0; break;
-			case 'r': buf[i] >>= str[j]; break;
-			case 'l': buf[i] <<= str[j]; break;
-			case 'o': buf[i] |= str[j]; break;
-			case 'A': buf[i] &= str[j]; break;
-			}
-			j++;
-			if (j >= len) {
-				j = 0; /* cyclic key */
+		if (str) {
+			for (i = j = 0; i < core->blocksize; i++) {
+				switch (op) {
+				case 'x': buf[i] ^= str[j]; break;
+				case 'a': buf[i] += str[j]; break;
+				case 's': buf[i] -= str[j]; break;
+				case 'm': buf[i] *= str[j]; break;
+				case 'w': buf[i] = str[j]; break;
+				case 'd': buf[i] = (str[j])? (buf[i] / str[j]): 0; break;
+				case 'r': buf[i] >>= str[j]; break;
+				case 'l': buf[i] <<= str[j]; break;
+				case 'o': buf[i] |= str[j]; break;
+				case 'A': buf[i] &= str[j]; break;
+				}
+				j++;
+				if (j >= len) {
+					j = 0; /* cyclic key */
+				}
 			}
 		}
 	}
@@ -338,34 +342,34 @@ R_API int r_core_write_op(RCore *core, const char *arg, char op) {
 	if (!buf) {
 		return false;
 	}
-	int ret = r_core_write_at (core, core->offset, buf, core->blocksize);
+	int ret = r_core_write_at (core, core->addr, buf, core->blocksize);
 	free (buf);
 	return ret;
 }
 
-// Get address-specific bits and arch at a certain address.
-// If there are no specific infos (i.e. asm.bits and asm.arch should apply), the bits and arch will be 0 or NULL respectively!
 R_API void r_core_arch_bits_at(RCore *core, ut64 addr, R_OUT R_NULLABLE int *bits, R_OUT R_BORROW R_NULLABLE const char **arch) {
 	int bitsval = 0;
 	const char *archval = NULL;
-	RBinObject *o = r_bin_cur_object (core->bin);
-	RBinSection *s = o ? r_bin_get_section_at (o, addr, core->io->va) : NULL;
-	if (s) {
-		if (!core->fixedarch) {
-			archval = s->arch;
-		}
-		if (!core->fixedbits && s->bits) {
-			// only enforce if there's one bits set
-			switch (s->bits) {
-			case R_SYS_BITS_16:
-			case R_SYS_BITS_32:
-			case R_SYS_BITS_64:
-				bitsval = s->bits * 8;
-				break;
+	if (!core->fixedarch || !core->fixedbits) {
+		RBinObject *o = r_bin_cur_object (core->bin);
+		RBinSection *s = o ? r_bin_get_section_at (o, addr, core->io->va) : NULL;
+		if (s) {
+			if (!core->fixedarch) {
+				archval = s->arch;
+			}
+			if (!core->fixedbits && s->bits) {
+				// only enforce if there's one bits set
+				if (R_SYS_BITS_CHECK (s->bits, 16)) {
+					bitsval = 16;
+				} else if (R_SYS_BITS_CHECK (s->bits, 32)) {
+					bitsval = 32;
+				} else if (R_SYS_BITS_CHECK (s->bits, 64)) {
+					bitsval = 64;
+				}
 			}
 		}
 	}
-	//if we found bits related with anal hints pick it up
+	// if we found bits related with anal hints pick it up
 	if (bits && !bitsval && !core->fixedbits) {
 		bitsval = r_anal_hint_bits_at (core->anal, addr, NULL);
 	}
@@ -397,13 +401,16 @@ R_API void r_core_seek_arch_bits(RCore *core, ut64 addr) {
 }
 
 R_API bool r_core_seek(RCore *core, ut64 addr, bool rb) {
-	core->offset = r_io_seek (core->io, addr, R_IO_SEEK_SET);
+	if (!rb && addr == core->addr) {
+		return false;
+	}
+	core->addr = r_io_seek (core->io, addr, R_IO_SEEK_SET);
 	if (rb) {
 		r_core_block_read (core);
 	}
 	if (core->binat) {
 		// XXX wtf is this code doing here
-		RBinFile *bf = r_bin_file_at (core->bin, core->offset);
+		RBinFile *bf = r_bin_file_at (core->bin, core->addr);
 		if (bf) {
 			core->bin->cur = bf;
 			r_bin_select_bfid (core->bin, bf->id);
@@ -412,11 +419,11 @@ R_API bool r_core_seek(RCore *core, ut64 addr, bool rb) {
 			core->bin->cur = NULL;
 		}
 	}
-	return core->offset == addr;
+	return core->addr == addr;
 }
 
 R_API int r_core_seek_delta(RCore *core, st64 addr) {
-	ut64 tmp = core->offset;
+	ut64 tmp = core->addr;
 	if (addr == 0) {
 		return true;
 	}
@@ -431,38 +438,61 @@ R_API int r_core_seek_delta(RCore *core, st64 addr) {
 			addr += tmp;
 		}
 	}
-	core->offset = addr;
+	core->addr = addr;
 	return r_core_seek (core, addr, true);
 }
 
-// TODO: kill this wrapper
+// TODO: R2_600 deprecate this wrapper
 R_API bool r_core_write_at(RCore *core, ut64 addr, const ut8 *buf, int size) {
-	r_return_val_if_fail (core && buf && addr != UT64_MAX, false);
+	R_RETURN_VAL_IF_FAIL (core && buf, false);
 	if (size < 1) {
 		return false;
 	}
-	bool ret = r_io_write_at (core->io, addr, buf, size);
-	if (addr >= core->offset && addr <= core->offset + core->blocksize - 1) {
+	bool ret = false;
+	if (core->io->va && !r_config_get_b (core->config, "io.voidwrites")) {
+		ut64 vaddr = addr;
+		if ((UT64_MAX - (size - 1)) < addr) {
+			int len = UT64_MAX - addr + 1;
+			if (!r_io_map_locate (core->io, &vaddr, len, 1) || vaddr != addr) {
+				ret = r_io_write_at (core->io, addr, buf, size);
+				goto beach;
+			}
+			vaddr = 0;
+			if (!r_io_map_locate (core->io, &vaddr, size - len, 1) || vaddr != 0ULL) {
+				ret = r_io_write_at (core->io, addr, buf, size);
+			} else {
+				return false;
+			}
+		} else if (!r_io_map_locate (core->io, &vaddr, size, 1) || vaddr != addr) {
+			ret = r_io_write_at (core->io, addr, buf, size);
+		} else {
+			return false;
+		}
+	} else {
+		ret = r_io_write_at (core->io, addr, buf, size);
+	}
+beach:
+	if (addr >= core->addr && addr <= core->addr + core->blocksize - 1) {
 		r_core_block_read (core);
 	}
 	return ret;
 }
 
 R_API bool r_core_extend_at(RCore *core, ut64 addr, int size) {
-	r_return_val_if_fail (core && core->io, false);
+	R_RETURN_VAL_IF_FAIL (core && core->io, false);
 	if (!core->io->desc || size < 1 || addr == UT64_MAX) {
 		return false;
 	}
 	const bool io_va = r_config_get_b (core->config, "io.va");
 	if (io_va) {
-		RIOMap *map = r_io_map_get_at (core->io, core->offset);
+		RIOMap *map = r_io_map_get_at (core->io, core->addr);
 		if (map) {
 			addr = addr - r_io_map_begin (map) + map->delta;
 		}
 		r_config_set_i (core->config, "io.va", false);
 	}
 	int ret = r_io_extend_at (core->io, addr, size);
-	if (addr >= core->offset && addr <= core->offset + core->blocksize) {
+	if (addr >= core->addr && addr <= core->addr + core->blocksize) {
 		r_core_block_read (core);
 	}
 	r_config_set_b (core->config, "io.va", io_va);
@@ -537,7 +567,7 @@ R_API int r_core_block_read(RCore *core) {
 	int res = -1;
 	R_CRITICAL_ENTER (core);
 	if (core && core->block) {
-		res = r_io_read_at (core->io, core->offset, core->block, core->blocksize);
+		res = r_io_read_at (core->io, core->addr, core->block, core->blocksize);
 	}
 	R_CRITICAL_LEAVE (core);
 	return res;

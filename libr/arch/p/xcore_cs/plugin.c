@@ -1,7 +1,6 @@
-/* radare2 - LGPL - Copyright 2014-2023 - pancake */
+/* radare2 - LGPL - Copyright 2014-2024 - pancake */
 
 #include <r_arch.h>
-#include <r_lib.h>
 #include <capstone/capstone.h>
 #include <capstone/xcore.h>
 
@@ -60,7 +59,7 @@ static void opex(RStrBuf *buf, csh handle, cs_insn *insn) {
 }
 
 static csh cs_handle_for_session(RArchSession *as) {
-	r_return_val_if_fail (as && as->data, 0);
+	R_RETURN_VAL_IF_FAIL (as && as->data, 0);
 	CapstonePluginData *pd = as->data;
 	return pd->cs_handle;
 }
@@ -141,7 +140,7 @@ static char *mnemonics(RArchSession *as, int id, bool json) {
 }
 
 static bool init(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	if (as->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -157,7 +156,7 @@ static bool init(RArchSession *as) {
 }
 
 static bool fini(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	CapstonePluginData *cpd = as->data;
 	cs_close (&cpd->cs_handle);
 	R_FREE (as->data);
@@ -167,8 +166,8 @@ static bool fini(RArchSession *as) {
 const RArchPlugin r_arch_plugin_xcore_cs = {
 	.meta = {
 		.name = "xcore",
-		.desc = "Capstone XCORE analysis",
-		.license = "BSD",
+		.desc = "Capstone XCORE",
+		.license = "Apache-2.0",
 	},
 	.arch = "xcore",
 	.bits = R_SYS_BITS_PACK1 (32),

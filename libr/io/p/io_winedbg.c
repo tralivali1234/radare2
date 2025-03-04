@@ -1,13 +1,8 @@
-/* radare - LGPL - Copyright 2017-2022 - pancake */
+/* radare - LGPL - Copyright 2017-2024 - pancake */
 
-#include "r_types_base.h"
-#include "r_io.h"
-#include "r_lib.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
+#include <r_io.h>
 
-static RSocket *gs = NULL;
+static R_TH_LOCAL RSocket *gs = NULL;
 
 R_PACKED (struct winedbg_x86_32 {
 	ut16 cs;
@@ -106,7 +101,7 @@ Wine-dbg>
 	int wordSize = 4;
 	ut32 *w = (ut32*)buf;
 	int i;
-	memset (buf, 0xff, count);
+	memset (buf, io->Oxff, count);
 	int words = count / wordSize; // XXX must pad align to 4
 	for (i = 0; i < words ; i++) {
 		ut64 addr = io->off + (i * wordSize);
@@ -121,7 +116,7 @@ Wine-dbg>
 
 	int left = count % wordSize;
 	if (left > 0) {
-		ut32 n = 0xff;
+		ut32 n = UT32_MAX;
 		ut8 *wn = (ut8*)&n;
 		ut64 addr = io->off + (i * wordSize);
 		char *cmd = r_str_newf ("x 0x%"PFMT64x, addr);
@@ -153,9 +148,9 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 		io->off += offset;
 		break;
 	case R_IO_SEEK_END:
-		io->off = ST64_MAX;
+		io->off = UT64_MAX;
+		break;
 	}
-	io->off = offset;
 	return offset;
 }
 
@@ -230,7 +225,7 @@ static struct winedbg_x86_32 regState(void) {
 }
 
 static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
-	if (!strcmp (cmd, "")) {
+	if (R_STR_ISEMPTY (cmd)) {
 		return NULL;
 	}
 	if (*cmd == '?') {
@@ -367,10 +362,13 @@ const char *msg =
 }
 
 RIOPlugin r_io_plugin_winedbg = {
-	.name = "winedbg",
-	.desc = "Wine-dbg io and debug.io plugin",
+	.meta = {
+		.name = "winedbg",
+		.author = "pancake",
+		.desc = "Wine-dbg io and debug.io plugin",
+		.license = "MIT",
+	},
 	.uris = "winedbg://",
-	.license = "MIT",
 	.open = __open,
 	.close = __close,
 	.read = __read,

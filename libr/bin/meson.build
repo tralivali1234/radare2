@@ -3,7 +3,7 @@ subdir('d')
 r_bin_sources = [
   'bin.c',
   'bin_write.c',
-  'dbginfo.c',
+  'addrline.c',
   'demangle.c',
   'dwarf.c',
   'blang.c',
@@ -11,6 +11,7 @@ r_bin_sources = [
   'bfile.c',
   'bobj.c',
 # plugins
+  'p/bin_io.c',
   'p/bin_any.c',
   'p/bin_art.c',
   'p/bin_avr.c',
@@ -21,10 +22,6 @@ r_bin_sources = [
   'p/bin_cgc.c',
   'p/bin_coff.c',
   'p/bin_off.c', # goff ibm
-  'p/bin_dbginfo_dex.c',
-  'p/bin_dbginfo_elf.c',
-  'p/bin_dbginfo_elf64.c',
-  'p/bin_dbginfo_p9.c',
   'p/bin_dex.c',
   'p/bin_dis.c',
   'p/bin_dmp64.c',
@@ -58,7 +55,6 @@ r_bin_sources = [
   'p/bin_pebble.c',
   'p/bin_prg.c',
   'p/bin_psxexe.c',
-  'p/bin_pyc.c',
   'p/bin_qnx.c',
   'p/bin_rel.c',
   'p/bin_s390.c',
@@ -119,9 +115,6 @@ r_bin_sources = [
   'format/pe/pe64_write.c',
   'format/pe/pe_write.c',
   'format/pe/pemixed.c',
-  'format/pyc/marshal.c',
-  'format/pyc/pyc.c',
-  'format/pyc/pyc_magic.c',
   'format/te/te.c',
   'format/wasm/wasm.c',
   'format/zimg/zimg.c',
@@ -148,6 +141,15 @@ r_bin_sources = [
   'mangling/swift-sd.c',
   'mangling/swift.c'
 ]
+
+if bin_plugins.contains('pyc') or bin_plugins.contains('pickle')
+  r_bin_sources += [
+    'p/bin_pyc.c',
+    'format/pyc/marshal.c',
+    'format/pyc/pyc.c',
+    'format/pyc/pyc_magic.c',
+  ]
+endif
 
 r_bin_sources += r_bin_d_sources
 

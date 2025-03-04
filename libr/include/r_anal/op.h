@@ -33,7 +33,7 @@ typedef enum {
 	R_ANAL_OP_DIR_READ = 1,
 	R_ANAL_OP_DIR_WRITE = 2,
 	R_ANAL_OP_DIR_EXEC = 4,
-	R_ANAL_OP_DIR_REF = 8,
+	R_ANAL_OP_DIR_REF = 8, // uhm?
 } RAnalOpDirection;
 
 typedef enum {
@@ -78,7 +78,7 @@ On x86 according to Wikipedia
 #define R_ANAL_OP_HINT_MASK 0xf0000000
 
 typedef enum {
-	// R2_590 - DEPRECATE
+	// R2_600 - DEPRECATE
 	R_ANAL_OP_TYPE_COND  = 0x80000000, // TODO must be moved to prefix? // should not be TYPE those are modifiers!
 	R_ANAL_OP_TYPE_REP   = 0x40000000, /* repeats next instruction N times */
 	R_ANAL_OP_TYPE_MEM   = 0x20000000, // TODO must be moved to prefix?
@@ -114,7 +114,8 @@ typedef enum {
 	R_ANAL_OP_TYPE_ILL   = 6, /* illegal instruction // trap */
 	R_ANAL_OP_TYPE_UNK   = 7, /* unknown opcode type */
 	R_ANAL_OP_TYPE_NOP   = 8, /* does nothing */
-	R_ANAL_OP_TYPE_MOV   = 9, /* register move */
+	R_ANAL_OP_TYPE_MOV   = 9, /* move immediate into register */
+	R_ANAL_OP_TYPE_RMOV  = 9 | R_ANAL_OP_TYPE_REG, /* register move */
 	R_ANAL_OP_TYPE_CMOV  = 9 | R_ANAL_OP_TYPE_COND, /* conditional move */
 	R_ANAL_OP_TYPE_TRAP  = 10, /* it's a trap! */
 	R_ANAL_OP_TYPE_SWI   = 11, /* syscall, software interrupt */
@@ -163,23 +164,25 @@ typedef enum {
 
 /* TODO: what to do with signed/unsigned conditionals? */
 typedef enum {
-	R_ANAL_COND_AL = 0,        // Always executed (no condition)
-	R_ANAL_COND_EQ,            // Equal
-	R_ANAL_COND_NE,            // Not equal
-	R_ANAL_COND_GE,            // Greater or equal
-	R_ANAL_COND_GT,            // Greater than
-	R_ANAL_COND_LE,            // Less or equal
-	R_ANAL_COND_LT,            // Less than
-	R_ANAL_COND_NV,            // Never executed             must be a nop? :D
-	R_ANAL_COND_HS,            // Carry set                  >, ==, or unordered
-	R_ANAL_COND_LO,            // Carry clear                Less than
-	R_ANAL_COND_MI,            // Minus, negative            Less than
-	R_ANAL_COND_PL,            // Plus, positive or zero     >, ==, or unordered
-	R_ANAL_COND_VS,            // Overflow                   Unordered
-	R_ANAL_COND_VC,            // No overflow                Not unordered
-	R_ANAL_COND_HI,            // Unsigned higher            Greater than, or unordered
-	R_ANAL_COND_LS             // Unsigned lower or same     Less than or equal
-} _RAnalCond;
+	R_ANAL_CONDTYPE_AL = 0,        // Always executed (no condition)
+	R_ANAL_CONDTYPE_EQ,            // Equal
+	R_ANAL_CONDTYPE_NE,            // Not equal
+	R_ANAL_CONDTYPE_GE,            // Greater or equal
+	R_ANAL_CONDTYPE_GT,            // Greater than
+	R_ANAL_CONDTYPE_LE,            // Less or equal
+	R_ANAL_CONDTYPE_LT,            // Less than
+	R_ANAL_CONDTYPE_NV,            // Never executed             must be a nop? :D
+	R_ANAL_CONDTYPE_HS,            // Carry set                  >, ==, or unordered
+	R_ANAL_CONDTYPE_LO,            // Carry clear                Less than
+	R_ANAL_CONDTYPE_MI,            // Minus, negative            Less than
+	R_ANAL_CONDTYPE_PL,            // Plus, positive or zero     >, ==, or unordered
+	R_ANAL_CONDTYPE_VS,            // Overflow                   Unordered
+	R_ANAL_CONDTYPE_VC,            // No overflow                Not unordered
+	R_ANAL_CONDTYPE_HI,            // Unsigned higher            Greater than, or unordered
+	R_ANAL_CONDTYPE_LS,            // Unsigned lower or same     Less than or equal
+	R_ANAL_CONDTYPE_LAST,          // Amount of elements of the enum
+	R_ANAL_CONDTYPE_ERR = -1       // Invalid type
+} RAnalCondType;
 
 enum {
 	R_ANAL_REFLINE_TYPE_UTF8 = 1,
@@ -231,10 +234,12 @@ typedef struct r_anal_op_t {
 	RAnalOpPrefix prefix;	/* type of opcode prefix (rep,lock,..) */
 	ut32 type2;	/* used by java */
 	RAnalStackOp stackop; /* operation on stack? */
-	_RAnalCond cond; /* condition type */
+	RAnalCondType cond; /* condition type */
 	bool weakbytes;
 	ut8 *bytes;     /* can be null, but is used for encoding and decoding, malloc of `size` */
+	ut8 bytes_buf[64];
 	int size;       /* size in bytes of opcode */
+	bool tlocal;    // uses the thread local storage
 	int nopcode;    /* number of bytes representing the opcode (not the arguments) TODO: find better name */
 	int cycles;	/* cpu-cycles taken by instruction */
 	int failcycles;	/* conditional cpu-cycles */

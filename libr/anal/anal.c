@@ -1,9 +1,6 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2025 - pancake, nibble */
 
 #include <r_anal.h>
-#include <r_util.h>
-#include <r_list.h>
-#include <r_io.h>
 #include <config.h>
 #include "../config.h"
 
@@ -16,14 +13,12 @@ static RAnalPlugin *anal_static_plugins[] = {
 R_API void r_anal_set_limits(RAnal *anal, ut64 from, ut64 to) {
 	free (anal->limit);
 	anal->limit = R_NEW0 (RAnalRange);
-	if (anal->limit) {
-		anal->limit->from = from;
-		anal->limit->to = to;
-	}
+	anal->limit->from = from;
+	anal->limit->to = to;
 }
 
 R_API void r_anal_unset_limits(RAnal *anal) {
-	r_return_if_fail (anal);
+	R_RETURN_IF_FAIL (anal);
 	R_FREE (anal->limit);
 }
 
@@ -78,9 +73,6 @@ static void r_meta_item_free(void *_item) {
 R_API RAnal *r_anal_new(void) {
 	int i;
 	RAnal *anal = R_NEW0 (RAnal);
-	if (!anal) {
-		return NULL;
-	}
 	if (!r_str_constpool_init (&anal->constpool)) {
 		free (anal);
 		return NULL;
@@ -101,6 +93,7 @@ R_API RAnal *r_anal_new(void) {
 	anal->opt.depth = 32;
 	anal->opt.noncode = false; // do not analyze data by default
 	anal->lock = r_th_lock_new (true);
+	r_anal_backtrace_init (anal);
 	r_spaces_init (&anal->meta_spaces, "CS");
 	r_event_hook (anal->meta_spaces.event, R_SPACE_EVENT_UNSET, meta_unset_for, NULL);
 	r_event_hook (anal->meta_spaces.event, R_SPACE_EVENT_COUNT, meta_count_for, NULL);
@@ -127,7 +120,6 @@ R_API RAnal *r_anal_new(void) {
 	anal->diff_thbb = R_ANAL_THRESHOLDBB;
 	anal->diff_thfcn = R_ANAL_THRESHOLDFCN;
 	anal->syscall = r_syscall_new ();
-	r_io_bind_init (anal->iob);
 	r_flag_bind_init (anal->flb);
 	anal->reg = r_reg_new ();
 	anal->last_disasm_reg = NULL;
@@ -142,12 +134,13 @@ R_API RAnal *r_anal_new(void) {
 			r_anal_plugin_add (anal, anal_static_plugins[i]);
 		}
 	}
-	R_DIRTY (anal);
+	R_DIRTY_SET (anal);
 	return anal;
 }
 
 R_API bool r_anal_plugin_remove(RAnal *anal, RAnalPlugin *plugin) {
-	// R2_590 TODO
+	R_RETURN_VAL_IF_FAIL (anal && plugin, false);
+	// XXX TODO
 	return true;
 }
 
@@ -193,6 +186,7 @@ R_API void r_anal_free(RAnal *a) {
 	free (a->last_disasm_reg);
 	r_list_free (a->imports);
 	r_str_constpool_fini (&a->constpool);
+	r_anal_backtrace_fini (a);
 	free (a);
 }
 
@@ -200,23 +194,8 @@ R_API void r_anal_set_user_ptr(RAnal *anal, void *user) {
 	anal->user = user;
 }
 
-R_API bool r_esil_use(RAnal *anal, const char *name) {
-	RListIter *it;
-	REsilPlugin *h;
-
-	if (anal) {
-		r_list_foreach (anal->esil->plugins, it, h) {
-			if (!h->name || strcmp (h->name, name)) {
-				continue;
-			}
-			anal->esil_cur = h;
-			return true;
-		}
-	}
-	return false;
-}
-
 R_API int r_anal_plugin_add(RAnal *anal, RAnalPlugin *foo) {
+	R_RETURN_VAL_IF_FAIL (anal && foo, -1);
 	if (foo->init) {
 		foo->init (anal->user);
 	}
@@ -225,52 +204,37 @@ R_API int r_anal_plugin_add(RAnal *anal, RAnalPlugin *foo) {
 }
 
 R_API char *r_anal_mnemonics(RAnal *anal, int id, bool json) {
-	r_return_val_if_fail (anal, NULL);
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	RArchSession *session = R_UNWRAP3 (anal, arch, session);
 	RArchPluginMnemonicsCallback am = R_UNWRAP3 (session, plugin, mnemonics);
 	return am? am (session, id, json): NULL;
 }
 
 R_API bool r_anal_use(RAnal *anal, const char *name) {
-	r_return_val_if_fail (anal, false);
-#if 0
-	RListIter *it;
-	RAnalPlugin *h;
-	// r_anal plugins
-	r_list_foreach (anal->plugins, it, h) {
-		if (!h->meta.name || strcmp (h->meta.name, name)) {
-			continue;
-		}
-		anal->cur = h;
-		r_arch_config_use (anal->config, h->arch);
-		// R_LOG_DEBUG ("plugin found in analysis");
-		anal->uses = 1; // XXX must be always 2 or 0
-		return true;
-	}
-#endif
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	if (anal->arch) {
 		bool res = r_arch_use (anal->arch, anal->config, name);
 		if (res) {
-			anal->cur = NULL;
+	//		anal->cur = NULL;
 			r_anal_set_reg_profile (anal, NULL);
-			anal->uses = true;
 			return true;
 		}
 	}
-	anal->uses = false;
 	// R_LOG_DEBUG ("no plugin found");
 	return false;
 }
 
 R_API char *r_anal_get_reg_profile(RAnal *anal) {
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	RArchSession *session = R_UNWRAP3 (anal, arch, session);
 	RArchPluginRegistersCallback regs = R_UNWRAP3 (session, plugin, regs);
 	return regs? regs (session): NULL;
 }
 
+// R2_600 review this:
 // deprecate.. or at least reuse get_reg_profile...
 R_DEPRECATE R_API bool r_anal_set_reg_profile(RAnal *anal, const char *p) {
-	r_return_val_if_fail (anal, false);
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	char *rp = NULL;
 	bool ret = false;
 	if (!p) {
@@ -285,7 +249,7 @@ R_DEPRECATE R_API bool r_anal_set_reg_profile(RAnal *anal, const char *p) {
 }
 
 R_API bool r_anal_set_triplet(RAnal *anal, R_NULLABLE const char *os, R_NULLABLE const char *arch, int bits) {
-	r_return_val_if_fail (anal, false);
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	if (R_STR_ISEMPTY (os)) {
 		os = R_SYS_OS;
 	}
@@ -307,7 +271,7 @@ R_API bool r_anal_set_triplet(RAnal *anal, R_NULLABLE const char *os, R_NULLABLE
 
 // copypasta from core/cbin.c
 static void sdb_concat_by_path(Sdb *s, const char *path) {
-	r_return_if_fail (s && path);
+	R_RETURN_IF_FAIL (s && path);
 	Sdb *db = sdb_new (0, path, 0);
 	if (db) {
 		sdb_merge (s, db);
@@ -317,6 +281,7 @@ static void sdb_concat_by_path(Sdb *s, const char *path) {
 }
 
 R_API bool r_anal_set_os(RAnal *anal, const char *os) {
+	R_RETURN_VAL_IF_FAIL (anal && os, false);
 	Sdb *types = anal->sdb_types;
 	const char *dir_prefix = r_sys_prefix (NULL);
 	SdbGperf *gp = r_anal_get_gperf_types (os);
@@ -330,8 +295,9 @@ R_API bool r_anal_set_os(RAnal *anal, const char *os) {
 		return r_anal_set_triplet (anal, os, NULL, -1);
 	}
 	// char *ff = r_str_newf ("types-%s.sdb", os);
-	// char *dbpath = r_file_new (dir_prefix, r2_sdb_fcnsign, ff);
-	char *dbpath = r_str_newf ("%s/%s/types-%s.sdb", dir_prefix, R2_SDB_FCNSIGN, os);
+	// char *dbpath = r_file_new (dir_prefix, r2_sdb_fcnsign, ff, NULL);
+	char *dbpath = r_str_newf ("%s%s%s%stypes-%s.sdb",
+		dir_prefix, R_SYS_DIR, R2_SDB_FCNSIGN, R_SYS_DIR, os);
 	if (r_file_exists (dbpath)) {
 		sdb_concat_by_path (types, dbpath);
 	}
@@ -340,6 +306,7 @@ R_API bool r_anal_set_os(RAnal *anal, const char *os) {
 }
 
 R_API bool r_anal_set_bits(RAnal *anal, int bits) {
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	int obits = anal->config->bits;
 	r_arch_config_set_bits (anal->config, bits);
 	r_arch_set_bits (anal->arch, bits);
@@ -351,7 +318,7 @@ R_API bool r_anal_set_bits(RAnal *anal, int bits) {
 
 // see 'aobm' command
 R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
-	r_return_val_if_fail (anal && data && size > 0, NULL);
+	R_RETURN_VAL_IF_FAIL (anal && data && size > 0, NULL);
 	int oplen, idx = 0;
 
 	RAnalOp *op = r_anal_op_new ();
@@ -382,22 +349,23 @@ R_API ut8 *r_anal_mask(RAnal *anal, int size, const ut8 *data, ut64 at) {
 }
 
 R_API void r_anal_trace_bb(RAnal *anal, ut64 addr) {
-	r_return_if_fail (anal);
+	R_RETURN_IF_FAIL (anal);
 	RAnalBlock *bb = r_anal_get_block_at (anal, addr);
 	if (bb && !bb->traced) {
 		bb->traced = true;
-		R_DIRTY (anal);
+		R_DIRTY_SET (anal);
 	}
 }
 
 R_API RList* r_anal_get_fcns(RAnal *anal) {
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	// avoid received to free this thing
 	anal->fcns->free = NULL;
 	return anal->fcns;
 }
 
 R_API bool r_anal_op_is_eob(RAnalOp *op) {
-	r_return_val_if_fail (op, false);
+	R_RETURN_VAL_IF_FAIL (op, false);
 	if (op->eob) {
 		return true;
 	}
@@ -417,7 +385,7 @@ R_API bool r_anal_op_is_eob(RAnalOp *op) {
 }
 
 R_API void r_anal_purge(RAnal *anal) {
-	r_return_if_fail (anal);
+	R_RETURN_IF_FAIL (anal);
 	r_anal_hint_clear (anal);
 	r_interval_tree_fini (&anal->meta);
 	r_interval_tree_init (&anal->meta, r_meta_item_free);
@@ -444,9 +412,9 @@ static int default_archinfo(int res, int q) {
 // XXX deprecate. use r_arch_info() when all anal plugs get moved
 // XXX this function should NEVER return -1. it should provide all valid values, even if the delegate does not
 R_API R_DEPRECATE int r_anal_archinfo(RAnal *anal, int query) { // R2_590
-	r_return_val_if_fail (anal, -1);
+	R_RETURN_VAL_IF_FAIL (anal, -1);
 	int res = -1;
-	if (anal->uses && anal->arch->session) {
+	if (anal->arch->session) {
 		const char *const a = anal->arch->session? anal->arch->session->config->arch: "";
 		const char *const b = anal->config->arch;
 		if (!strcmp (a, b)) {
@@ -457,7 +425,8 @@ R_API R_DEPRECATE int r_anal_archinfo(RAnal *anal, int query) { // R2_590
 }
 
 R_API bool r_anal_is_aligned(RAnal *anal, const ut64 addr) {
-	const int align = r_anal_archinfo (anal, R_ANAL_ARCHINFO_ALIGN);
+	R_RETURN_VAL_IF_FAIL (anal, false);
+	const int align = r_anal_archinfo (anal, R_ARCH_INFO_CODE_ALIGN);
 	return align <= 1 || !(addr % align);
 }
 
@@ -518,7 +487,8 @@ R_API void r_anal_noreturn_list(RAnal *anal, int mode) {
 #define K_NORET_ADDR(x) r_strf ("addr.%"PFMT64x".noreturn", x)
 #define K_NORET_FUNC(x) r_strf ("func.%s.noreturn", x)
 
-R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr) {
+R_API bool r_anal_noreturn_add(RAnal *anal, R_NULLABLE const char *name, ut64 addr) {
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	r_strf_buffer (128);
 	const char *tmp_name = NULL;
 	Sdb *TDB = anal->sdb_types;
@@ -545,7 +515,7 @@ R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr) {
 		if (fcn) {
 			if (!fcn->is_noreturn) {
   				fcn->is_noreturn = true;
-				R_DIRTY (anal);
+				R_DIRTY_SET (anal);
 			}
 		}
 	}
@@ -571,6 +541,7 @@ R_API bool r_anal_noreturn_add(RAnal *anal, const char *name, ut64 addr) {
 }
 
 R_API bool r_anal_noreturn_drop(RAnal *anal, const char *expr) {
+	R_RETURN_VAL_IF_FAIL (anal && expr, false);
 	r_strf_buffer (64);
 	Sdb *TDB = anal->sdb_types;
 	const char *fcnname = r_str_trim_head_ro (expr);
@@ -602,6 +573,7 @@ R_API bool r_anal_noreturn_drop(RAnal *anal, const char *expr) {
 }
 
 static bool r_anal_noreturn_at_name(RAnal *anal, const char *name) {
+	R_RETURN_VAL_IF_FAIL (anal && name, false);
 	r_strf_buffer (128);
 	if (sdb_bool_get (anal->sdb_types, K_NORET_FUNC (name), NULL)) {
 		return true;
@@ -621,6 +593,7 @@ static bool r_anal_noreturn_at_name(RAnal *anal, const char *name) {
 }
 
 R_API bool r_anal_noreturn_at_addr(RAnal *anal, ut64 addr) {
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	r_strf_buffer (64);
 	return sdb_bool_get (anal->sdb_types, K_NORET_ADDR (addr), NULL);
 }
@@ -665,7 +638,8 @@ static bool noreturn_recurse(RAnal *anal, ut64 addr) {
 }
 
 R_API bool r_anal_noreturn_at(RAnal *anal, ut64 addr) {
-	if (!addr || addr == UT64_MAX) {
+	R_RETURN_VAL_IF_FAIL (anal, false);
+	if (addr == UT64_MAX) {
 		return false;
 	}
 	if (r_anal_noreturn_at_addr (anal, addr)) {
@@ -678,7 +652,7 @@ R_API bool r_anal_noreturn_at(RAnal *anal, ut64 addr) {
 			return true;
 		}
 	}
-	RFlagItem *fi = anal->flag_get (anal->flb.f, addr);
+	RFlagItem *fi = anal->flag_get (anal->flb.f, false, addr);
 	if (fi) {
 		if (r_anal_noreturn_at_name (anal, fi->realname ? fi->realname : fi->name)) {
 			return true;
@@ -705,7 +679,8 @@ R_API void r_anal_bind(RAnal *anal, RAnalBind *b) {
 }
 
 R_API RList *r_anal_preludes(RAnal *anal) {
-	if (anal->uses && anal->arch->session) {
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
+	if (anal->arch->session) {
 		const char *const a = anal->arch->session? anal->arch->session->config->arch: "";
 		const char *const b = anal->config->arch;
 		if (!strcmp (a, b)) {
@@ -724,12 +699,12 @@ R_API RList *r_anal_preludes(RAnal *anal) {
 }
 
 R_API bool r_anal_is_prelude(RAnal *anal, ut64 addr, const ut8 *data, int len) {
-	r_return_val_if_fail (anal, false);
+	R_RETURN_VAL_IF_FAIL (anal, false);
 	if (addr == UT64_MAX) {
 		return false;
 	}
 	ut8 *owned = NULL;
-	RFlagItem *flag = anal->flag_get (anal->flb.f, addr); // XXX should get a list
+	RFlagItem *flag = anal->flag_get (anal->flb.f, false, addr); // XXX should get a list
 	if (flag) {
 		if (r_str_startswith (flag->name, "func.")) {
 			return true;
@@ -742,9 +717,9 @@ R_API bool r_anal_is_prelude(RAnal *anal, ut64 addr, const ut8 *data, int len) {
 		}
 	}
 	if (!data) {
-		const int maxis = r_anal_archinfo (anal, R_ANAL_ARCHINFO_MAX_OP_SIZE);
+		const int maxis = r_anal_archinfo (anal, R_ARCH_INFO_MAXOP_SIZE);
 		owned = malloc (maxis);
-		if (!data) {
+		if (!owned) {
 			return false;
 		}
 		data = owned;
@@ -780,7 +755,7 @@ R_API void r_anal_add_import(RAnal *anal, const char *imp) {
 	if (!cimp) {
 		return;
 	}
-	R_DIRTY (anal);
+	R_DIRTY_SET (anal);
 	r_list_push (anal->imports, cimp);
 }
 
@@ -789,7 +764,7 @@ R_API void r_anal_remove_import(RAnal *anal, const char *imp) {
 	const char *eimp;
 	r_list_foreach (anal->imports, it, eimp) {
 		if (!strcmp (eimp, imp)) {
-			R_DIRTY (anal);
+			R_DIRTY_SET (anal);
 			r_list_delete (anal->imports, it);
 			return;
 		}
@@ -797,12 +772,13 @@ R_API void r_anal_remove_import(RAnal *anal, const char *imp) {
 }
 
 R_API void r_anal_purge_imports(RAnal *anal) {
-	r_return_if_fail (anal);
+	R_RETURN_IF_FAIL (anal);
 	r_list_purge (anal->imports);
-	R_DIRTY (anal);
+	R_DIRTY_SET (anal);
 }
 
 R_API bool r_anal_cmd(RAnal *anal, const char *cmd) {
+	R_RETURN_VAL_IF_FAIL (anal && cmd, false);
 	RListIter *iter;
 	RAnalPlugin *ap;
 	r_list_foreach (anal->plugins, iter, ap) {

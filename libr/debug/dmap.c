@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2017 - pancake */
+/* radare - LGPL - Copyright 2009-2023 - pancake */
 
 #include <r_debug.h>
 #include <r_list.h>
@@ -42,7 +42,7 @@ static void print_debug_map_line(RDebug *dbg, RDebugMap *map, ut64 addr, const c
 		);
 		free (name);
 	} else {
-		const char *fmtstr = dbg->bits & R_SYS_BITS_64
+		const char *fmtstr = R_SYS_BITS_CHECK (dbg->bits, 64)
 			? "0x%016" PFMT64x " - 0x%016" PFMT64x " %c %s %6s %c %s %s %s%s%s\n"
 			: "0x%08" PFMT64x " - 0x%08" PFMT64x " %c %s %6s %c %s %s %s%s%s\n";
 		const char *type = map->shared ? "sys": "usr";
@@ -84,6 +84,11 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, const char *input) {
 	if (!dbg) {
 		return;
 	}
+	int fd = -1;
+	RIODesc *d = dbg->iob.io->desc;
+	if (d) {
+		fd = d->fd;
+	}
 
 	switch (input[0]) {
 	case 'j': // "dmj" add JSON opening array brace
@@ -94,6 +99,13 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, const char *input) {
 		pj_a (pj);
 		break;
 	case '*': // "dm*" don't print a header for r2 commands output
+		if (input[1] == '-') {
+			r_cons_println ("om-*");
+			r_cons_printf ("omu %d 0x00000000 0xffffffffffffffff 0x00000000 rwx\n", fd);
+			return;
+		} else if (input[1] == '*') {
+			r_cons_println ("om-*");
+		}
 		break;
 	default:
 		// TODO: Find a way to only print headers if output isn't being grepped
@@ -111,8 +123,20 @@ R_API void r_debug_map_list(RDebug *dbg, ut64 addr, const char *input) {
 				print_debug_map_json (map, pj);
 				break;
 			case '*': // "dm*"
-				{
-					char *name = (map->name && *map->name)
+				if (input[1] == '*') {
+					char *name = R_STR_ISNOTEMPTY (map->name)
+						? r_str_newf ("%s.%s", map->name, r_str_rwx_i (map->perm))
+						: r_str_newf ("%08" PFMT64x ".%s", map->addr, r_str_rwx_i (map->perm));
+					r_name_filter (name, 0);
+					ut64 va = map->addr;
+					ut64 sz = map->addr_end - map->addr + 1;
+					ut64 pa = map->addr;
+					const char *rwx = r_str_rwx_i (map->perm);
+					dbg->cb_printf ("om %d 0x%08"PFMT64x" 0x%08"PFMT64x" 0x%08"PFMT64x" %s %s\n",
+							fd, va, sz, pa, rwx, name);
+					free (name);
+				} else {
+					char *name = R_STR_ISNOTEMPTY (map->name)
 						? r_str_newf ("%s.%s", map->name, r_str_rwx_i (map->perm))
 						: r_str_newf ("%08" PFMT64x ".%s", map->addr, r_str_rwx_i (map->perm));
 					r_name_filter (name, 0);
@@ -228,7 +252,8 @@ static void print_debug_maps_ascii_art(RDebug *dbg, RList *maps, ut64 addr, int 
 				mul = findMinMax (maps, &min, &max, skip, width); //  Recalculate minmax
 			}
 			skip++;
-			fmtstr = dbg->bits & R_SYS_BITS_64 // Prefix formatting string (before bar)
+			const bool is64 = R_SYS_BITS_CHECK (dbg->bits, 64);
+			fmtstr = is64
 				? "map %4.8s %c %s0x%016" PFMT64x "%s |"
 				: "map %4.8s %c %s0x%08" PFMT64x "%s |";
 			dbg->cb_printf (fmtstr, humansz,
@@ -245,9 +270,9 @@ static void print_debug_maps_ascii_art(RDebug *dbg, RList *maps, ut64 addr, int 
 					dbg->cb_printf ("-");
 				}
 			}
-			fmtstr = dbg->bits & R_SYS_BITS_64 ? // Suffix formatting string (after bar)
-				"| %s0x%016" PFMT64x "%s %s %s\n" :
-				"| %s0x%08" PFMT64x "%s %s %s\n";
+			fmtstr = is64 // Suffix formatting string (after bar)
+				? "| %s0x%016" PFMT64x "%s %s %s\n"
+				: "| %s0x%08" PFMT64x "%s %s %s\n";
 			dbg->cb_printf (fmtstr, color_prefix, map->addr_end, color_suffix,
 				r_str_rwx_i (map->perm), map->name);
 			last = map->addr;
@@ -256,39 +281,34 @@ static void print_debug_maps_ascii_art(RDebug *dbg, RList *maps, ut64 addr, int 
 }
 
 R_API void r_debug_map_list_visual(RDebug *dbg, ut64 addr, const char *input, int colors) {
-	if (dbg) {
-		int i;
-		for (i = 0; i < 2; i++) { // Iterate over dbg::maps and dbg::maps_user
-			RList *maps = (i == 0) ? dbg->maps : dbg->maps_user;
-			if (maps) {
-				RListIter *iter;
-				RDebugMap *map;
-				if (input[1] == '.') { // "dm=." Only show map overlapping current offset
-					dbg->cb_printf ("TODO:\n");
-					r_list_foreach (maps, iter, map) {
-						if (addr >= map->addr && addr < map->addr_end) {
-							// print_debug_map_ascii_art (dbg, map);
-						}
+	R_RETURN_IF_FAIL (dbg);
+	int i;
+	for (i = 0; i < 2; i++) { // Iterate over dbg::maps and dbg::maps_user
+		RList *maps = (i == 0) ? dbg->maps : dbg->maps_user;
+		if (maps) {
+			RListIter *iter;
+			RDebugMap *map;
+			if (input[1] == '.') { // "dm=." Only show map overlapping current offset
+				dbg->cb_printf ("TODO:\n");
+				r_list_foreach (maps, iter, map) {
+					if (addr >= map->addr && addr < map->addr_end) {
+						// print_debug_map_ascii_art (dbg, map);
 					}
-				} else { // "dm=" Show all maps with a graph
-					print_debug_maps_ascii_art (dbg, maps, addr, colors);
 				}
+			} else { // "dm=" Show all maps with a graph
+				print_debug_maps_ascii_art (dbg, maps, addr, colors);
 			}
 		}
 	}
 }
 
-R_API RDebugMap *r_debug_map_new(char *name, ut64 addr, ut64 addr_end, int perm, int user) {
-	RDebugMap *map;
+R_API R_NONNULL RDebugMap *r_debug_map_new(char *name, ut64 addr, ut64 addr_end, int perm, int user) {
 	/* range could be 0k on OpenBSD, it's a honeypot */
 	if (!name || addr > addr_end) {
 		R_LOG_ERROR ("r_debug_map_new: invalid (0x%" PFMT64x " > 0x%" PFMT64x ")", addr, addr_end);
 		return NULL;
 	}
-	map = R_NEW0 (RDebugMap);
-	if (!map) {
-		return NULL;
-	}
+	RDebugMap *map = R_NEW0 (RDebugMap);
 	map->name = strdup (name);
 	map->addr = addr;
 	map->addr_end = addr_end;
@@ -299,14 +319,17 @@ R_API RDebugMap *r_debug_map_new(char *name, ut64 addr, ut64 addr_end, int perm,
 }
 
 R_API RList *r_debug_modules_list(RDebug *dbg) {
-	return (dbg && dbg->current && dbg->current->plugin.modules_get)?
-		dbg->current->plugin.modules_get (dbg): NULL;
+	R_RETURN_VAL_IF_FAIL (dbg, NULL);
+	RDebugPlugin *ds = R_UNWRAP3 (dbg, current, plugin);
+	return (ds && ds->modules_get)?  ds->modules_get (dbg): NULL;
 }
 
 R_API bool r_debug_map_sync(RDebug *dbg) {
+	R_RETURN_VAL_IF_FAIL (dbg, false);
 	bool ret = false;
-	if (dbg && dbg->current && dbg->current->plugin.map_get) {
-		RList *newmaps = dbg->current->plugin.map_get (dbg);
+	RDebugPlugin *ds = R_UNWRAP3 (dbg, current, plugin);
+	if (ds && ds->map_get) {
+		RList *newmaps = ds->map_get (dbg);
 		if (newmaps) {
 			r_list_free (dbg->maps);
 			dbg->maps = newmaps;
@@ -317,25 +340,29 @@ R_API bool r_debug_map_sync(RDebug *dbg) {
 }
 
 R_API RDebugMap* r_debug_map_alloc(RDebug *dbg, ut64 addr, int size, bool thp) {
-	RDebugMap *map = NULL;
-	if (dbg && dbg->current && dbg->current->plugin.map_alloc) {
-		map = dbg->current->plugin.map_alloc (dbg, addr, size, thp);
+	R_RETURN_VAL_IF_FAIL (dbg, NULL);
+	RDebugPlugin *ds = R_UNWRAP3 (dbg, current, plugin);
+	if (ds && ds->map_alloc) {
+		return ds->map_alloc (dbg, addr, size, thp);
 	}
-	return map;
+	return NULL;
 }
 
-R_API int r_debug_map_dealloc(RDebug *dbg, RDebugMap *map) {
+R_API bool r_debug_map_dealloc(RDebug *dbg, RDebugMap *map) {
+	R_RETURN_VAL_IF_FAIL (dbg && map, false);
+	RDebugPlugin *ds = R_UNWRAP3 (dbg, current, plugin);
 	bool ret = false;
 	ut64 addr = map->addr;
-	if (dbg && dbg->current && dbg->current->plugin.map_dealloc) {
-		if (dbg->current->plugin.map_dealloc (dbg, addr, map->size)) {
+	if (ds->map_dealloc) {
+		if (ds->map_dealloc (dbg, addr, map->size)) {
 			ret = true;
 		}
 	}
-	return (int)ret;
+	return ret;
 }
 
 R_API RDebugMap *r_debug_map_get(RDebug *dbg, ut64 addr) {
+	R_RETURN_VAL_IF_FAIL (dbg, NULL);
 	RDebugMap *map, *ret = NULL;
 	RListIter *iter;
 	r_list_foreach (dbg->maps, iter, map) {
@@ -348,16 +375,13 @@ R_API RDebugMap *r_debug_map_get(RDebug *dbg, ut64 addr) {
 }
 
 R_API void r_debug_map_free(RDebugMap *map) {
-	free (map->name);
-	free (map->file);
-	free (map);
+	if (map) {
+		free (map->name);
+		free (map->file);
+		free (map);
+	}
 }
 
 R_API RList *r_debug_map_list_new(void) {
-	RList *list = r_list_new ();
-	if (!list) {
-		return NULL;
-	}
-	list->free = (RListFree)r_debug_map_free;
-	return list;
+	return r_list_newf ((RListFree)r_debug_map_free);
 }

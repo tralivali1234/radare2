@@ -3,7 +3,8 @@ include ../../global.mk
 NAME=r_asm
 R2DEPS=r_syscall r_util r_esil r_crypto
 R2DEPS+=r_flag r_cons r_reg r_arch
-CFLAGS+=-DR2_PLUGIN_INCORE -Iarch/include -Iarch -I../../shlr
+CFLAGS+=-DR2_PLUGIN_INCORE -Iarch/include -Iarch
+CFLAGS+=-I../../shlr # for spp only
 CURDIR=p/
 
 include $(TOP)/libr/config.mk
@@ -17,7 +18,7 @@ alle:
 	$(MAKE) gperfs
 	$(MAKE) plugins
 
-SDB_PATH=../../../shlr/sdb
+SDB_PATH=../../../subprojects/sdb
 SDB=$(SDB_PATH)/sdb
 
 gperfs:
@@ -40,11 +41,11 @@ $(EXTRA_CLEAN):
 	$(MAKE) -C p clean
 	rm -f `find arch/| grep '\.o$$'`
 
-# include ${STATIC_ASM_PLUGINS}
-# STATIC_OBJS=$(subst ..,p/..,$(subst asm_,p/asm_,$(STATIC_OBJ)))
+include ${STATIC_ASM_PLUGINS}
+STATIC_OBJS=$(subst ..,p/..,$(subst asm_,p/asm_,$(STATIC_OBJ)))
 
-include ${STATIC_PARSE_PLUGINS}
-STATIC_OBJS=$(subst ..,p/..,$(subst parse_,p/parse_,$(STATIC_OBJ)))
+# include ${STATIC_PARSE_PLUGINS}
+# STATIC_OBJS=$(subst ..,p/..,$(subst parse_,p/parse_,$(STATIC_OBJ)))
 OBJS=${STATIC_OBJS} asm.o acode.o aop.o agperf.o filter.o parse.o
 OBJS+=${SHARED2_OBJ}
 
@@ -57,6 +58,7 @@ OBJS+=d/arc.o
 OBJS+=d/gb.o
 OBJS+=d/evm.o
 OBJS+=d/arm.o
+OBJS+=d/cosmac.o
 OBJS+=d/avr.o
 OBJS+=d/chip8.o
 OBJS+=d/java.o

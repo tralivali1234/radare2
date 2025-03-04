@@ -1,4 +1,4 @@
-/* radare - LGPL3 - Copyright 2018-2023 - deroad */
+/* radare - LGPL-3.0-only - Copyright 2018-2024 - deroad */
 
 #include <r_anal.h>
 #include "mcore.h"
@@ -11,8 +11,8 @@ static bool decode(RArchSession *session, RAnalOp *op, RArchDecodeMask mask) {
 	mcore_t* instr = NULL;
 
 	if (mcore_init (&handle, buf, len)) {
-		R_LOG_ERROR ("mcore: bad or invalid data");
-		return -1;
+		// R_LOG_ERROR ("mcore: bad or invalid data");
+		return false;
 	}
 
 	op->size = 2;
@@ -46,7 +46,7 @@ static bool decode(RArchSession *session, RAnalOp *op, RArchDecodeMask mask) {
 		}
 		mcore_free (instr);
 	}
-	return op->size;
+	return true;
 }
 
 static char *regs(RArchSession *as) {
@@ -122,8 +122,9 @@ static int archinfo(RArchSession *s, ut32 q) {
 const RArchPlugin r_arch_plugin_mcore = {
 	.meta = {
 		.name = "mcore",
-		.desc = "MCore analysis plugin",
-		.license = "LGPL3",
+		.author = "deroad",
+		.desc = "MCore RISC-based microcontroller",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "mcore",
 	.bits = 32,

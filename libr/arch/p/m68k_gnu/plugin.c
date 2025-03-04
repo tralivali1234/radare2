@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2016-2023 - pancake */
+/* radare - LGPL - Copyright 2016-2024 - pancake */
 
 #include <r_arch.h>
 #include "../../include/opcode/m68k.h"
@@ -105,9 +105,9 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 
 static int info(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 6;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 2;
 	}
 	return 0;
@@ -117,7 +117,7 @@ const RArchPlugin r_arch_plugin_m68k_gnu = {
 	.meta = {
 		.name = "m68k.gnu",
 		.author = "pancake",
-		.license = "GPL3",
+		.license = "GPL-3.0-only",
 		.desc = "Binutils 2.36 based m68k disassembler",
 	},
 	.arch = "m68k",

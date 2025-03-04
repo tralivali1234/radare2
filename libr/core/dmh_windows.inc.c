@@ -1,9 +1,10 @@
-/* radare - LGPL - Copyright 2019-2022 - GustavoLCR */
+/* radare - LGPL - Copyright 2019-2024 - GustavoLCR */
 
 #undef R_LOG_ORIGIN
 #define R_LOG_ORIGIN "windows.heap"
 
-#include <r_core.h>
+#if R_INCLUDE_BEGIN
+
 #include <tlhelp32.h>
 #include "heap/r_windows.h"
 #include "../debug/p/native/maps/windows_maps.h"
@@ -155,7 +156,7 @@ static bool is_segment_heap(HANDLE h_proc, PVOID heapBase) {
 
 // These functions are basically Heap32First and Heap32Next but faster
 static bool GetFirstHeapBlock(PDEBUG_HEAP_INFORMATION heapInfo, PHeapBlock hb) {
-	r_return_val_if_fail (heapInfo && hb, false);
+	R_RETURN_VAL_IF_FAIL (heapInfo && hb, false);
 	PHeapBlockBasicInfo block;
 
 	hb->index = 0;
@@ -195,7 +196,7 @@ static bool GetFirstHeapBlock(PDEBUG_HEAP_INFORMATION heapInfo, PHeapBlock hb) {
 }
 
 static bool GetNextHeapBlock(PDEBUG_HEAP_INFORMATION heapInfo, PHeapBlock hb) {
-	r_return_val_if_fail (heapInfo && hb, false);
+	R_RETURN_VAL_IF_FAIL (heapInfo && hb, false);
 	PHeapBlockBasicInfo block;
 
 	block = (PHeapBlockBasicInfo)heapInfo->Blocks;
@@ -244,7 +245,7 @@ static bool GetNextHeapBlock(PDEBUG_HEAP_INFORMATION heapInfo, PHeapBlock hb) {
 }
 
 static void free_extra_info(PDEBUG_HEAP_INFORMATION heap) {
-	r_return_if_fail (heap);
+	R_RETURN_IF_FAIL (heap);
 	HeapBlock hb;
 	if (GetFirstHeapBlock (heap, &hb)) {
 		do {
@@ -272,7 +273,7 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 		return false;
 	}
 	bool doopen = lastNdtllAddr != map->addr;
-	char *ntdllopen = dbg->coreb.cmdstrf (dbg->coreb.core, "ob~%s", ntdll);
+	char *ntdllopen = dbg->coreb.cmdStrF (dbg->coreb.core, "ob~%s", ntdll);
 	if (*ntdllopen) {
 		char *save_ptr = NULL;
 		char *saddr = r_str_tok_r (ntdllopen, " ", &save_ptr);
@@ -283,7 +284,7 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 		if (doopen) {
 			// Close to reopen at the right address
 			int fd = atoi (ntdllopen);
-			dbg->coreb.cmdstrf (dbg->coreb.core, "o-%d", fd);
+			dbg->coreb.cmdStrF (dbg->coreb.core, "o-%d", fd);
 			RtlpHpHeapGlobalsOffset = RtlpLFHKeyOffset = 0;
 		}
 	}
@@ -298,12 +299,12 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 	r_list_free (modules);
 
 	if (!RtlpHpHeapGlobalsOffset || !RtlpLFHKeyOffset) {
-		char *res = dbg->coreb.cmdstrf (dbg->coreb.core, "idpi~RtlpHpHeapGlobals");
+		char *res = dbg->coreb.cmdStrF (dbg->coreb.core, "idpi~RtlpHpHeapGlobals");
 		if (!*res) {
 			// Try downloading the pdb
 			free (res);
 			dbg->coreb.cmd (dbg->coreb.core, "idpd");
-			res = dbg->coreb.cmdstrf (dbg->coreb.core, "idpi~RtlpHpHeapGlobals");
+			res = dbg->coreb.cmdStrF (dbg->coreb.core, "idpi~RtlpHpHeapGlobals");
 		}
 		if (*res) {
 			RtlpHpHeapGlobalsOffset = r_num_math (NULL, res);
@@ -312,7 +313,7 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 			return false;
 		}
 		free (res);
-		res = dbg->coreb.cmdstrf (dbg->coreb.core, "idpi~RtlpLFHKey");
+		res = dbg->coreb.cmdStrF (dbg->coreb.core, "idpi~RtlpLFHKey");
 		if (*res) {
 			RtlpLFHKeyOffset = r_num_math (NULL, res);
 		}
@@ -321,7 +322,7 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 
 	if (doopen) {
 		// Close ntdll.dll
-		char *res = dbg->coreb.cmdstrf (dbg->coreb.core, "o~%s", ntdll);
+		char *res = dbg->coreb.cmdStrF (dbg->coreb.core, "o~%s", ntdll);
 		int fd = atoi (res);
 		free (res);
 		dbg->coreb.cmdf (dbg->coreb.core, "o-%d", fd);
@@ -330,7 +331,7 @@ static bool GetHeapGlobalsOffset(RDebug *dbg, HANDLE h_proc) {
 }
 
 static bool GetLFHKey(RDebug *dbg, HANDLE h_proc, bool segment, WPARAM *lfhKey) {
-	r_return_val_if_fail (dbg, 0);
+	R_RETURN_VAL_IF_FAIL (dbg, 0);
 	WPARAM lfhKeyLocation;
 
 	if (!GetHeapGlobalsOffset (dbg, h_proc)) {
@@ -353,12 +354,13 @@ static bool GetLFHKey(RDebug *dbg, HANDLE h_proc, bool segment, WPARAM *lfhKey) 
 }
 
 static bool DecodeHeapEntry(RDebug *dbg, PHEAP heap, PHEAP_ENTRY entry) {
-	r_return_val_if_fail (heap && entry, false);
-	if (dbg->bits == R_SYS_BITS_64) {
+	R_RETURN_VAL_IF_FAIL (heap && entry, false);
+	const bool is64 = R_SYS_BITS_CHECK (dbg->bits, 64);
+	if (is64) {
 		entry = (PHEAP_ENTRY)((ut8 *)entry + dbg->bits);
 	}
 	if (heap->EncodeFlagMask && (*(UINT32 *)entry & heap->EncodeFlagMask)) {
-		if (dbg->bits == R_SYS_BITS_64) {
+		if (is64) {
 			heap = (PHEAP)((ut8 *)heap + dbg->bits);
 		}
 		*(WPARAM *)entry ^= *(WPARAM *)&heap->Encoding;
@@ -367,11 +369,11 @@ static bool DecodeHeapEntry(RDebug *dbg, PHEAP heap, PHEAP_ENTRY entry) {
 }
 
 static bool DecodeLFHEntry(RDebug *dbg, PHEAP heap, PHEAP_ENTRY entry, PHEAP_USERDATA_HEADER userBlocks, WPARAM key, WPARAM addr) {
-	r_return_val_if_fail (heap && entry, false);
-	if (dbg->bits == R_SYS_BITS_64) {
+	R_RETURN_VAL_IF_FAIL (heap && entry, false);
+	const bool is64 = R_SYS_BITS_CHECK (dbg->bits, 64);
+	if (is64) {
 		entry = (PHEAP_ENTRY)((ut8 *)entry + dbg->bits);
 	}
-
 	if (heap->EncodeFlagMask) {
 		*(DWORD *)entry ^= PtrToInt (heap->BaseAddress) ^ (DWORD)(((DWORD)addr - PtrToInt (userBlocks)) << 0xC) ^ (DWORD)key ^ (addr >> 4);
 	}
@@ -410,7 +412,8 @@ static RList *GetListOfHeaps(RDebug *dbg, HANDLE ph) {
 	PVOID heapAddress;
 	PVOID *processHeaps;
 	ULONG numberOfHeaps;
-	if (dbg->bits == R_SYS_BITS_64) {
+	const bool is64 = R_SYS_BITS_CHECK (dbg->bits, 64);
+	if (is64) {
 		processHeaps = *((PVOID *)(((ut8 *)&peb) + 0xF0));
 		numberOfHeaps = *((ULONG *)(((ut8 *)& peb) + 0xE8));
 	} else {
@@ -578,7 +581,7 @@ static bool __lfh_segment_loop(HANDLE h_proc, PHeapBlockBasicInfo *blocks, SIZE_
 }
 
 static bool GetSegmentHeapBlocks(RDebug *dbg, HANDLE h_proc, PVOID heapBase, PHeapBlockBasicInfo *blocks, ut64 *count, SIZE_T *allocated) {
-	r_return_val_if_fail (h_proc && blocks && count && allocated, false);
+	R_RETURN_VAL_IF_FAIL (h_proc && blocks && count && allocated, false);
 	WPARAM bytesRead;
 	SEGMENT_HEAP segheapHeader;
 	ReadProcessMemory (h_proc, heapBase, &segheapHeader, sizeof (SEGMENT_HEAP), &bytesRead);
@@ -723,7 +726,7 @@ static PDEBUG_BUFFER GetHeapBlocks(DWORD pid, RDebug *dbg) {
 			x86 vs x64 vs WOW64	(use dbg->bits or new structs or just a big union with both versions)
 	*/
 #if defined (_M_X64)
-	if (dbg->bits == R_SYS_BITS_32) {
+	if (R_SYS_BITS_CHECK (dbg->bits, 32)) {
 		return NULL; // Nope nope nope
 	}
 #endif
@@ -1126,7 +1129,7 @@ static PHeapBlock GetSingleBlock(RDebug *dbg, ut64 offset) {
 			if (entry.UnusedBytes & 0x80) {
 				tmpEntry = entry;
 				WPARAM userBlocksOffset;
-				if (dbg->bits == R_SYS_BITS_64) {
+				if (R_SYS_BITS_CHECK (dbg->bits, 64)) {
 					*(((WPARAM *)&tmpEntry) + 1) ^= PtrToInt (h.BaseAddress) ^ (entryOffset >> 0x4) ^ (DWORD)NtLFHKey;
 					userBlocksOffset = entryOffset - (USHORT)((*(((WPARAM *)&tmpEntry) + 1)) >> 0xC);
 				} else {
@@ -1201,7 +1204,7 @@ static void w32_list_heaps(RCore *core, const char format) {
 	r_table_add_column (tbl, r_table_type ("number"), "Blocks", -1);
 	r_table_add_column (tbl, r_table_type ("number"), "Allocated", -1);
 	r_table_add_column (tbl, r_table_type ("number"), "Commited", -1);
-	PJ *pj = pj_new ();
+	PJ *pj = r_core_pj_new (core);
 	pj_a (pj);
 	for (i = 0; i < heapInfo->count; i++) {
 		DEBUG_HEAP_INFORMATION heap = heapInfo->heaps[i];
@@ -1255,7 +1258,7 @@ static void w32_list_heaps_blocks(RCore *core, const char format) {
 	HeapBlock *block = malloc (sizeof (HeapBlock));
 	int i;
 	RTable *tbl = __new_heapblock_tbl ();
-	PJ *pj = pj_new ();
+	PJ *pj = r_core_pj_new (core);
 	pj_a (pj);
 	for (i = 0; i < heapInfo->count; i++) {
 		bool go = true;
@@ -1355,7 +1358,7 @@ static void cmd_debug_map_heap_block_win(RCore *core, const char *input) {
 			if (!type) {
 				type = "";
 			}
-			PJ *pj = pj_new ();
+			PJ *pj = r_core_pj_new (core);
 			RTable *tbl = __new_heapblock_tbl ();
 			ut64 headerAddr = off - granularity;
 			switch (input[0]) {
@@ -1415,3 +1418,5 @@ static int dmh_windows(RCore *core, const char *input) {
 	}
 	return true;
 }
+
+#endif

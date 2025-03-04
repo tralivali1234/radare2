@@ -1,12 +1,13 @@
 /* radare - LGPL - Copyright 2015-2022 - pancake */
 
 #include <r_reg.h>
+#include <r_util.h>
 
 // TODO: add support for 80bit floating point value
 
 // long double = 128 bit
 R_API double r_reg_get_double(RReg *reg, RRegItem *item) {
-	r_return_val_if_fail (reg && item, 0.0f);
+	R_RETURN_VAL_IF_FAIL (reg && item, 0.0f);
 	double vld = 0.0f;
 	double ret = 0.0f;
 	int off = BITS2BYTES (item->offset);
@@ -26,7 +27,7 @@ R_API double r_reg_get_double(RReg *reg, RRegItem *item) {
 }
 
 R_API bool r_reg_set_double(RReg *reg, RRegItem *item, double value) {
-	r_return_val_if_fail (reg && item, false);
+	R_RETURN_VAL_IF_FAIL (reg && item, false);
 	ut8 *src;
 	switch (item->size) {
 	case 64:
@@ -49,7 +50,7 @@ R_API bool r_reg_set_double(RReg *reg, RRegItem *item, double value) {
 
 // long double = 80 bit
 R_API long double r_reg_get_longdouble(RReg *reg, RRegItem *item) {
-	r_return_val_if_fail (reg && item, 0.0f);
+	R_RETURN_VAL_IF_FAIL (reg && item, 0.0f);
 	RRegSet *regset;
 	long double vld = 0.0f;
 	int off;
@@ -77,7 +78,7 @@ R_API long double r_reg_get_longdouble(RReg *reg, RRegItem *item) {
 }
 
 R_API bool r_reg_set_longdouble(RReg *reg, RRegItem *item, long double value) {
-	r_return_val_if_fail (reg && item, false);
+	R_RETURN_VAL_IF_FAIL (reg && item, false);
 	ut8 *src = NULL;
 
 	switch (item->size) {

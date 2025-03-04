@@ -72,8 +72,9 @@ static char* regs(RArchSession *as) {
 const RArchPlugin r_arch_plugin_lh5801 = {
 	.meta = {
 		.name = "lh5801",
-		.license = "LGPL3",
-		.desc = "SHARP LH5801 disassembler",
+		.author = "jn",
+		.license = "LGPL-3.0-only",
+		.desc = "SHARP LH5801 microprocessor",
 	},
 	.arch = "LH5801",
 	.bits = R_SYS_BITS_PACK1 (8),

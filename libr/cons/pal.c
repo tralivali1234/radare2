@@ -293,11 +293,11 @@ R_API void r_cons_pal_random(void) {
 		rcolor = RCOLOR_AT (i);
 		*rcolor = r_cons_color_random (ALPHA_FG);
 	}
-	r_cons_pal_update_event ();
+	r_cons_pal_reload ();
 }
 
 R_API char *r_cons_pal_parse(const char *str, R_NULLABLE RColor *outcol) {
-	r_return_val_if_fail (str, NULL);
+	R_RETURN_VAL_IF_FAIL (str, NULL);
 	RColor rcolor = (RColor) RColor_BLACK;
 	rcolor.id16 = -1;
 	char *attr = NULL;
@@ -318,18 +318,14 @@ R_API char *r_cons_pal_parse(const char *str, R_NULLABLE RColor *outcol) {
 	// Handle first color (fgcolor)
 	if (!strcmp (fgcolor, "random")) {
 		rcolor = r_cons_color_random (ALPHA_FG);
-		if (!outcol) {
-			r_cons_rgb_str (out, sizeof (out), &rcolor);
-		}
+		r_cons_rgb_str (out, sizeof (out), &rcolor);
 	} else if (fgcolor[0] == '#') { // "#00ff00" HTML format
 		if (strlen (fgcolor + 1) == 6) {
 			const char *kule = fgcolor + 1;
 			rcolor.r = rgbnum (kule[0], kule[1]);
 			rcolor.g = rgbnum (kule[2], kule[3]);
 			rcolor.b = rgbnum (kule[4], kule[5]);
-			if (!outcol) {
-				r_cons_rgb_str (out, sizeof (out), &rcolor);
-			}
+			r_cons_rgb_str (out, sizeof (out), &rcolor);
 		} else {
 			R_LOG_WARN ("Invalid html color code");
 		}
@@ -338,16 +334,12 @@ R_API char *r_cons_pal_parse(const char *str, R_NULLABLE RColor *outcol) {
 			rcolor.r = rgbnum (fgcolor[4], '0');
 			rcolor.g = rgbnum (fgcolor[5], '0');
 			rcolor.b = rgbnum (fgcolor[6], '0');
-			if (!outcol) {
-				r_cons_rgb_str (out, sizeof (out), &rcolor);
-			}
+			r_cons_rgb_str (out, sizeof (out), &rcolor);
 		} else if (strlen (fgcolor + 4) == 6) { // rgb:RRGGBB
 			rcolor.r = rgbnum (fgcolor[4], fgcolor[5]);
 			rcolor.g = rgbnum (fgcolor[6], fgcolor[7]);
 			rcolor.b = rgbnum (fgcolor[8], fgcolor[9]);
-			if (!outcol) {
-				r_cons_rgb_str (out, sizeof (out), &rcolor);
-			}
+			r_cons_rgb_str (out, sizeof (out), &rcolor);
 		}
 	}
 	// Handle second color (bgcolor)
@@ -423,7 +415,7 @@ R_API char *r_cons_pal_parse(const char *str, R_NULLABLE RColor *outcol) {
 		*outcol = rcolor;
 	}
 	free (fgcolor);
-	return (*out && !outcol) ? strdup (out) : NULL;
+	return *out ? strdup (out) : NULL;
 }
 
 static void r_cons_pal_show_gs(void) {
@@ -626,7 +618,7 @@ R_API void r_cons_pal_list(int rad, const char *arg) {
 }
 
 /* Modify the palette to set a color value.
- * r_cons_pal_update_event () must be called after this function
+ * r_cons_pal_reload () must be called after this function
  * so the changes take effect. */
 R_API int r_cons_pal_set(const char *key, const char *val) {
 	size_t i;
@@ -673,7 +665,7 @@ R_API int r_cons_pal_len(void) {
 	return keys_len;
 }
 
-R_API void r_cons_pal_update_event(void) {
+R_API void r_cons_pal_reload(void) {
 	__cons_pal_update_event (r_cons_context ());
 }
 

@@ -3,7 +3,7 @@
 #include <r_userconf.h>
 #include <r_util.h>
 
-#if R2__WINDOWS__
+#if R2__WINDOWS__ || __MINGW32__
 #include <windows.h>
 
 #if 1
@@ -277,7 +277,7 @@ static bool setup_debug_privileges(bool b) {
 static bool setup_debug_privilege_noarg(void) {
 	/////////////////////////////////////////////////////////
 	//   Note: Enabling SeDebugPrivilege adapted from sample
-	//     MSDN @ http://msdn.microsoft.com/en-us/library/aa446619%28VS.85%29.aspx
+	//     MSDN @ https://msdn.microsoft.com/en-us/library/aa446619%28VS.85%29.aspx
 	// Enable SeDebugPrivilege
 	bool ret = true;
 	TOKEN_PRIVILEGES tokenPriv;

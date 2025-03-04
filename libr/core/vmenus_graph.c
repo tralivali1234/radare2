@@ -180,14 +180,14 @@ static int cmpname(const void *_a, const void *_b) {
 }
 
 static void __sort(RCoreVisualViewGraph *status, RList *list) {
-	r_return_if_fail (status && list);
+	R_RETURN_IF_FAIL (status && list);
 	RListComparator cmp = (status->cur_sort == SORT_ADDRESS)? cmpaddr: cmpname;
 	list->sorted = false;
 	r_list_sort (list, cmp);
 }
 
 static void __toggleSort(RCoreVisualViewGraph *status) {
-	r_return_if_fail (status);
+	R_RETURN_IF_FAIL (status);
 	status->cur_sort = (status->cur_sort == SORT_ADDRESS)? SORT_NAME: SORT_ADDRESS;
 	__sort (status, status->mainCol);
 	__sort (status, status->refsCol);
@@ -196,7 +196,7 @@ static void __toggleSort(RCoreVisualViewGraph *status) {
 }
 
 static void __reset_status(RCoreVisualViewGraph *status) {
-	status->addr = status->core->offset;
+	status->addr = status->core->addr;
 	status->fcn = r_anal_get_function_at (status->core->anal, status->addr);
 
 	status->mainCol = __fcns (status->core);
@@ -248,17 +248,17 @@ R_API int __core_visual_view_graph_update(RCore *core, RCoreVisualViewGraph *sta
 
 	char *title = r_str_newf ("[r2-visual-browser] addr=0x%08"PFMT64x" faddr=0x%08"PFMT64x, status->addr, status->fcn ? status->fcn->addr : 0);
 	if (title) {
-		r_cons_strcat_at (title, 0, 0, w - 1, 2);
+		r_cons_print_at (title, 0, 0, w - 1, 2);
 		free (title);
 	}
-	r_cons_strcat_at (xrefsColstr, 0, 2, colw, colh);
-	r_cons_strcat_at (mainColstr, colx, 2, colw*2, colh);
-	r_cons_strcat_at (refsColstr, colx * 2, 2, colw, colh);
+	r_cons_print_at (xrefsColstr, 0, 2, colw, colh);
+	r_cons_print_at (mainColstr, colx, 2, colw*2, colh);
+	r_cons_print_at (refsColstr, colx * 2, 2, colw, colh);
 
 	char *output = r_core_cmd_strf (core, "pd %d @e:asm.flags=0@ 0x%08"PFMT64x"; pds 256 @ 0x%08"PFMT64x,
 		32, status->addr, status->addr);
 	int disy = colh + 2;
-	r_cons_strcat_at (output, 10, disy, w, h - disy);
+	r_cons_print_at (output, 10, disy, w, h - disy);
 	free (output);
 	r_cons_flush ();
 

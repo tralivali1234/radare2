@@ -8,9 +8,11 @@ RUN
 
 NAME=entry point 16 bits omf
 FILE=bins/omf/hello_world
-CMDS=ie~addr
+CMDS=ie
 EXPECT=<<EOF
-vaddr=0x00001000 paddr=0x00000073 haddr=-1 type=program
+paddr      vaddr      phaddr     vhaddr     type
+------------------------------------------------
+0x00000073 0x00001000 ---------- ---------- program
 EOF
 RUN
 
@@ -18,7 +20,6 @@ NAME=symbols 16 bits omf
 FILE=bins/omf/hello_world
 CMDS=is
 EXPECT=<<EOF
-[Symbols]
 nth paddr      vaddr      bind type size lib name   demangled
 -------------------------------------------------------------
 1   0x00000073 0x00001000 NONE NONE 0        _start
@@ -29,13 +30,10 @@ NAME=sections 16 bits omf
 FILE=bins/omf/hello_world
 CMDS=iS
 EXPECT=<<EOF
-[Sections]
-
-nth paddr       size vaddr       vsize perm type name
------------------------------------------------------
-0   0x00000073  0x13 0x00001000   0x13 -rwx ---- text_1
-1   0x00000095   0xe 0x00001013    0xe -rwx ---- data_1
-
+nth paddr       size vaddr       vsize perm flags type name
+-----------------------------------------------------------
+0   0x00000073  0x13 0x00001000   0x13 -rwx 0x0   ---- text_1
+1   0x00000095   0xe 0x00001013    0xe -rwx 0x0   ---- data_1
 EOF
 RUN
 
@@ -68,9 +66,11 @@ RUN
 
 NAME=entry point 32 bits omf
 FILE=bins/omf/hello_world32
-CMDS=ie~addr
+CMDS=ie
 EXPECT=<<EOF
-vaddr=0x00001000 paddr=0x00000074 haddr=-1 type=program
+paddr      vaddr      phaddr     vhaddr     type
+------------------------------------------------
+0x00000074 0x00001000 ---------- ---------- program
 EOF
 RUN
 
@@ -78,7 +78,6 @@ NAME=symbols 32 bits omf
 FILE=bins/omf/hello_world32
 CMDS=is
 EXPECT=<<EOF
-[Symbols]
 nth paddr      vaddr      bind type size lib name   demangled
 -------------------------------------------------------------
 1   0x00000074 0x00001000 NONE NONE 0        _start
@@ -89,13 +88,10 @@ NAME=sections 32 bits omf
 FILE=bins/omf/hello_world32
 CMDS=iS
 EXPECT=<<EOF
-[Sections]
-
-nth paddr       size vaddr       vsize perm type name
------------------------------------------------------
-0   0x00000074  0x1d 0x00001000   0x1d -rwx ---- .text_1
-1   0x000000a3   0xe 0x0000101d    0xe -rwx ---- .data_1
-
+nth paddr       size vaddr       vsize perm flags type name
+-----------------------------------------------------------
+0   0x00000074  0x1d 0x00001000   0x1d -rwx 0x0   ---- .text_1
+1   0x000000a3   0xe 0x0000101d    0xe -rwx 0x0   ---- .data_1
 EOF
 RUN
 
@@ -111,7 +107,6 @@ NAME=multiple symbols omf
 FILE=bins/omf/multi_pubdef
 CMDS=is
 EXPECT=<<EOF
-[Symbols]
 nth paddr      vaddr      bind type size lib name          demangled
 --------------------------------------------------------------------
 1   0x00000084 0x00001000 NONE NONE 0        _start
@@ -123,7 +118,6 @@ NAME=null checksum omf
 FILE=bins/omf/null_checks
 CMDS=is
 EXPECT=<<EOF
-[Symbols]
 nth paddr      vaddr      bind type size lib name   demangled
 -------------------------------------------------------------
 1   0x00000073 0x00001000 NONE NONE 0        _start

@@ -1,34 +1,43 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake */
+/* radare - LGPL - Copyright 2009-2024 - pancake */
 
-#include <r_core.h> // just to get the RPrint instance
 #include <r_debug.h>
+#include <r_core.h> // just to get the RPrint instance
 
 R_API bool r_debug_reg_sync(RDebug *dbg, int type, int must_write) {
-	r_return_val_if_fail (dbg && dbg->reg && dbg->current, false);
+	R_RETURN_VAL_IF_FAIL (dbg && dbg->reg, false);
+	if (dbg->current == NULL) {
+		return true;
+	}
+	RDebugPlugin *plugin = R_UNWRAP3 (dbg, current, plugin);
+	if (!plugin) {
+		// if dbg->current is null means that we didnt selected any debug plugin
+		// this function is only needed to sync the local regstate into the target process
+		return true;
+	}
 	int n, size;
 	if (r_debug_is_dead (dbg)) {
 		return false;
 	}
 	if (must_write) {
-		if (!dbg->current->plugin.reg_write) {
+		if (!plugin->reg_write) {
 			return false;
 		}
 	} else {
-		if (!dbg->current->plugin.reg_read) {
+		if (!plugin->reg_read) {
 			return false;
 		}
 	}
 	// Sync all the types sequentially if asked
-	int i = (type == R_REG_TYPE_ALL)? R_REG_TYPE_GPR: type;
+	ut32 i = (type == R_REG_TYPE_ALL)? R_REG_TYPE_GPR: type;
 	// Check to get the correct arena when using @ into reg profile (arena!=type)
 	// if request type is positive and the request regset don't have regs
-	if (i >= R_REG_TYPE_GPR && dbg->reg->regset[i].regs && !dbg->reg->regset[i].regs->length) {
+	if (i >= R_REG_TYPE_GPR || (dbg->reg->regset[i].regs && !dbg->reg->regset[i].regs->length)) {
 		// seek into the other arena for redirections.
 		for (n = R_REG_TYPE_GPR; n < R_REG_TYPE_LAST; n++) {
 			// get regset mask
-			int mask = dbg->reg->regset[n].maskregstype;
+			const ut32 mask = dbg->reg->regset[n].maskregstype;
 			// convert request arena to mask value
-			int v = ((int)1 << i);
+			const ut32 v = ((ut32)1 << i);
 			// skip checks on same request arena and check if this arena have inside the request arena type
 			if (n != i && (mask & v)) {
 				// eprintf(" req = %i arena = %i mask = %x search = %x \n", i, n, mask, v);
@@ -42,7 +51,7 @@ R_API bool r_debug_reg_sync(RDebug *dbg, int type, int must_write) {
 	do {
 		if (must_write) {
 			ut8 *buf = r_reg_get_bytes (dbg->reg, i, &size);
-			if (!buf || !dbg->current->plugin.reg_write (dbg, i, buf, size)) {
+			if (!buf || !plugin->reg_write (dbg, i, buf, size)) {
 				if (i == R_REG_TYPE_GPR) {
 					R_LOG_ERROR ("cannot write registers %d to %d", i, dbg->tid);
 				}
@@ -56,24 +65,12 @@ R_API bool r_debug_reg_sync(RDebug *dbg, int type, int must_write) {
 			int bufsize = dbg->reg->size;
 			if (bufsize > 0) {
 				ut8 *buf = calloc (2, bufsize);
-				if (!buf) {
-					return false;
+				if (buf) {
+					if (plugin->reg_read (dbg, i, buf, bufsize)) {
+						r_reg_set_bytes (dbg->reg, i, buf, bufsize);
+					}
+					free (buf);
 				}
-#if 0
-				//we have already checked dbg->current.plugin and dbg->current->plugin.reg_read above
-				size = dbg->current->plugin.reg_read (dbg, i, buf, bufsize);
-				// we need to check against zero because reg_read can return false
-				if (size > 0) {
-					r_reg_set_bytes (dbg->reg, i, buf, size); //R_MIN (size, bufsize));
-			//		free (buf);
-			//		return true;
-				}
-#else
-				if (dbg->current->plugin.reg_read (dbg, i, buf, bufsize)) {
-					r_reg_set_bytes (dbg->reg, i, buf, bufsize);
-				}
-#endif
-				free (buf);
 			}
 		}
 		// DO NOT BREAK R_REG_TYPE_ALL PLEASE
@@ -83,33 +80,31 @@ R_API bool r_debug_reg_sync(RDebug *dbg, int type, int must_write) {
 	} while ((type == R_REG_TYPE_ALL) && (i < R_REG_TYPE_LAST));
 	return true;
 }
+
 static bool is_mandatory(RRegItem *item, const char *pcname, const char *spname) {
-	if (!item || !pcname || !spname) {
-		return true;
-	}
+	R_RETURN_VAL_IF_FAIL (item, true);
 	// if regname is PC or SP should return false, otherwise return true
-	if (!strcmp (item->name, pcname)) {
+	if (pcname && !strcmp (item->name, pcname)) {
 		return false;
 	}
-	if (!strcmp (item->name, spname)) {
+	if (spname && !strcmp (item->name, spname)) {
 		return false;
 	}
 	return true;
 }
 
 R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, const char *use_color) {
-	r_return_val_if_fail (dbg && dbg->reg, false);
+	R_RETURN_VAL_IF_FAIL (dbg && dbg->reg, false);
 	int delta, cols, n = 0;
 	const char *fmt, *fmt2, *kwhites;
 	RPrint *pr = NULL;
 	int colwidth = 20;
 	RListIter *iter;
 	RRegItem *item;
-	RList *head;
 	ut64 diff;
 	char strvalue[256];
-	bool isJson = (rad == 'j' || rad == 'J');
-	r_return_val_if_fail (!isJson || (isJson && pj), false);
+	bool isJson = tolower (rad) == 'j';
+	R_RETURN_VAL_IF_FAIL (!isJson || (isJson && pj), false);
 
 	if (dbg->coreb.core) {
 		pr = ((RCore*)dbg->coreb.core)->print;
@@ -124,15 +119,13 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, co
 			size = 16;
 		}
 	}
-	if (dbg->bits & R_SYS_BITS_64) {
-		//fmt = "%s = 0x%08"PFMT64x"%s";
+	if (size == 64) {
 		fmt = "%s = %s%s";
 		fmt2 = "%s%6s%s %s%s";
 		kwhites = "         ";
 		colwidth = dbg->regcols? 30: 25;
 		cols = 3;
 	} else {
-		//fmt = "%s = 0x%08"PFMT64x"%s";
 		fmt = "%s = %s%s";
 		fmt2 = "%s%7s%s %s%s";
 		kwhites = "    ";
@@ -150,20 +143,20 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, co
 
 	int itmidx = -1;
 	dbg->creg = NULL;
-	head = r_reg_get_list (dbg->reg, type);
-	if (!head) {
+	RList *list = r_reg_get_list (dbg->reg, type);
+	if (!list) {
 		return false;
 	}
 	if (rad == 1 || rad == '*') {
 		dbg->cb_printf ("fs+%s\n", R_FLAGS_FS_REGISTERS);
 	}
-	const char *pcname = r_reg_get_name_by_type (dbg->reg, "PC");
-	const char *spname = r_reg_get_name_by_type (dbg->reg, "SP");
-#define IS_MANDATORY(x) is_mandatory ((x), pcname, spname)
-	r_list_foreach (head, iter, item) {
+	const char *pcname = r_reg_alias_getname (dbg->reg, R_REG_ALIAS_PC);
+	const char *spname = r_reg_alias_getname (dbg->reg, R_REG_ALIAS_SP);
+	bool isfirst = true;
+	r_list_foreach (list, iter, item) {
 		ut64 value;
 		utX valueBig;
-		if (type != -1 && IS_MANDATORY (item)) {
+		if (type != -1 && is_mandatory (item, pcname, spname)) {
 			if (type != item->type && R_REG_TYPE_FLG != item->type) {
 				continue;
 			}
@@ -209,7 +202,7 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, co
 			if (isJson) {
 				pj_kn (pj, item->name, value);
 			} else {
-				if (pr && pr->wide_offsets && dbg->bits & R_SYS_BITS_64) {
+				if (pr && pr->wide_offsets && R_SYS_BITS_CHECK (dbg->bits, 64)) {
 					snprintf (strvalue, sizeof (strvalue), "0x%016"PFMT64x, value);
 				} else {
 					snprintf (strvalue, sizeof (strvalue),"0x%08"PFMT64x, value);
@@ -255,6 +248,10 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, co
 		case 1:
 		case '*':
 			dbg->cb_printf ("f %s %d %s\n", item->name, item->size / 8, strvalue);
+			break;
+		case 'e':
+			dbg->cb_printf ("%s%s,%s,:=", isfirst?"":",", strvalue, item->name);
+			isfirst = false;
 			break;
 		case '.':
 			dbg->cb_printf ("dr %s=%s\n", item->name, strvalue);
@@ -312,6 +309,9 @@ R_API bool r_debug_reg_list(RDebug *dbg, int type, int size, PJ *pj, int rad, co
 		}
 		n++;
 	}
+	if (rad == 'e') {
+		dbg->cb_printf ("\n");
+	}
 	if (rad == 1 || rad == '*') {
 		dbg->cb_printf ("fs-\n");
 	}
@@ -325,14 +325,16 @@ beach:
 }
 
 R_API bool r_debug_reg_set(RDebug *dbg, const char *name, ut64 num) {
-	r_return_val_if_fail (dbg && name, false);
-	int role = r_reg_get_name_idx (name);
+	R_RETURN_VAL_IF_FAIL (dbg && name, false);
 	if (!dbg->reg) {
 		return false;
 	}
+#if 0
+	int alias = r_reg_get_name_idx (name);
 	if (role != -1) {
 		name = r_reg_get_name (dbg->reg, role);
 	}
+#endif
 	RRegItem *ri = r_reg_get (dbg->reg, name, R_REG_TYPE_ALL);
 	if (ri) {
 		r_reg_set_value (dbg->reg, ri, num);
@@ -342,18 +344,11 @@ R_API bool r_debug_reg_set(RDebug *dbg, const char *name, ut64 num) {
 	return (ri);
 }
 
-// XXX R2_590 deprecate
-R_API ut64 r_debug_reg_get(RDebug *dbg, const char *name) {
-	// ignores errors
-	return r_debug_reg_get_err (dbg, name, NULL, NULL);
-}
-
-R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *value) {
+R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, bool *err, utX *value) {
 	RRegItem *ri = NULL;
 	ut64 ret = 0LL;
-	int role = r_reg_get_name_idx (name);
 	if (err) {
-		*err = 0;
+		*err = false;
 	}
 	if (!dbg || !dbg->reg) {
 		if (err) {
@@ -361,8 +356,10 @@ R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *val
 		}
 		return UT64_MAX;
 	}
-	if (role != -1) {
-		name = r_reg_get_name (dbg->reg, role);
+#if 0
+	int alias = r_reg_alias_tostring (name);
+	if (alias != -1) {
+		name = r_reg_get_name (dbg->reg, alias);
 		if (R_STR_ISEMPTY (name)) {
 			if (err) {
 				*err = 1;
@@ -370,6 +367,7 @@ R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *val
 			return UT64_MAX;
 		}
 	}
+#endif
 	ri = r_reg_get (dbg->reg, name, R_REG_TYPE_ALL);
 	if (ri) {
 		r_debug_reg_sync (dbg, R_REG_TYPE_ALL, false);
@@ -390,9 +388,7 @@ R_API ut64 r_debug_reg_get_err(RDebug *dbg, const char *name, int *err, utX *val
 	return ret;
 }
 
-// XXX: R2_590 - dup for get_Err!
-R_API ut64 r_debug_num_callback(RNum *userptr, const char *str, int *ok) {
-	RDebug *dbg = (RDebug *)userptr;
-	// resolve using regnu
-	return r_debug_reg_get_err (dbg, str, ok, NULL);
+R_API ut64 r_debug_reg_get(RDebug *dbg, const char *name) {
+	return r_debug_reg_get_err (dbg, name, NULL, NULL);
 }
+

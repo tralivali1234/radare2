@@ -1,7 +1,5 @@
-/* radare - LGPL - Copyright 2011-2022 - pancake */
+/* radare - LGPL - Copyright 2011-2024 - pancake */
 
-#include <r_asm.h>
-#include <r_cons.h>
 #include <r_debug.h>
 
 static bool __rap_step(RDebug *dbg) {
@@ -31,8 +29,8 @@ static RDebugReasonType __rap_wait(RDebug *dbg, int pid) {
 static bool __rap_attach(RDebug *dbg, int pid) {
 // XXX TODO PID must be a socket here !!1
 	RIODesc *d = dbg->iob.io->desc;
-	if (d && d->plugin && d->plugin->name) {
-		if (!strcmp ("rap", d->plugin->name)) {
+	if (d && d->plugin && d->plugin->meta.name) {
+		if (!strcmp ("rap", d->plugin->meta.name)) {
 			eprintf ("SUCCESS: rap attach with inferior rap rio worked\n");
 		} else {
 			R_LOG_ERROR ("Underlying IO descriptor is not a rap one");
@@ -70,10 +68,10 @@ RDebugPlugin r_debug_plugin_rap = {
 		.name = "rap",
 		.author = "pancake",
 		.desc = "rap debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "any",
-	.bits = R_SYS_BITS_32,
+	.bits = R_SYS_BITS_PACK (32),
 	.step = __rap_step,
 	.cont = __rap_continue,
 	.attach = &__rap_attach,

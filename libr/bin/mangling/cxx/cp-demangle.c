@@ -107,7 +107,7 @@
 #endif
 
 #include <stdio.h>
-
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -183,18 +183,6 @@ static void d_init_info(const char *, int, size_t, struct d_info *);
 /* See if the compiler supports dynamic arrays.  */
 // CP_STATIC_IF_GLIBCPP_V3 struct demangle_component * cplus_demangle_type(struct d_info *di);
 
-#ifdef __GNUC__
-#define CP_DYNAMIC_ARRAYS
-#else
-#ifdef __STDC__
-#ifdef __STDC_VERSION__
-#if __STDC_VERSION__ >= 199901L
-#define CP_DYNAMIC_ARRAYS
-#endif /* __STDC__VERSION >= 199901L */
-#endif /* defined (__STDC_VERSION__) */
-#endif /* defined (__STDC__) */
-#endif /* ! defined (__GNUC__) */
-
 /* We avoid pulling in the ctype tables, to prevent pulling in
    additional unresolved symbols when this code is used in a library.
    FIXME: Is this really a valid reason?  This comes from the original
@@ -203,10 +191,6 @@ static void d_init_info(const char *, int, size_t, struct d_info *);
    As of this writing this file has the following undefined references
    when compiled with -DIN_GLIBCPP_V3: realloc, free, memcpy, strcpy,
    strcat, strlen.  */
-
-#define IS_DIGIT(c) ((c) >= '0' && (c) <= '9')
-#define IS_UPPER(c) ((c) >= 'A' && (c) <= 'Z')
-#define IS_LOWER(c) ((c) >= 'a' && (c) <= 'z')
 
 /* The prefix prepended by GCC to an identifier represnting the
    anonymous namespace.  */
@@ -1234,9 +1218,9 @@ cplus_demangle_mangled_name (struct d_info *di, int top_level)
      suffix.  */
   if (top_level && (di->options & DMGL_PARAMS) != 0)
     while (d_peek_char (di) == '.'
-	   && (IS_LOWER (d_peek_next_char (di))
+	   && (islower (d_peek_next_char (di))
 	       || d_peek_next_char (di) == '_'
-	       || IS_DIGIT (d_peek_next_char (di))))
+	       || isdigit (d_peek_next_char (di))))
       p = d_clone_suffix (di, p);
 
   return p;
@@ -1560,8 +1544,8 @@ d_prefix (struct d_info *di)
 	    /* Destructor name.  */
 	    dc = d_unqualified_name (di);
 	}
-      else if (IS_DIGIT (peek)
-	  || IS_LOWER (peek)
+      else if (isdigit (peek)
+	  || islower (peek)
 	  || peek == 'C'
 	  || peek == 'U'
 	  || peek == 'L')
@@ -1620,9 +1604,9 @@ d_unqualified_name (struct d_info *di)
   char peek;
 
   peek = d_peek_char (di);
-  if (IS_DIGIT (peek))
+  if (isdigit (peek))
     ret = d_source_name (di);
-  else if (IS_LOWER (peek))
+  else if (islower (peek))
     {
       if (peek == 'o' && d_peek_next_char (di) == 'n')
 	d_advance (di, 2);
@@ -1706,7 +1690,7 @@ d_number (struct d_info *di)
   ret = 0;
   while (1)
     {
-      if (! IS_DIGIT (peek))
+      if (! isdigit (peek))
 	{
 	  if (negative)
 	    ret = - ret;
@@ -1866,7 +1850,7 @@ d_operator_name (struct d_info *di)
 
   c1 = d_next_char (di);
   c2 = d_next_char (di);
-  if (c1 == 'v' && IS_DIGIT (c2))
+  if (c1 == 'v' && isdigit (c2))
     return d_make_extended_operator (di, c2 - '0', d_source_name (di));
   else if (c1 == 'c' && c2 == 'v')
     {
@@ -2539,9 +2523,9 @@ cplus_demangle_type (struct d_info *di)
 	char peek_next;
 
 	peek_next = d_peek_next_char (di);
-	if (IS_DIGIT (peek_next)
+	if (isdigit (peek_next)
 	    || peek_next == '_'
-	    || IS_UPPER (peek_next))
+	    || isupper (peek_next))
 	  {
 	    ret = d_substitution (di, 0);
 	    /* The substituted name may have been a template name and
@@ -2672,7 +2656,7 @@ cplus_demangle_type (struct d_info *di)
 	  /* Fixed point types. DF<int bits><length><fract bits><sat>  */
 	  ret = d_make_empty (di);
 	  ret->type = DEMANGLE_COMPONENT_FIXED_TYPE;
-	  if ((ret->u.s_fixed.accum = IS_DIGIT (d_peek_char (di))))
+	  if ((ret->u.s_fixed.accum = isdigit (d_peek_char (di))))
 	    /* For demangling we don't care about the bits.  */
 	    d_number (di);
 	  ret->u.s_fixed.length = cplus_demangle_type (di);
@@ -2980,7 +2964,7 @@ d_array_type (struct d_info *di)
   peek = d_peek_char (di);
   if (peek == '_')
     dim = NULL;
-  else if (IS_DIGIT (peek))
+  else if (isdigit (peek))
     {
       const char *s;
 
@@ -2990,7 +2974,7 @@ d_array_type (struct d_info *di)
 	  d_advance (di, 1);
 	  peek = d_peek_char (di);
 	}
-      while (IS_DIGIT (peek));
+      while (isdigit (peek));
       dim = d_make_name (di, s, d_str (di) - s);
       if (dim == NULL)
 	return NULL;
@@ -3314,7 +3298,7 @@ d_expression_1 (struct d_info *di)
 	}
       return d_make_function_param (di, index);
     }
-  else if (IS_DIGIT (peek)
+  else if (isdigit (peek)
 	   || (peek == 'o' && d_peek_next_char (di) == 'n'))
     {
       /* We can get an unqualified name as an expression in the case of
@@ -3769,16 +3753,16 @@ d_clone_suffix (struct d_info *di, struct demangle_component *encoding)
   const char *pend = suffix;
   struct demangle_component *n;
 
-  if (*pend == '.' && (IS_LOWER (pend[1]) || pend[1] == '_'))
+  if (*pend == '.' && (islower (pend[1]) || pend[1] == '_'))
     {
       pend += 2;
-      while (IS_LOWER (*pend) || *pend == '_')
+      while (islower (*pend) || *pend == '_')
 	pend++;
     }
-  while (*pend == '.' && IS_DIGIT (pend[1]))
+  while (*pend == '.' && isdigit (pend[1]))
     {
       pend += 2;
-      while (IS_DIGIT (*pend))
+      while (isdigit (*pend))
 	pend++;
     }
   d_advance (di, pend - suffix);
@@ -3853,7 +3837,7 @@ d_substitution (struct d_info *di, int prefix)
     return NULL;
 
   c = d_next_char (di);
-  if (c == '_' || IS_DIGIT (c) || IS_UPPER (c))
+  if (c == '_' || isdigit (c) || isupper (c))
     {
       unsigned int id;
 
@@ -3864,9 +3848,9 @@ d_substitution (struct d_info *di, int prefix)
 	    {
 	      unsigned int new_id;
 
-	      if (IS_DIGIT (c))
+	      if (isdigit (c))
 		new_id = id * 36 + c - '0';
-	      else if (IS_UPPER (c))
+	      else if (isupper (c))
 		new_id = id * 36 + c - 'A' + 10;
 	      else
 		return NULL;
@@ -4304,25 +4288,13 @@ cplus_demangle_print_callback (int options,
   d_print_init (&dpi, callback, opaque, dc);
 
   {
-#ifdef CP_DYNAMIC_ARRAYS
-    /* Avoid zero-length VLAs, which are prohibited by the C99 standard
-       and flagged as errors by Address Sanitizer.  */
-    __extension__ struct d_saved_scope scopes[(dpi.num_saved_scopes > 0)
-                                              ? dpi.num_saved_scopes : 1];
-    __extension__ struct d_print_template temps[(dpi.num_copy_templates > 0)
-                                                ? dpi.num_copy_templates : 1];
-
-    dpi.saved_scopes = scopes;
-    dpi.copy_templates = temps;
-#else
-    dpi.saved_scopes = alloca (dpi.num_saved_scopes
-			       * sizeof (*dpi.saved_scopes));
-    dpi.copy_templates = alloca (dpi.num_copy_templates
-				 * sizeof (*dpi.copy_templates));
-#endif
+    dpi.saved_scopes = calloc (dpi.num_saved_scopes, sizeof (*dpi.saved_scopes));
+    dpi.copy_templates = calloc (dpi.num_copy_templates, sizeof (*dpi.copy_templates));
     dpi.depth = 4096;
 
     d_print_comp (&dpi, options, dc);
+    free (dpi.saved_scopes);
+    free (dpi.copy_templates);
   }
 
   d_print_flush (&dpi);
@@ -5340,7 +5312,7 @@ d_print_comp_inner (struct d_print_info *dpi, int options,
 
 	d_append_string (dpi, "operator");
 	/* Add a space before new/delete.  */
-	if (IS_LOWER (op->name[0]))
+	if (islower (op->name[0]))
 	  d_append_char (dpi, ' ');
 	/* Omit a trailing space.  */
 	if (op->name[len-1] == ' ')
@@ -5785,7 +5757,7 @@ d_print_java_identifier (struct d_print_info *dpi, const char *name, int len)
 	    {
 	      int dig;
 
-	      if (IS_DIGIT (*q))
+	      if (isdigit (*q))
 		dig = *q - '0';
 	      else if (*q >= 'A' && *q <= 'F')
 		dig = *q - 'A' + 10;
@@ -6254,16 +6226,8 @@ d_demangle_callback (const char *mangled, int options,
   cplus_demangle_init_info (mangled, options, strlen (mangled), &di);
 
   {
-#ifdef CP_DYNAMIC_ARRAYS
-    __extension__ struct demangle_component comps[di.num_comps];
-    __extension__ struct demangle_component *subs[di.num_subs];
-
-    di.comps = comps;
-    di.subs = subs;
-#else
-    di.comps = alloca (di.num_comps * sizeof (*di.comps));
-    di.subs = alloca (di.num_subs * sizeof (*di.subs));
-#endif
+    di.comps = calloc (di.num_comps, sizeof (*di.comps));
+    di.subs = calloc (di.num_subs, sizeof (*di.subs));
 
     switch (type)
       {
@@ -6285,7 +6249,8 @@ d_demangle_callback (const char *mangled, int options,
 	d_advance (&di, strlen (d_str (&di)));
 	break;
       default:
-	abort (); /* We have listed all the cases.  */
+	fprintf (stderr, "Invalid DCT type\n");
+	// abort (); /* We have listed all the cases.  */
       }
 
     /* If DMGL_PARAMS is set, then if we didn't consume the entire
@@ -6302,6 +6267,8 @@ d_demangle_callback (const char *mangled, int options,
     status = (dc)
              ? cplus_demangle_print_callback (options, dc, callback, opaque)
              : 0;
+    free (di.comps);
+    free (di.subs);
   }
 
   return status;
@@ -6535,16 +6502,8 @@ is_ctor_or_dtor (const char *mangled,
   cplus_demangle_init_info (mangled, DMGL_GNU_V3, strlen (mangled), &di);
 
   {
-#ifdef CP_DYNAMIC_ARRAYS
-    __extension__ struct demangle_component comps[di.num_comps];
-    __extension__ struct demangle_component *subs[di.num_subs];
-
-    di.comps = comps;
-    di.subs = subs;
-#else
-    di.comps = alloca (di.num_comps * sizeof (*di.comps));
-    di.subs = alloca (di.num_subs * sizeof (*di.subs));
-#endif
+    di.comps = calloc (di.num_comps, sizeof (*di.comps));
+    di.subs = calloc (di.num_subs, sizeof (*di.subs));
 
     dc = cplus_demangle_mangled_name (&di, 1);
 
@@ -6585,6 +6544,8 @@ is_ctor_or_dtor (const char *mangled,
 	    break;
 	  }
       }
+    free (di.comps);
+    free (di.subs);
   }
 
   return ret;
@@ -6634,7 +6595,7 @@ static void print_usage(FILE* fp, int exit_value);
 
 /* Non-zero if CHAR is a character than can occur in a mangled name.  */
 #define is_mangled_char(CHAR)                                           \
-  (IS_ALPHA (CHAR) || IS_DIGIT (CHAR)                                   \
+  (IS_ALPHA (CHAR) || isdigit (CHAR)                                   \
    || (CHAR) == '_' || (CHAR) == '.' || (CHAR) == '$')
 
 /* The name of this program, as invoked.  */

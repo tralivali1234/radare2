@@ -17,7 +17,7 @@ CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=16
 wx 9a34002001
-?v $j
+?v $ij
 EOF
 EXPECT=<<EOF
 0x1234
@@ -30,7 +30,7 @@ CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=16
 wx ea34002001
-?v $j
+?v $ij
 EOF
 EXPECT=<<EOF
 0x1234
@@ -50,7 +50,7 @@ EXPECT=<<EOF
   {
     "opcode": "pushf",
     "disasm": "pushf",
-    "pseudo": "push ()",
+    "pseudo": "push (cpuflags)",
     "description": "push flags register onto the stack",
     "mnemonic": "pushf",
     "mask": "ff",
@@ -127,8 +127,7 @@ pdf
 EOF:
 EXPECT=<<EOF
 / 11: fcn.00000000 (int16_t arg_6h, int16_t arg_ah);
-|           ; arg int16_t arg_6h @ bp+0x6
-|           ; arg int16_t arg_ah @ bp+0xa
+| `- args(sp[0x4..0x8])
 |           0000:0000     55             push bp
 |           0000:0001     8bec           mov bp, sp
 |           0000:0003     c57606         lds si, [arg_6h]
@@ -204,7 +203,7 @@ FILE=malloc://2048
 CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=16
-e asm.offset.segment.bits=8
+e asm.addr.segment.bits=8
 s 0x400
 wx 9090558becea000004005dc3
 pd 1 @ 0x405
@@ -219,7 +218,7 @@ FILE=malloc://2048
 CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=16
-e asm.offset.segment.bits=8
+e asm.addr.segment.bits=8
 s 0x400
 wx 558becea000004005dc3
 af funcA @ 0x400
@@ -250,7 +249,7 @@ FILE=malloc://2048
 CMDS=<<EOF
 e asm.arch=x86
 e asm.bits=16
-e asm.offset.segment.bits=8
+e asm.addr.segment.bits=8
 s 0x400
 wx 558bec9a000004005dc3
 af funcA @ 0x400
@@ -268,10 +267,12 @@ af
 pdf
 EOF
 EXPECT=<<EOF
-            ;-- section.seg_000:
+            ;-- section..mzhdr:
+            ;-- section..text:
+            ;-- segment.seg_000:
             ;-- mz.dos_header:
 / 50: entry0 ();
-|           0000:0000     b8800b         mov ax, 0xb80                 ; [00] -rwx section size 16818 named seg_000
+|           0000:0000     b8800b         mov ax, 0xb80                 ; [01] -r-- section size 17426 named .text
 |           0000:0003     ba1c04         mov dx, 0x41c
 |           0000:0006     050000         add ax, 0                     ; RELOC 16 
 |           0000:0009     3b060200       cmp ax, word [2]              ; [0x2:2]=0xba0b

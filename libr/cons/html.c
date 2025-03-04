@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2024 - pancake, nibble */
 
 #include <r_cons.h>
 
@@ -35,6 +35,7 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 	bool inv = false;
 	char text_color[16] = {0};
 	char background_color[16] = {0};
+	bool has_bold = false;
 	bool has_set = false;
 	bool need_to_set = false;
 	bool need_to_clear = false;
@@ -47,17 +48,19 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 	if (!res) {
 		return NULL;
 	}
-	for (; ptr[0]; ptr = ptr + 1) {
+	for (; ptr[0]; ptr++) {
 		if (esc == 0 && ptr[0] != 0x1b && need_to_set) {
 			if (has_set) {
-				r_strbuf_append (res, "</font>");
+				r_strbuf_append (res, "</span>");
 				has_set = false;
 			}
 			if (!need_to_clear) {
 				first_style = true;
-				r_strbuf_append (res, "<font");
+				r_strbuf_append (res, "<span");
 				if (text_color[0]) {
-					r_strbuf_appendf (res, " color='%s'", text_color);
+					r_strbuf_append (res, first_style? " style='": ";");
+					r_strbuf_appendf (res, "color:%s", text_color);
+					first_style = false;
 				}
 				if (background_color[0]) {
 					r_strbuf_append (res, first_style? " style='": ";");
@@ -69,6 +72,11 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 					r_strbuf_append (res, "text-decoration:underline overline");
 					first_style = false;
 				}
+				if (has_bold) {
+					r_strbuf_append (res, first_style? " style='": ";");
+					r_strbuf_append (res, "font-weight:bold");
+					first_style = false;
+				}
 				r_strbuf_append (res, first_style? ">": "'>");
 				has_set = true;
 			}
@@ -76,15 +84,19 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 			need_to_set = false;
 		}
 		if (ptr[0] == '\n') {
-			tmp = (int) (size_t) (ptr - str);
-			r_strbuf_append_n (res, str, tmp);
-			if (!ptr[1]) {
-				// write new line if it's the end of the output
-				r_strbuf_append (res, "\n");
+			if (ptr > str) {
+				tmp = (int) (size_t) (ptr - str);
+				r_strbuf_append_n (res, str, tmp);
+				if (!ptr[1]) {
+					// write new line if it's the end of the output
+					r_strbuf_append (res, "\n");
+				} else {
+					r_strbuf_append (res, "<br />");
+				}
+				str = ptr + 1;
 			} else {
-				r_strbuf_append (res, "<br />");
+				r_strbuf_append (res, "<br />\n");
 			}
-			str = ptr + 1;
 			continue;
 		} else if (ptr[0] == '<') {
 			tmp = (int)(size_t) (ptr - str);
@@ -100,9 +112,13 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 			continue;
 		} else if (ptr[0] == ' ') {
 			tmp = (int) (size_t) (ptr - str);
-			r_strbuf_append_n (res, str, tmp);
+			if (tmp > 0) {
+				r_strbuf_append_n (res, str, tmp);
+				str = ptr + 1;
+			} else {
+				str++;
+			}
 			r_strbuf_append (res, "&nbsp;");
-			str = ptr + 1;
 			continue;
 		}
 		if (ptr[0] == 0x1b) {
@@ -129,6 +145,9 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 				ptr += 2;
 				esc = 0;
 				str = ptr;
+			} else if (ptr[0] == '1') {
+				// ignore bold
+				has_bold = true;
 			} else if (!memcmp (ptr, "2K", 2)) {
 				ptr += 2;
 				esc = 0;
@@ -140,7 +159,7 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 				esc = 0;
 				str = ptr;
 				continue;
-			} else if (IS_DIGIT (ptr[0]) && ptr[1] == ';' && IS_DIGIT (ptr[2])) {
+			} else if (isdigit (ptr[0]) && ptr[1] == ';' && isdigit (ptr[2])) {
 				char *m = strchr (ptr, 'm');
 				if (m) {
 					gethtmlrgb (ptr, background_color, sizeof (background_color));
@@ -149,7 +168,7 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 					str = ptr + 1;
 					esc = 0;
 				}
-			} else if (IS_DIGIT (ptr[0]) && IS_DIGIT (ptr[1]) && ptr[2] == ';') {
+			} else if (isdigit (ptr[0]) && isdigit (ptr[1]) && ptr[2] == ';') {
 				char *m = strchr (ptr, 'm');
 				if (m) {
 					gethtmlrgb (ptr, text_color, sizeof (text_color));
@@ -174,14 +193,7 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 					str = ptr + 1;
 				}
 				esc = 0;
-			} else if ((ptr[0] == '0' || ptr[0] == '1') && ptr[1] == ';' && IS_DIGIT (ptr[2])) {
-				// bg color is kind of ignored, but no glitch so far
-				r_cons_gotoxy (0, 0);
-				ptr += 4;
-				esc = 0;
-				str = ptr;
-				continue;
-			} else if ((ptr[0] == '0' || ptr[0] == '1') && ptr[1] == ';' && ptr[2] == '0') {
+			} else if ((ptr[0] == '0' || ptr[0] == '1') && ptr[1] == ';' && isdigit (ptr[2])) {
 				// bg color is kind of ignored, but no glitch so far
 				r_cons_gotoxy (0, 0);
 				ptr += 4;
@@ -237,9 +249,11 @@ R_API char *r_cons_html_filter(const char *ptr, int *newlen) {
 			}
 		}
 	}
-	r_strbuf_append_n (res, str, ptr - str);
+	if (ptr > str) {
+		r_strbuf_append_n (res, str, ptr - str);
+	}
 	if (has_set) {
-		r_strbuf_append (res, "</font>");
+		r_strbuf_append (res, "</span>");
 	}
 	if (newlen) {
 		*newlen = res->len;

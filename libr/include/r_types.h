@@ -4,7 +4,7 @@
 #undef _FILE_OFFSET_BITS
 #define _FILE_OFFSET_BITS 64
 
-// defines like IS_DIGIT, etc'
+// defines like isdigit, etc'
 #include <r_types_base.h>
 #include "r_util/r_str_util.h"
 #include <r_userconf.h>
@@ -28,14 +28,20 @@
 #define R_MODE_JSON 0x008
 #define R_MODE_ARRAY 0x010
 #define R_MODE_SIMPLEST 0x020
-#define R_MODE_CLASSDUMP 0x040
+#define R_MODE_CLASSDUMP 0x040 /* deprecate maybe */
 #define R_MODE_EQUAL 0x080
+#define R_MODE_KV 0x100
 
 #define R_IN /* do not use, implicit */
 #define R_OUT /* parameter is written, not read */
 #define R_INOUT /* parameter is read and written */
+#if R2_600
+#define R_OWNED /* pointer ownership is transferred */
+#define R_UNOWNED /* pointer ownership is not transferred, it must not be freed by the caller */
+#else
 #define R_OWN /* pointer ownership is transferred */
 #define R_BORROW /* pointer ownership is not transferred, it must not be freed by the caller */
+#endif
 #define R_NONNULL /* pointer can not be null */
 #define R_NULLABLE /* pointer can be null */
 
@@ -78,6 +84,7 @@
 #define R_PERM_R	4
 #define R_PERM_W	2
 #define R_PERM_X	1
+#define R_PERM_NONE	0
 #define R_PERM_RW	(R_PERM_R|R_PERM_W)
 #define R_PERM_RX	(R_PERM_R|R_PERM_X)
 #define R_PERM_RWX	(R_PERM_R|R_PERM_W|R_PERM_X)
@@ -87,6 +94,7 @@
 #define R_PERM_PRIV	16
 #define R_PERM_ACCESS	32
 #define R_PERM_CREAT	64
+// R2_600 typedef int RPerm;
 
 
 // HACK to fix capstone-android-mips build
@@ -99,7 +107,7 @@
 #endif
 
 #ifndef TARGET_OS_IPHONE
-#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__)
+#if defined(__APPLE__) && (__arm__ || __arm64__ || __aarch64__ || __arm64e__)
 #define TARGET_OS_IPHONE 1
 #else
 #define TARGET_OS_IPHONE 0
@@ -184,7 +192,7 @@
 #define HAVE_PTY R2__UNIX__ && LIBC_HAVE_FORK && !__sun
 #endif
 
-#if defined(EMSCRIPTEN) || defined(__wasi__) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun) || defined(__HAIKU__) || defined(__serenity__) || defined(__vinix__)
+#if defined(EMSCRIPTEN) || defined(__wasi__) || defined(__linux__) || defined(__APPLE__) || defined(__GNU__) || defined(__ANDROID__) || defined(__QNX__) || defined(__sun) || defined(__HAIKU__) || defined(__serenity__) || defined(__vinix__) || defined(_AIX)
   #define R2__BSD__ 0
   #define R2__UNIX__ 1
 #endif
@@ -264,6 +272,25 @@
 #include <fcntl.h> /* for O_RDONLY */
 #include <r_endian.h> /* needs size_t */
 
+#if R2__UNIX__
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/time.h>
+#ifdef __HAIKU__
+// Original macro cast it to clockid_t
+#undef CLOCK_MONOTONIC
+#define CLOCK_MONOTONIC 0
+#endif
+#endif
+
+#if __MINGW32__
+#include <sys/time.h>
+#include <unistd.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -331,6 +358,7 @@ typedef int (*PrintfCallback)(const char *str, ...) R_PRINTF_CHECK(1, 2);
   #endif
 #endif
 
+
 #define R_HIDDEN __attribute__((visibility("hidden")))
 
 #define R_LIB_VERSION_HEADER(x) \
@@ -395,20 +423,6 @@ static inline void *r_new_copy(int size, void *data) {
 #define r_sys_perror(x) r_sys_perror_str(x);
 #endif
 
-#if R2__UNIX__
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <dirent.h>
-#include <unistd.h>
-#include <sys/time.h>
-#ifdef __HAIKU__
-// Original macro cast it to clockid_t
-#undef CLOCK_MONOTONIC
-#define CLOCK_MONOTONIC 0
-#endif
-#endif
-
 #ifndef typeof
 #define typeof(arg) __typeof__(arg)
 #endif
@@ -423,7 +437,6 @@ static inline void *r_new_copy(int size, void *data) {
 #endif
 #endif
 
-
 #define R_FREE(x) { free((void *)x); x = NULL; }
 
 #if R2__WINDOWS__
@@ -433,7 +446,11 @@ static inline void *r_new_copy(int size, void *data) {
 #endif
 
 #if R2__WINDOWS__
+#if __MINGW32__
+#define PFMT64x PRIx64
+#else
 #define PFMT64x "I64x"
+#endif
 #define PFMT64d "I64d"
 #define PFMT64u "I64u"
 #define PFMT64o "I64o"
@@ -527,7 +544,7 @@ static inline void *r_new_copy(int size, void *data) {
 #elif R2__WINDOWS__
 # define R_SYS_BASE ((ut64)0x01001000)
 #else // linux, bsd, ...
-# if __arm__ || __arm64__
+# if __arm__ || __arm64__ || __arm64e__
 # define R_SYS_BASE ((ut64)0x4000)
 # else
 # define R_SYS_BASE ((ut64)0x8048000)
@@ -536,23 +553,23 @@ static inline void *r_new_copy(int size, void *data) {
 
 /* arch */
 #if __i386__
-#define R_SYS_ARCH "x86"
-#define R_SYS_BITS R_SYS_BITS_32
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "x86"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define R_SYS_ENDIAN 0
 #elif __EMSCRIPTEN__ || __wasi__
-#define R_SYS_ARCH "wasm"
-#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "wasm"
+# define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
+# define R_SYS_ENDIAN 0
 #elif __x86_64__
-#define R_SYS_ARCH "x86"
-#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "x86"
+# define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
+# define R_SYS_ENDIAN 0
 #elif __POWERPC__
 # define R_SYS_ARCH "ppc"
 # ifdef __powerpc64__
-#  define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
+#  define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
 # else
-#  define R_SYS_BITS R_SYS_BITS_32
+#  define R_SYS_BITS R_SYS_BITS_PACK (32)
 # endif
 # if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
 #  define R_SYS_ENDIAN 0
@@ -560,69 +577,77 @@ static inline void *r_new_copy(int size, void *data) {
 #  define R_SYS_ENDIAN 1
 # endif
 #elif __arm__
-#define R_SYS_ARCH "arm"
-#define R_SYS_BITS R_SYS_BITS_32
-#define R_SYS_ENDIAN 0
-#elif __arm64__ || __aarch64__
-#define R_SYS_ARCH "arm"
-#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "arm"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define R_SYS_ENDIAN 0
+#elif __arm64__ || __aarch64__ || __arm64e__
+# define R_SYS_ARCH "arm"
+# define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
+# define R_SYS_ENDIAN 0
 #elif __arc__
-#define R_SYS_ARCH "arc"
-#define R_SYS_BITS R_SYS_BITS_32
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "arc"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define R_SYS_ENDIAN 0
 #elif __s390x__
-#define R_SYS_ARCH "s390x"
-#define R_SYS_BITS R_SYS_BITS_64
-#define R_SYS_ENDIAN 1
+# define R_SYS_ARCH "s390"
+# define R_SYS_BITS R_SYS_BITS_PACK (64)
+# define R_SYS_ENDIAN 1
 #elif __sparc__
 #define R_SYS_ARCH "sparc"
-#define R_SYS_BITS R_SYS_BITS_32
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
 #define R_SYS_ENDIAN 1
 #elif __mips__
-#define R_SYS_ARCH "mips"
-#define R_SYS_BITS R_SYS_BITS_32
-#define R_SYS_ENDIAN 1
+# define R_SYS_ARCH "mips"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define R_SYS_ENDIAN 1
 #elif __loongarch__
-#define R_SYS_ARCH "loongarch"
-#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
-#define R_SYS_ENDIAN 1
+# define R_SYS_ARCH "loongarch"
+# define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
+# define R_SYS_ENDIAN 1
 #elif __EMSCRIPTEN__
 /* we should default to wasm when ready */
-#define R_SYS_ARCH "x86"
-#define R_SYS_BITS R_SYS_BITS_32
+# define R_SYS_ARCH "x86"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
 #elif __riscv__ || __riscv
 # define R_SYS_ARCH "riscv"
 # define R_SYS_ENDIAN 0
 # if __riscv_xlen == 32
-#  define R_SYS_BITS R_SYS_BITS_32
+#  define R_SYS_BITS R_SYS_BITS_PACK (32)
 # else
-#  define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
+#  define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
 # endif
 #else
 #ifdef _MSC_VER
-#ifdef _WIN64
-#define R_SYS_ARCH "x86"
-#define R_SYS_BITS (R_SYS_BITS_32 | R_SYS_BITS_64)
-#define R_SYS_ENDIAN 0
-#define __x86_64__ 1
+#if defined(_M_ARM64)
+# define R_SYS_ARCH "arm"
+# define R_SYS_BITS R_SYS_BITS_PACK (64)
+# define R_SYS_ENDIAN 0
+#elif defined(_WIN64)
+# define R_SYS_ARCH "x86"
+# define R_SYS_BITS R_SYS_BITS_PACK2 (32, 64)
+# define R_SYS_ENDIAN 0
+# define __x86_64__ 1
 #else
-#define R_SYS_ARCH "x86"
-#define R_SYS_BITS (R_SYS_BITS_32)
-#define __i386__ 1
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "x86"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define __i386__ 1
+# define R_SYS_ENDIAN 0
 #endif
 #else
-#define R_SYS_ARCH "unknown"
-#define R_SYS_BITS R_SYS_BITS_32
-#define R_SYS_ENDIAN 0
+# define R_SYS_ARCH "unknown"
+# define R_SYS_BITS R_SYS_BITS_PACK (32)
+# define R_SYS_ENDIAN 0
 #endif
 #endif
 
+// TODO: use 1234, 4321, 1324, ...
 #define R_SYS_ENDIAN_NONE 0
 #define R_SYS_ENDIAN_LITTLE 1
+// #define R_SYS_ENDIAN_4321 1
 #define R_SYS_ENDIAN_BIG 2
+// #define R_SYS_ENDIAN_1234 2
 #define R_SYS_ENDIAN_BI 3
+#define R_SYS_ENDIAN_MIDDLE 4
 
 typedef enum {
 	R_SYS_ARCH_NONE = 0,
@@ -671,7 +696,7 @@ typedef enum {
 
 
 #define HAS_CLOCK_NANOSLEEP 0
-#if defined(__wasi__)
+#if defined(__wasi__) || defined(_AIX)
 # define HAS_CLOCK_MONOTONIC 0
 #elif CLOCK_MONOTONIC && MONOTONIC_UNIX
 # define HAS_CLOCK_MONOTONIC 1
@@ -704,6 +729,8 @@ typedef enum {
 #define R_SYS_OS "freebsd"
 #elif defined (__HAIKU__)
 #define R_SYS_OS "haiku"
+#elif defined (_AIX)
+#define R_SYS_OS "aix"
 #else
 #define R_SYS_OS "unknown"
 #endif

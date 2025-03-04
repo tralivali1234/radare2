@@ -1,6 +1,5 @@
-/* radare - LGPL - Copyright 2007-2023 - pancake */
+/* radare - LGPL - Copyright 2007-2024 - pancake */
 
-#include <r_lib.h>
 #include <r_arch.h>
 #include <r_anal.h>
 
@@ -159,8 +158,8 @@ static int op_thumb(RArchSession *as, RAnalOp *op, ut64 addr, const ut8 *data, i
 "hi", "ls", "ge", "lt", "gt", "le", "al", "nv",
 #endif
 static const int iconds[] = {
-	R_ANAL_COND_EQ,
-	R_ANAL_COND_NE,
+	R_ANAL_CONDTYPE_EQ,
+	R_ANAL_CONDTYPE_NE,
 	0, // cs
 	0, // cc
 	0, // mi
@@ -169,12 +168,12 @@ static const int iconds[] = {
 	0, // vc
 	0, // hi
 	0, // ls
-	R_ANAL_COND_GE,
-	R_ANAL_COND_LT,
-	R_ANAL_COND_GT,
-	R_ANAL_COND_LE,
-	R_ANAL_COND_AL,
-	R_ANAL_COND_NV,
+	R_ANAL_CONDTYPE_GE,
+	R_ANAL_CONDTYPE_LT,
+	R_ANAL_CONDTYPE_GT,
+	R_ANAL_CONDTYPE_LE,
+	R_ANAL_CONDTYPE_AL,
+	R_ANAL_CONDTYPE_NV,
 };
 
 static int op_cond(const ut8 *data) {
@@ -610,20 +609,20 @@ static char *set_reg_profile(RArchSession *as) {
 }
 
 static int archinfo(RArchSession *as, ut32 q) {
-	if (q == R_ANAL_ARCHINFO_ALIGN) {
+	if (q == R_ARCH_INFO_CODE_ALIGN) {
 		return (as && as->config->bits == 16)? 2: 4;
 	}
-	if (q == R_ANAL_ARCHINFO_MAX_OP_SIZE) {
+	if (q == R_ARCH_INFO_MAXOP_SIZE) {
 		return 4;
 	}
-	if (q == R_ANAL_ARCHINFO_MIN_OP_SIZE) {
+	if (q == R_ARCH_INFO_MINOP_SIZE) {
 		return (as && as->config->bits == 16)? 2: 4;
 	}
 	return 4; // XXX
 }
 
 static bool init(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	if (as->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -634,7 +633,7 @@ static bool init(RArchSession *as) {
 }
 
 static bool fini(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	R_FREE (as->data);
 	return true;
 }
@@ -642,7 +641,7 @@ static bool fini(RArchSession *as) {
 const RArchPlugin r_arch_plugin_arm_gnu = {
 	.meta = {
 		.name = "arm.gnu",
-		.license = "LGPL3",
+		.license = "GPL-3.0-only",
 		.desc = "ARM code analysis plugin (asm.cpu=wd for winedbg disassembler)",
 	},
 	.arch = "arm",

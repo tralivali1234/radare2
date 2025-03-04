@@ -1,6 +1,5 @@
-/* debugbochs  - LGPL - Copyright 2016-2023 - SkUaTeR */
+/* debugbochs  - LGPL - Copyright 2016-2024 - SkUaTeR */
 
-#include <r_asm.h>
 #include <r_debug.h>
 #include <libbochs.h>
 
@@ -21,8 +20,8 @@ typedef struct plugin_data_t {
 static bool is_bochs(RDebug *dbg) {
 	if (dbg && dbg->iob.io) {
 		RIODesc *d = dbg->iob.io->desc;
-		if (d && d->plugin && d->plugin->name) {
-			if (!strcmp ("bochs", d->plugin->name)) {
+		if (d && d->plugin && d->plugin->meta.name) {
+			if (!strcmp ("bochs", d->plugin->meta.name)) {
 				return true;
 			}
 		}
@@ -348,7 +347,7 @@ static RDebugReasonType r_debug_bochs_wait(RDebug *dbg, int pid) {
 	return R_DEBUG_REASON_NONE;
 }
 
-static int r_debug_bochs_stop(RDebug *dbg) {
+static bool r_debug_bochs_stop(RDebug *dbg) {
 	//eprintf("bochs_stop:\n");
 	//RIOBdescbg *o = dbg->iob.io->desc->data;
 	//BfvmCPU *c = o->bfvm;
@@ -365,8 +364,8 @@ static bool r_debug_bochs_attach(RDebug *dbg, int pid) {
 	RIODesc *d = dbg->iob.io->desc;
 	//eprintf ("bochs_attach:\n");
 	dbg->swstep = false;
-	if (d && d->plugin && d->plugin->name && d->data) {
-		if (!strcmp ("bochs", d->plugin->name)) {
+	if (d && d->plugin && d->plugin->meta.name && d->data) {
+		if (!strcmp ("bochs", d->plugin->meta.name)) {
 			RIOBochs *g = d->data;
 			//int arch = r_sys_arch_id (dbg->arch);
 			// int bits = dbg->anal->bits;
@@ -577,7 +576,7 @@ static char *r_debug_bochs_reg_profile(RDebug *dbg) {
 }
 
 static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	PluginData *pd = R_NEW0 (PluginData);
 	if (!pd) {
@@ -591,7 +590,7 @@ static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
 }
 
 static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	PluginData *pd = ds->plugin_data;
 	if (!pd) {
@@ -609,10 +608,10 @@ RDebugPlugin r_debug_plugin_bochs = {
 		.name = "bochs",
 		.author = "SkUaTeR",
 		.desc = "bochs debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "x86",
-	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_PACK3 (16, 32, 64),
 	.init_plugin = init_plugin,
 	.fini_plugin = fini_plugin,
 	.step = r_debug_bochs_step,

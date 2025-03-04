@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2022 - pancake */
+/* radare - LGPL - Copyright 2022-2025 - pancake */
 
 #include <r_fs.h>
 #include <r_lib.h>
@@ -6,7 +6,7 @@
 #include <sys/stat.h>
 
 static RFSFile *fs_zip_open(RFSRoot *root, const char *path, bool create) {
-	eprintf ("zip.open (%s)\n", path);
+	R_LOG_INFO ("zip.open (%s)", path);
 	// struct zip * zipArch = zip_open (archivename, perm, &zip_errorp);
 #if 0
 	char *enc_uri = enbase (path);
@@ -195,10 +195,12 @@ static RList *fs_zip_dir(RFSRoot *root, const char *path, R_UNUSED int view) {
 }
 
 RFSPlugin r_fs_plugin_zip = {
-	.name = "zip",
-	.author = "pancake",
-	.desc = "access compressed zip contents",
-	.license = "MIT",
+	.meta = {
+		.name = "zip",
+		.author = "pancake",
+		.desc = "access compressed zip contents",
+		.license = "MIT",
+	},
 	.open = fs_zip_open,
 	.read = fs_zip_read,
 	.close = fs_zip_close,

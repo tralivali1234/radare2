@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2017-2021 - pancake, cgvwzq */
+/* radare2 - MIT - Copyright 2017-2021 - pancake, cgvwzq */
 
 // http://webassembly.org/docs/binary-encoding/#module-structure
 
@@ -18,7 +18,7 @@ static inline void *vector_at(RPVector *vec, ut64 n) {
 	return NULL;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *rbuf) {
+static bool check(RBinFile *bf, RBuffer *rbuf) {
 	ut8 buf[4] = {0};
 	return rbuf && r_buf_read_at (rbuf, 0, buf, 4) == 4 && !memcmp (buf, R_BIN_WASM_MAGIC_BYTES, 4);
 }
@@ -50,11 +50,11 @@ static inline RBinWasmExportEntry *find_export(RPVector *exports, ut8 kind, ut32
 	return n >= 0? vector_at (exports, n): NULL;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	r_return_val_if_fail (bf && buf && r_buf_size (buf) != UT64_MAX, false);
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
+	R_RETURN_VAL_IF_FAIL (bf && buf && r_buf_size (buf) != UT64_MAX, false);
 
-	if (check_buffer (bf, buf)) {
-		*bin_obj = r_bin_wasm_init (bf, buf);
+	if (check (bf, buf)) {
+		bf->bo->bin_obj = r_bin_wasm_init (bf, buf);
 		return true;
 	}
 	return false;
@@ -73,8 +73,8 @@ static RBinAddr *binsym(RBinFile *bf, int type) {
 }
 
 static RList *entries(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
-	RBinWasmObj *bin = (RBinWasmObj *)bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
+	RBinWasmObj *bin = (RBinWasmObj *)bf->bo->bin_obj;
 	// TODO
 	ut64 addr = (ut64)r_bin_wasm_get_entrypoint (bin);
 	if (!addr) {
@@ -105,7 +105,7 @@ static RList *entries(RBinFile *bf) {
 }
 
 static RList *sections(RBinFile *bf) {
-	RBinWasmObj *bin = bf && bf->o? bf->o->bin_obj: NULL;
+	RBinWasmObj *bin = bf && bf->bo? bf->bo->bin_obj: NULL;
 	RList *ret = r_list_newf ((RListFree)r_bin_section_free);
 	RList *secs = r_bin_wasm_get_sections (bin);
 	if (!ret || !secs) {
@@ -158,7 +158,7 @@ static const char *import_typename(ut32 kind) {
 	case R_BIN_WASM_EXTERNALKIND_Global:
 		return R_BIN_BIND_GLOBAL_STR;
 	default:
-		r_warn_if_reached ();
+		R_WARN_IF_REACHED ();
 		return NULL;
 	}
 }
@@ -177,7 +177,7 @@ static inline bool symbols_add_import_kind(RBinWasmObj *bin, ut32 kind, RList *l
 			}
 			sym->ordinal = ordinal++;
 			sym->type = type;
-			sym->name = strdup (imp->field_str);
+			sym->name = r_bin_name_new (imp->field_str);
 			sym->libname = strdup (imp->module_str);
 			sym->is_imported = true;
 			sym->forwarder = "NONE";
@@ -198,8 +198,9 @@ static inline char *name_from_export(RBinWasmObj *bin, int type, int ord) {
 }
 
 static inline void set_sym_name(RBinWasmObj *bin, int type, RBinSymbol *sym) {
-	sym->name = name_from_export (bin, type, sym->ordinal);
-	if (sym->name) {
+	char *s = name_from_export (bin, type, sym->ordinal);
+	if (s) {
+		sym->name = r_bin_name_new_from (s);
 		sym->bind = R_BIN_BIND_GLOBAL_STR;
 	} else {
 		const char *typestr = NULL;
@@ -213,7 +214,8 @@ static inline void set_sym_name(RBinWasmObj *bin, int type, RBinSymbol *sym) {
 			typestr = "global";
 			break;
 		}
-		sym->name = name? strdup (name): r_str_newf ("%s.%d", typestr, sym->ordinal);
+		char *s = name? strdup (name): r_str_newf ("%s.%d", typestr, sym->ordinal);
+		sym->name = r_bin_name_new_from (s);
 	}
 }
 
@@ -309,8 +311,8 @@ static inline bool symbols_add_globals(RBinWasmObj *bin, RList *list) {
 }
 
 static RList *symbols(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
-	RBinWasmObj *bin = bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
+	RBinWasmObj *bin = bf->bo->bin_obj;
 	RList *ret = r_list_newf ((RListFree)free);
 	if (!ret) {
 		goto bad_alloc;
@@ -340,8 +342,8 @@ bad_alloc:
 }
 
 static RList *get_imports(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
-	RBinWasmObj *bin = bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
+	RBinWasmObj *bin = bf->bo->bin_obj;
 	RList *ret = r_list_newf ((RListFree)r_bin_import_free);
 	if (!ret) {
 		goto bad_alloc;
@@ -362,7 +364,7 @@ static RList *get_imports(RBinFile *bf) {
 			if (!ptr) {
 				goto bad_alloc;
 			}
-			ptr->name = strdup (import->field_str);
+			ptr->name = r_bin_name_new (import->field_str);
 			ptr->classname = strdup (import->module_str);
 			ptr->type = type;
 			ptr->bind = "NONE";
@@ -417,7 +419,7 @@ static RBuffer *create(RBin *bin, const ut8 *code, int codelen, const ut8 *data,
 }
 
 static ut64 get_fcn_offset_from_id(RBinFile *bf, int ordinal) {
-	RBinWasmObj *bin = bf->o->bin_obj;
+	RBinWasmObj *bin = bf->bo->bin_obj;
 	ut32 min = first_ord_not_import (bin, R_BIN_WASM_EXTERNALKIND_Function);
 	RPVector *codes = r_bin_wasm_get_codes (bin);
 	if (min <= ordinal && codes) {
@@ -443,7 +445,7 @@ static int _code_frm_addr(const void *_code, const void *_needle) {
 }
 
 static ut64 get_fcn_offset_from_addr(RBinFile *bf, int addr, bool start) {
-	RBinWasmObj *bin = R_UNWRAP3 (bf, o, bin_obj);
+	RBinWasmObj *bin = R_UNWRAP3 (bf, bo, bin_obj);
 	if (bin) {
 		RPVector *codes = r_bin_wasm_get_codes (bin);
 		if (codes) {
@@ -473,7 +475,7 @@ static ut64 getoffset(RBinFile *bf, int type, int idx) {
 }
 
 static const char *getname(RBinFile *bf, int type, int idx, bool sd) {
-	RBinWasmObj *bin = bf->o->bin_obj;
+	RBinWasmObj *bin = bf->bo->bin_obj;
 	switch (type) {
 	case 'f': // fcnidx
 		{
@@ -485,13 +487,16 @@ static const char *getname(RBinFile *bf, int type, int idx, bool sd) {
 }
 
 RBinPlugin r_bin_plugin_wasm = {
-	.name = "wasm",
-	.desc = "WebAssembly bin plugin",
-	.license = "MIT",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "wasm",
+		.author = "cgvwzq",
+		.desc = "WebAssembly bin plugin",
+		.license = "MIT",
+	},
+	.load = &load,
 	.size = &size,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.binsym = &binsym,
 	.entries = &entries,

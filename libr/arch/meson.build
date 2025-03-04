@@ -1,7 +1,10 @@
+subdir('d')
+
 r_arch_sources = [
   'arch.c',
   'arch_op.c',
   'arch_config.c',
+  'arch_platform.c',
   'arch_switch.c',
   'arch_session.c',
   'arch_cond.c',
@@ -21,6 +24,7 @@ r_arch_sources = [
   'p/ppc/gnu/ppc-dis.c',
   'p/ppc/gnu/ppc-opc.c',
   'p/ppc/libvle/vle.c',
+  'p/stm8/plugin.c',
   'p/ppc/libps/libps.c',
   'p/ppc_cs/plugin.c',
   'p/null/plugin.c',
@@ -41,7 +45,9 @@ r_arch_sources = [
   'p/m68k_gnu/m68k-dis.c',
   'p/m68k_gnu/m68k-opc.c',
   'p/m68k_cs/plugin.c',
+# 'p/m68k_cs/m68kass.c',
   'p/m680x_cs/plugin.c',
+  'p/nds32/plugin.c',
   'p/arm/gnu/floatformat.c',
   'p/tms320/plugin.c',
   'p/tms320/tms320_dasm.c',
@@ -69,13 +75,13 @@ r_arch_sources = [
   'p/arm/cs/arm.c',
   'p/arm/cs/arm64.c',
 
-	'p/arm/plugin_gnu.c',
-	'p/arm/winedbg/be_arm.c',
-	'p/arm/gnu/arm-dis.c',
-	'p/arm/aarch64/aarch64-dis.c',
-	'p/arm/aarch64/aarch64-dis-2.c',
-	'p/arm/aarch64/aarch64-opc.c',
-	'p/arm/aarch64/aarch64-opc-2.c',
+  'p/arm/plugin_gnu.c',
+  'p/arm/winedbg/be_arm.c',
+  'p/arm/gnu/arm-dis.c',
+  'p/arm/aarch64/aarch64-dis.c',
+  'p/arm/aarch64/aarch64-dis-2.c',
+  'p/arm/aarch64/aarch64-opc.c',
+  'p/arm/aarch64/aarch64-opc-2.c',
 
   'p/any_as/plugin.c',
   'p/any_vasm/plugin.c',
@@ -86,7 +92,6 @@ r_arch_sources = [
   'p/kvx/plugin.c',
   'p/kvx/kvx-dis.c',
   'p/kvx/kvx-reg.c',
-  'p/pickle/plugin.c',
   'p/mcore/plugin.c',
   'p/mcore/mcore.c',
   'p/wasm/plugin.c',
@@ -145,13 +150,6 @@ r_arch_sources = [
   'p/mips_gnu/mips-opc.c',
   'p/sh_cs/plugin.c',
   'p/tricore_cs/plugin.c',
-  # python
-  'p/pyc/plugin.c',
-  'p/pyc/opcode_all.c',
-  'p/pyc/opcode_anal.c',
-  'p/pyc/opcode_arg_fmt.c',
-  'p/pyc/opcode.c',
-  'p/pyc/pyc_dis.c',
   'p/i8080/i8080.c',
   'p/i8080/plugin.c',
   'p/gb/plugin.c',
@@ -162,7 +160,22 @@ r_arch_sources = [
   'p/avr/assemble.c',
   'p/8051/plugin.c',
   'p/dalvik/plugin.c',
+  'p/dalvik_ns/plugin.c',
+  'p/fslsp/plugin.c',
 ]
+
+if arch_plugins.contains('python') or arch_plugins.contains('pyc') or arch_plugins.contains('pickle')
+  r_arch_sources += [
+    # python
+    'p/pyc/plugin.c',
+    'p/pyc/opcode_all.c',
+    'p/pyc/opcode_anal.c',
+    'p/pyc/opcode_arg_fmt.c',
+    'p/pyc/opcode.c',
+    'p/pyc/pyc_dis.c',
+    'p/pickle/plugin.c'
+  ]
+endif
 
 if arch_plugins.contains('x86_nz')
   r_arch_sources += [
@@ -180,50 +193,42 @@ r_arch_sources += [
 ]
 endif
 
-if get_option('use_v35')
-r_arch_sources += [
-  'p/arm/plugin_v35.c',
-  'p/arm/v35/arch-arm64/disassembler/decode.c',
-  'p/arm/v35/arch-arm64/disassembler/decode0.c',
-  'p/arm/v35/arch-arm64/disassembler/decode1.c',
-  'p/arm/v35/arch-arm64/disassembler/decode2.c',
-  'p/arm/v35/arch-arm64/disassembler/decode_fields32.c',
-  'p/arm/v35/arch-arm64/disassembler/decode_scratchpad.c',
-  'p/arm/v35/arch-arm64/disassembler/encodings_dec.c',
-  'p/arm/v35/arch-arm64/disassembler/encodings_fmt.c',
-  'p/arm/v35/arch-arm64/disassembler/format.c',
-  'p/arm/v35/arch-arm64/disassembler/gofer.c',
-  'p/arm/v35/arch-arm64/disassembler/operations.c',
-  'p/arm/v35/arch-arm64/disassembler/pcode.c',
-  'p/arm/v35/arch-arm64/disassembler/regs.c',
-  'p/arm/v35/arch-arm64/disassembler/sysregs.c'
-]
-endif
-
-# must be deleted when anal refactor is done
-
-r_arch = library('r_arch', r_arch_sources,
-  include_directories: [platform_inc],
-  c_args: library_cflags,
-  dependencies: [
+deps =  [
     r_util_dep,
     r_esil_dep,
     r_reg_dep,
     r_crypto_dep,
     java_dep,
     capstone_dep,
-  ],
+  ]
+
+links = []
+incs = [platform_inc]
+if get_option('use_v35')
+r_arch_sources += 'p/arm/plugin_v35.c'
+v35arm64 = subproject('v35arm64')
+incs += v35arm64.get_variable('incs')
+links += v35arm64.get_variable('libs').get_static_lib()
+endif
+
+# must be deleted when anal refactor is done
+
+r_arch = library('r_arch', r_arch_sources,
+  include_directories: [incs],
+  c_args: library_cflags,
+  dependencies: deps,
+  link_with: links,
   install: true,
   implicit_include_directories: false,
   install_rpath: rpath_lib,
   soversion: r2_libversion
 )
 
-r_arch_dep = declare_dependency(link_with: r_arch, include_directories: [platform_inc])
+r_arch_dep = declare_dependency(link_with: r_arch, include_directories: [incs])
 
 if get_option('blob')
 r_arch_static = static_library('r_arch_static', r_arch_sources,
-  include_directories: [platform_inc],
+  include_directories: [incs],
   c_args: library_cflags,
   dependencies: [
     r_util_static_dep,
@@ -234,7 +239,7 @@ r_arch_static = static_library('r_arch_static', r_arch_sources,
 )
 
 r_arch_static_dep = declare_dependency(link_with: r_arch_static,
-  include_directories: [platform_inc])
+  include_directories: [incs])
 endif
 
 pkgconfig_mod.generate(r_arch,

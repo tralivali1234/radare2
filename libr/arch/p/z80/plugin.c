@@ -1,7 +1,5 @@
-/* radare - GPL - Copyright 2002-2023 - pancake, condret, unlogic, Bas Wijnen <wijnen@debian.org>, Jan Wilmans <jw@dds.nl> */
+/* radare - GPL - Copyright 2002-2024 - pancake, condret, unlogic, Bas Wijnen <wijnen@debian.org>, Jan Wilmans <jw@dds.nl> */
 
-#include <string.h>
-#include <stdio.h>
 #include <r_arch.h>
 #include "z80_tab.h"
 
@@ -2795,20 +2793,20 @@ static char *regs(RArchSession *as) {
 
 static int archinfo(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 0;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 3;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 1;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 1;
 	}
 	return 1;
 }
 
 static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
-	r_return_val_if_fail(s->data, false);
+	R_RETURN_VAL_IF_FAIL (s->data, false);
 
 	PluginData *pd = s->data;
 	ut8 data[32] = {0};
@@ -2821,7 +2819,7 @@ static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
 }
 
 static bool init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	if (s->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -2831,7 +2829,7 @@ static bool init(RArchSession *s) {
 }
 
 static bool fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	R_FREE (s->data);
 	return true;
 }
@@ -2839,8 +2837,9 @@ static bool fini(RArchSession *s) {
 const RArchPlugin r_arch_plugin_z80 = {
 	.meta = {
 		.name = "z80",
-		.desc = "Z80 CPU code analysis plugin",
-		.license = "GPL",
+		.author = "pancake,condret,unlogic,Bas Wijnen,Jan Wilmans",
+		.desc = "Generic Z80 architecture",
+		.license = "GPL-3.0-only",
 	},
 	.arch = "z80",
 	.bits = R_SYS_BITS_PACK (16),

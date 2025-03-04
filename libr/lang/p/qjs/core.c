@@ -57,14 +57,26 @@
 
 #endif
 
+#define QJS_CORE_MAGIC 0x07534617
 // TODO maybe add a function to call by plugin name? (is 1 extra arg)
 static int r_cmd_qjs_call(void *c, const char *input) {
 	RCore *core = c;
 	QjsPluginManager *pm = R_UNWRAP4 (core, lang, session, plugin_data);
+	if (pm == NULL) {
+		return false;
+	}
+	if (pm->magic != QJS_CORE_MAGIC) {
+		pm = Gpm;
+		R_LOG_DEBUG ("NOT the right lang session");
+	}
 
 	// Iterate over plugins until one returns "true" (meaning the plugin handled the input)
 	QjsCorePlugin *plugin;
 	R_VEC_FOREACH (&pm->core_plugins, plugin) {
+		if (plugin == NULL) {
+			continue;
+		}
+		// check if core plugin is a qjs one
 		QjsContext *qc = &plugin->qctx;
 		JSValueConst args[1] = { JS_NewString (qc->ctx, input) };
 		JSValue res = JS_Call (qc->ctx, qc->call_func, JS_UNDEFINED, countof (args), args);
@@ -124,12 +136,12 @@ static JSValue r2plugin_core_load(JSContext *ctx, JSValueConst this_val, int arg
 	const char *descptr = JS_ToCStringLen2 (ctx, &namelen, desc, false);
 	const char *licenseptr = JS_ToCStringLen2 (ctx, &namelen, license, false);
 
-	ap->name = nameptr;  // TODO no strdup here?
+	ap->meta.name = strdup (nameptr);
 	if (descptr) {
-		ap->desc = strdup (descptr);
+		ap->meta.desc = strdup (descptr);
 	}
 	if (licenseptr) {
-		ap->license = strdup (licenseptr);
+		ap->meta.license = strdup (licenseptr);
 	}
 
 	ap->call = r_cmd_qjs_call;  // Technically this could all be handled by a single generic plugin
@@ -145,6 +157,6 @@ static JSValue r2plugin_core_load(JSContext *ctx, JSValueConst this_val, int arg
 	lib->type = R_LIB_TYPE_CORE;
 	lib->data = ap;
 	lib->version = R2_VERSION;
-	int ret = r_lib_open_ptr (pm->core->lib, ap->name, NULL, lib);
+	int ret = r_lib_open_ptr (pm->core->lib, ap->meta.name, NULL, lib);
 	return JS_NewBool (ctx, ret == 1);
 }

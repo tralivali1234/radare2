@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2019-2023 - pancake, thestr4ng3r */
+/* radare - LGPL - Copyright 2019-2024 - pancake, thestr4ng3r */
 
 #include <r_anal.h>
 
@@ -16,7 +16,7 @@ static bool get_functions_block_cb(RAnalBlock *block, void *user) {
 }
 
 R_API RList *r_anal_get_functions_in(RAnal *anal, ut64 addr) {
-	r_return_val_if_fail (anal, NULL);
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	RList *list = r_list_new ();
 	if (list) {
 		r_anal_blocks_foreach_in (anal, addr, get_functions_block_cb, list);
@@ -73,6 +73,8 @@ static void label_addrs_kv_free(HtPPKv *kv) {
 }
 
 R_API RAnalFunction *r_anal_function_new(RAnal *anal) {
+	// XXX fcn->name is null because its r_anal_create_function the one that must be called
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	RAnalFunction *fcn = R_NEW0 (RAnalFunction);
 	if (!fcn) {
 		return NULL;
@@ -104,7 +106,7 @@ R_API void r_anal_function_free(RAnalFunction *fcn) {
 	r_list_foreach_safe (fcn->bbs, iter, iter2, block) {
 		r_anal_function_remove_block (fcn, block);
 		// r_list_delete_data (block->fcns, fcn);
-		//r_anal_block_unref (block);
+		// r_anal_block_unref (block);
 	}
 	// fcn->bbs->free = r_anal_block_unref;
 	r_list_free (fcn->bbs);
@@ -133,7 +135,13 @@ R_API void r_anal_function_free(RAnalFunction *fcn) {
 }
 
 R_API bool r_anal_add_function(RAnal *anal, RAnalFunction *fcn) {
-	r_return_val_if_fail (anal && fcn, false);
+	R_RETURN_VAL_IF_FAIL (anal && fcn, false);
+	if (R_STR_ISEMPTY (fcn->name)) {
+		R_LOG_WARN ("Unnamed function at 0x%08"PFMT64x, fcn->addr);
+		// r_sys_breakpoint ();
+		free (fcn->name);
+		fcn->name = r_str_newf ("fcn.%"PFMT64x, fcn->addr);
+	}
 	if (__fcn_exists (anal, fcn->name, fcn->addr)) {
 		return false;
 	}
@@ -151,7 +159,7 @@ R_API bool r_anal_add_function(RAnal *anal, RAnalFunction *fcn) {
 }
 
 R_API RAnalFunction *r_anal_create_function(RAnal *anal, const char *name, ut64 addr, int type, RAnalDiff *diff) {
-	r_return_val_if_fail (anal && addr != UT64_MAX, NULL);
+	R_RETURN_VAL_IF_FAIL (anal && addr != UT64_MAX, NULL);
 	RAnalFunction *fcn = r_anal_function_new (anal);
 	if (!fcn) {
 		return NULL;
@@ -186,12 +194,12 @@ R_API RAnalFunction *r_anal_create_function(RAnal *anal, const char *name, ut64 
 }
 
 R_API bool r_anal_function_delete(RAnalFunction *fcn) {
-	r_return_val_if_fail (fcn, false);
+	R_RETURN_VAL_IF_FAIL (fcn, false);
 	return r_list_delete_data (fcn->anal->fcns, fcn);
 }
 
 R_API RAnalFunction *r_anal_get_function_at(RAnal *anal, ut64 addr) {
-	r_return_val_if_fail (anal, NULL);
+	R_RETURN_VAL_IF_FAIL (anal, NULL);
 	bool found = false;
 	RAnalFunction *f = ht_up_find (anal->ht_addr_fun, addr, &found);
 	if (f && found) {
@@ -201,7 +209,7 @@ R_API RAnalFunction *r_anal_get_function_at(RAnal *anal, ut64 addr) {
 }
 
 R_API bool r_anal_function_relocate(RAnalFunction *fcn, ut64 addr) {
-	r_return_val_if_fail (fcn, false);
+	R_RETURN_VAL_IF_FAIL (fcn, false);
 	if (fcn->addr == addr) {
 		return true;
 	}
@@ -215,7 +223,7 @@ R_API bool r_anal_function_relocate(RAnalFunction *fcn, ut64 addr) {
 }
 
 R_API bool r_anal_function_rename(RAnalFunction *fcn, const char *name) {
-	r_return_val_if_fail (fcn && name, false);
+	R_RETURN_VAL_IF_FAIL (fcn && R_STR_ISNOTEMPTY (name), false);
 	RAnal *anal = fcn->anal;
 	RAnalFunction *existing = ht_pp_find (anal->ht_name_fun, name, NULL);
 	if (existing) {
@@ -226,21 +234,22 @@ R_API bool r_anal_function_rename(RAnalFunction *fcn, const char *name) {
 		return false;
 	}
 	char *newname = strdup (name);
-	if (!newname) {
-		return false;
+	if (R_LIKELY (newname)) {
+		bool in_tree = ht_pp_delete (anal->ht_name_fun, fcn->name);
+		free (fcn->name);
+		fcn->name = newname;
+		if (in_tree) {
+			// only re-insert if it really was in the tree before
+			ht_pp_insert (anal->ht_name_fun, fcn->name, fcn);
+		}
+		return true;
 	}
-	bool in_tree = ht_pp_delete (anal->ht_name_fun, fcn->name);
-	free (fcn->name);
-	fcn->name = newname;
-	if (in_tree) {
-		// only re-insert if it really was in the tree before
-		ht_pp_insert (anal->ht_name_fun, fcn->name, fcn);
-	}
-	return true;
+	return false;
 }
 
 R_API void r_anal_function_add_block(RAnalFunction *fcn, RAnalBlock *bb) {
-	r_return_if_fail (fcn && bb);
+	R_RETURN_IF_FAIL (fcn && bb);
+	// XXX this is slow use skiplist or vector instead
 	if (r_list_contains (bb->fcns, fcn)) {
 		return;
 	}
@@ -263,7 +272,7 @@ R_API void r_anal_function_add_block(RAnalFunction *fcn, RAnalBlock *bb) {
 }
 
 R_API void r_anal_function_remove_block(RAnalFunction *fcn, RAnalBlock *bb) {
-	r_return_if_fail (fcn && bb);
+	R_RETURN_IF_FAIL (fcn && bb);
 	r_list_delete_data (bb->fcns, fcn);
 
 	if (fcn->meta._min != UT64_MAX
@@ -297,27 +306,31 @@ static void ensure_fcn_range(RAnalFunction *fcn) {
 }
 
 R_API ut64 r_anal_function_linear_size(RAnalFunction *fcn) {
+	R_RETURN_VAL_IF_FAIL (fcn, 0);
 	ensure_fcn_range (fcn);
 	return fcn->meta._max - fcn->meta._min;
 }
 
 R_API ut64 r_anal_function_min_addr(RAnalFunction *fcn) {
+	R_RETURN_VAL_IF_FAIL (fcn, 0);
 	ensure_fcn_range (fcn);
 	return fcn->meta._min;
 }
 
 R_API ut64 r_anal_function_max_addr(RAnalFunction *fcn) {
+	R_RETURN_VAL_IF_FAIL (fcn, 0);
 	ensure_fcn_range (fcn);
 	return fcn->meta._max;
 }
 
 R_API ut64 r_anal_function_size_from_entry(RAnalFunction *fcn) {
+	R_RETURN_VAL_IF_FAIL (fcn, 0);
 	ensure_fcn_range (fcn);
 	return fcn->meta._min == UT64_MAX ? 0 : fcn->meta._max - fcn->addr;
 }
 
 R_API ut64 r_anal_function_realsize(const RAnalFunction *fcn) {
-	r_return_val_if_fail (fcn, UT64_MAX);
+	R_RETURN_VAL_IF_FAIL (fcn, UT64_MAX);
 	RListIter *iter;
 	RAnalBlock *bb;
 	ut64 sz = 0;
@@ -339,7 +352,7 @@ static bool fcn_in_cb(RAnalBlock *block, void *user) {
 }
 
 R_API bool r_anal_function_contains(RAnalFunction *fcn, ut64 addr) {
-	r_return_val_if_fail (fcn, false);
+	R_RETURN_VAL_IF_FAIL (fcn, false);
 	if (addr == UT64_MAX) {
 		return false;
 	}
@@ -348,7 +361,7 @@ R_API bool r_anal_function_contains(RAnalFunction *fcn, ut64 addr) {
 }
 
 R_API bool r_anal_function_was_modified(RAnalFunction *fcn) {
-	r_return_val_if_fail (fcn, false);
+	R_RETURN_VAL_IF_FAIL (fcn, false);
 	RListIter *it;
 	RAnalBlock *bb;
 	r_list_foreach (fcn->bbs, it, bb) {
@@ -360,7 +373,11 @@ R_API bool r_anal_function_was_modified(RAnalFunction *fcn) {
 }
 
 R_API int r_anal_function_coverage(RAnalFunction *fcn) {
+	R_RETURN_VAL_IF_FAIL (fcn, 0);
 	int total = r_list_length (fcn->bbs);
+	if (total == 0) {
+		return 0;
+	}
 	RListIter *iter;
 	RAnalBlock *bb;
 	int traced = 0;
@@ -370,4 +387,77 @@ R_API int r_anal_function_coverage(RAnalFunction *fcn) {
 		}
 	}
 	return (traced * 100) / total;
+}
+
+R_API RGraph *r_anal_function_get_graph(RAnalFunction *fcn, RGraphNode **node_ptr, ut64 addr) {
+	R_RETURN_VAL_IF_FAIL (fcn && fcn->bbs && r_list_length (fcn->bbs), NULL);
+	HtUP *nodes = ht_up_new0 ();
+	RGraph *g = r_graph_new ();
+	if (node_ptr) {
+		*node_ptr = NULL;
+	}
+	RListIter *iter;
+	RAnalBlock *bb;
+	r_list_foreach (fcn->bbs, iter, bb) {
+		RGraphNode *node = r_graph_add_node (g, bb);
+		if (node_ptr && !node_ptr[0] && bb->addr <= addr && addr < (bb->addr + bb->size)) {
+			*node_ptr = node;
+		}
+		ht_up_insert (nodes, bb->addr, node);
+	}
+	r_list_foreach (fcn->bbs, iter, bb) {
+		if (bb->jump == UT64_MAX  &&
+			(!bb->switch_op || !bb->switch_op->cases || !r_list_length (bb->switch_op->cases))) {
+			continue;
+		}
+		RGraphNode *node = (RGraphNode *)ht_up_find (nodes, bb->addr, NULL);
+		if (bb->jump != UT64_MAX) {
+			RGraphNode *_node = NULL;
+			_node = (RGraphNode *)ht_up_find (nodes, bb->jump, NULL);
+			if (!_node) {
+				R_LOG_ERROR ("Broken fcn");
+				ht_up_free (nodes);
+				r_graph_free (g);
+				if (node_ptr) {
+					*node_ptr = NULL;
+				}
+				return NULL;
+			}
+			r_graph_add_edge (g, node, _node);
+		}
+		if (bb->fail != UT64_MAX) {
+			RGraphNode *_node = NULL;
+			_node = (RGraphNode *)ht_up_find (nodes, bb->fail, NULL);
+			if (!_node) {
+				R_LOG_ERROR ("Broken fcn");
+				ht_up_free (nodes);
+				r_graph_free (g);
+				if (node_ptr) {
+					*node_ptr = NULL;
+				}
+				return NULL;
+			}
+			r_graph_add_edge (g, node, _node);
+		}
+		if (bb->switch_op && bb->switch_op->cases && r_list_length (bb->switch_op->cases)) {
+			RListIter *ator;
+			RAnalCaseOp *co;
+			r_list_foreach (bb->switch_op->cases, ator, co) {
+				RGraphNode *_node = NULL;
+				_node = (RGraphNode *)ht_up_find (nodes, co->addr, NULL);
+				if (!_node) {
+					R_LOG_ERROR ("Broken fcn");
+					ht_up_free (nodes);
+					r_graph_free (g);
+					if (node_ptr) {
+						*node_ptr = NULL;
+					}
+					return NULL;
+				}
+				r_graph_add_edge (g, node, _node);
+			}
+		}
+	}
+	ht_up_free (nodes);
+	return g;
 }

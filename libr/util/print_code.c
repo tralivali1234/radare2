@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2007-2022 - pancake */
+/* radare - LGPL - Copyright 2007-2024 - pancake */
 
 #include <r_util.h>
 #include <r_util/r_print.h>
@@ -16,7 +16,7 @@ static const char* bits_to_c_code_fmtstr(int bits) {
 }
 
 static int get_instruction_size(RPrint *p, ut64 at) {
-	char *is = p->coreb.cmdstrf (p->coreb.core, "ao @ 0x%08" PFMT64x "~^size[1]", at);
+	char *is = p->coreb.cmdStrF (p->coreb.core, "ao @ 0x%08" PFMT64x "~^size[1]", at);
 	int res = atoi (is);
 	free (is);
 	return res;
@@ -38,7 +38,7 @@ static void print_c_instructions(RPrint *p, ut64 addr, const ut8 *buf, int len) 
 	p->cb_printf ("const uint8_t %s[%s] = {\n", namenm, namesz);
 	free (namesz);
 
-	const int orig_align = p->coreb.cfggeti (p->coreb.core, "asm.cmt.col") - 40;
+	const int orig_align = p->coreb.cfgGetI (p->coreb.core, "asm.cmt.col") - 40;
 	size_t k, i = 0;
 	bool be = (p && p->config)? R_ARCH_CONFIG_IS_BIG_ENDIAN (p->config): R_SYS_ENDIAN;
 
@@ -63,7 +63,7 @@ static void print_c_instructions(RPrint *p, ut64 addr, const ut8 *buf, int len) 
 		p->cb_printf ("%*s", R_MAX (pad, 0), "");
 
 		if (j == inst_size) {
-			char *instr = p->coreb.cmdstrf (p->coreb.core, "pi 1 @ 0x%08" PFMT64x, at);
+			char *instr = p->coreb.cmdStrF (p->coreb.core, "pi 1 @ 0x%08" PFMT64x, at);
 			r_str_trim (instr);
 			p->cb_printf (" /* %s */\n", instr);
 			free (instr);
@@ -76,7 +76,7 @@ static void print_c_instructions(RPrint *p, ut64 addr, const ut8 *buf, int len) 
 }
 
 static void print_c_code(RPrint *p, ut64 addr, const ut8 *buf, int len, int ws, int w, bool headers) {
-	r_return_if_fail (p && p->cb_printf);
+	R_RETURN_IF_FAIL (p && p->cb_printf);
 	size_t i;
 
 	ws = R_MAX (1, R_MIN (ws, 8));
@@ -130,7 +130,7 @@ static void print_c_code(RPrint *p, ut64 addr, const ut8 *buf, int len, int ws, 
 }
 
 R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang) {
-	r_return_if_fail (p && buf);
+	R_RETURN_IF_FAIL (p && buf);
 	int i, w = (int)(p->cols * 0.7);
 	if (w < 1) {
 		w = 1;
@@ -314,13 +314,22 @@ R_API void r_print_code(RPrint *p, ut64 addr, const ut8 *buf, int len, char lang
 		p->cb_printf ("\n]\n");
 		break;
 	case 'y': // "pcy"
+		p->cb_printf ("{");
+		for (i = 0; !r_print_is_interrupted () && i < len; i++) {
+			r_print_cursor (p, i, 1, 1);
+			p->cb_printf (" %02x", buf[i] & 0xff);
+			r_print_cursor (p, i, 1, 0);
+		}
+		p->cb_printf (" }\n");
+		break;
+	case 'Y': // "pcY"
 		p->cb_printf ("$hex_%"PFMT64x" = {", addr);
 		for (i = 0; !r_print_is_interrupted () && i < len; i++) {
 			r_print_cursor (p, i, 1, 1);
 			p->cb_printf (" %02x", buf[i] & 0xff);
 			r_print_cursor (p, i, 1, 0);
 		}
-		p->cb_printf ("}\n");
+		p->cb_printf (" }\n");
 		break;
 	case 'j': // "pcj"
 		p->cb_printf ("[");
@@ -420,9 +429,13 @@ R_API char *r_print_code_tocolor(const char *o) {
 			const char *msg = Color_CYAN"int "Color_RESET;
 			r_strbuf_append (sb, msg);
 			p = w + 4;
+		} else if (r_str_startswith (w, "return;")) {
+			r_strbuf_append_n (sb, p, w - p);
+			r_strbuf_append (sb, Color_CYAN"return;"Color_RESET);
+			p = w + 7;
 		} else if (r_str_startswith (w, "return ")) {
 			r_strbuf_append_n (sb, p, w - p);
-			const char *msg = Color_GREEN "return "Color_RESET;
+			const char *msg = Color_CYAN"return "Color_RESET;
 			r_strbuf_append (sb, msg);
 			p = w + 7;
 		} else if (r_str_startswith (w, "break;")) {

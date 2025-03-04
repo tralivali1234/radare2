@@ -34,7 +34,7 @@ typedef struct {
 	// 0x100 -- start of data section
 }) DolHeader;
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+static bool check(RBinFile *bf, RBuffer *buf) {
 	ut8 tmp[6];
 	int r = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
 	bool one = r == sizeof (tmp) && !memcmp (tmp, "\x00\x00\x01\x00\x00\x00", sizeof (tmp));
@@ -48,7 +48,7 @@ static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 	if (r_buf_size (buf) < sizeof (DolHeader)) {
 		return false;
 	}
@@ -66,8 +66,11 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 		goto lowername_err;
 	}
 	free (lowername);
-	r_buf_fread_at (bf->buf, 0, (void *) dol, "67I", 1);
-	*bin_obj = dol;
+	if (r_buf_fread_at (bf->buf, 0, (void *) dol, "67I", 1) < 1) {
+		free (dol);
+		return false;
+	}
+	bf->bo->bin_obj = dol;
 	return true;
 
 lowername_err:
@@ -78,11 +81,11 @@ dol_err:
 }
 
 static RList *sections(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
 	int i;
 	RList *ret;
 	RBinSection *s;
-	DolHeader *dol = bf->o->bin_obj;
+	DolHeader *dol = bf->bo->bin_obj;
 	if (!(ret = r_list_new ())) {
 		return NULL;
 	}
@@ -132,10 +135,10 @@ static RList *sections(RBinFile *bf) {
 }
 
 static RList *entries(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o && bf->o->bin_obj, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo && bf->bo->bin_obj, NULL);
 	RList *ret = r_list_new ();
 	RBinAddr *addr = R_NEW0 (RBinAddr);
-	DolHeader *dol = bf->o->bin_obj;
+	DolHeader *dol = bf->bo->bin_obj;
 	addr->vaddr = (ut64) dol->entrypoint;
 	addr->paddr = addr->vaddr & 0xFFFF;
 	r_list_append (ret, addr);
@@ -143,7 +146,7 @@ static RList *entries(RBinFile *bf) {
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->buf, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->buf, NULL);
 	RBinInfo *ret = R_NEW0 (RBinInfo);
 	if (!ret) {
 		return NULL;
@@ -166,12 +169,16 @@ static ut64 baddr(RBinFile *bf) {
 }
 
 RBinPlugin r_bin_plugin_dol = {
-	.name = "dol",
-	.desc = "Nintendo Dolphin binary format",
-	.license = "BSD",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "dol",
+		.author = "pancake",
+		.desc = "Nintendo Dolphin binary format",
+		.license = "BSD-3-Clause",
+	},
+	.weak_guess = true,
+	.load = &load,
 	.baddr = &baddr,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.entries = &entries,
 	.sections = &sections,
 	.info = &info,

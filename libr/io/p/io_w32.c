@@ -1,7 +1,6 @@
-/* radare - LGPL - Copyright 2008-2022 pancake */
+/* radare - LGPL - Copyright 2008-2024 pancake */
 
-#include "r_io.h"
-#include "r_lib.h"
+#include <r_io.h>
 
 #if R2__WINDOWS__
 #include <sys/types.h>
@@ -73,10 +72,12 @@ static char *w32__system(RIO *io, RIODesc *fd, const char *cmd) {
 }
 
 RIOPlugin r_io_plugin_w32 = {
-	.name = "w32",
-	.desc = "w32 API io",
-	.license = "LGPL3",
-	.author = "pancake",
+	.meta = {
+		.name = "w32",
+		.desc = "w32 API io",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "w32://",
 	.open = w32__open,
 	.close = w32__close,
@@ -97,7 +98,9 @@ R_API RLibStruct radare_plugin = {
 
 #else
 struct r_io_plugin_t r_io_plugin_w32 = {
-	.name = (void*)0
+	.meta = {
+		.name = (void*)0
+	}
 };
 
 #endif

@@ -14,6 +14,14 @@ MSVC=$(R2DIR)/msvc
 endif
 endif
 
+ifeq ($(USE_CSNEXT),1)
+CS_ROOT:=$(LIBR)/../subprojects/capstone-next
+else ifeq ($(USE_CS4),1)
+CS_ROOT:=$(LIBR)/../subprojects/capstone-v4
+else
+CS_ROOT:=$(LIBR)/../subprojects/capstone-v5
+endif
+
 SHLR:=$(LIBR)/../shlr
 
 include $(LIBR)/../global.mk
@@ -49,10 +57,8 @@ BN_LIBS=${SSL_LDFLAGS}
 endif
 
 #both of these need ssl includes
-ifneq (,$(filter r_socket r_util,$(BINDEPS)))
 ifeq (${HAVE_LIB_SSL},1)
 CFLAGS+=${SSL_CFLAGS}
-endif
 endif
 
 # XXX do it in configure stage
@@ -91,7 +97,9 @@ endif
 
 # Output
 ifneq ($(OSTYPE),mingw32)
+ifeq (,$(findstring emcc,$(CC)))
 CFLAGS+=-g
+endif
 endif
 ifeq (${OSTYPE},windows)
 CFLAGS+=-DR2__WINDOWS__=1
@@ -157,6 +165,13 @@ EXT_EXE=
 TH_LIBS=
 endif
 ifeq (${OSTYPE},serenityos)
+CFLAGS+=-DR2__UNIX__=1
+EXT_AR=a
+EXT_SO=so
+EXT_EXE=
+TH_LIBS=
+endif
+ifeq (${OSTYPE},aix)
 CFLAGS+=-DR2__UNIX__=1
 EXT_AR=a
 EXT_SO=so

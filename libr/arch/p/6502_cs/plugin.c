@@ -1,6 +1,5 @@
-/* radare - LGPL - Copyright 2018-2022 - pancake, Sylvain Pelissier */
+/* radare - LGPL - Copyright 2018-2024 - pancake, Sylvain Pelissier */
 
-#include <string.h>
 #include <r_arch.h>
 #include <capstone/capstone.h>
 
@@ -25,7 +24,7 @@ typedef struct plugin_data_t {
 } PluginData;
 
 static inline csh cs_handle_for_session(RArchSession *as) {
-	r_return_val_if_fail (as, 0);
+	R_RETURN_VAL_IF_FAIL (as, 0);
 	CapstonePluginData *cpd = as->data;
 	return cpd->cs_handle;
 }
@@ -218,7 +217,7 @@ static char *mnemonics(RArchSession *as, int id, bool json) {
 }
 
 static bool init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	if (s->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -243,7 +242,7 @@ static bool init(RArchSession *s) {
 }
 
 static bool fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	PluginData *pd = s->data;
 #if USE_ITER_API
 	cs_free (pd->insn, pd->n);
@@ -256,8 +255,9 @@ static bool fini(RArchSession *s) {
 const RArchPlugin r_arch_plugin_6502_cs = {
 	.meta = {
 		.name = "6502.cs",
-		.desc = "Capstone mos65xx analysis plugin",
-		.license = "LGPL3",
+		.desc = "Capstone mos65xx 8 bit microprocessors",
+		.author = "pancake,Sylvain Pelissier",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "6502",
 	.bits = R_SYS_BITS_PACK1 (8),
@@ -276,12 +276,13 @@ R_API RLibStruct radare_plugin = {
 };
 #endif
 #else
-//  empty plugin
+// empty plugin
 const RArchPlugin r_arch_plugin_6502_cs = {
 	.meta = {
 		.name = "6502.cs",
-		.desc = "Capstone mos65xx analysis plugin (not supported)",
-		.license = "LGPL3",
+		.author = "pancake,Sylvain Pelissier",
+		.desc = "Capstone mos65xx (not supported)",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "6502",
 	.bits = R_SYS_BITS_PACK1 (8),

@@ -1,9 +1,9 @@
-/* radare - LGPL - Copyright 2009-2022 - pancake */
+/* radare - LGPL - Copyright 2009-2024 - pancake */
 
 #include <r_core.h>
 
 R_API int r_core_log_list(RCore *core, int n, int nth, char fmt) {
-	r_return_val_if_fail (core && core->log, 0);
+	R_RETURN_VAL_IF_FAIL (core && core->log, 0);
 	int printed = 0;
 	int count = 0, idx, id = core->log->first;
 	RStrpool *sp = core->log->sp;
@@ -72,18 +72,15 @@ R_API int r_core_log_list(RCore *core, int n, int nth, char fmt) {
 
 R_API RCoreLog *r_core_log_new(void) {
 	RCoreLog *log = R_NEW0 (RCoreLog);
-	if (!log) {
-		return NULL;
-	}
 	r_core_log_init (log);
 	return log;
 }
 
 R_API void r_core_log_init(RCoreLog *log) {
-	r_return_if_fail (log);
+	R_RETURN_IF_FAIL (log);
 	log->first = 1;
 	log->last = 1;
-	log->sp = r_strpool_new (0);
+	log->sp = r_strpool_new ();
 }
 
 R_API void r_core_log_free(RCoreLog *log) {
@@ -117,13 +114,13 @@ R_API bool r_core_log_run(RCore *core, const char *_buf, RCoreLogCallback cb_run
 }
 
 R_API char *r_core_log_get(RCore *core, int index) {
-	r_return_val_if_fail (core && core->config, NULL);
+	R_RETURN_VAL_IF_FAIL (core && core->config, NULL);
 	const char *host = r_config_get (core->config, "http.sync");
-	if (host && *host) {
+	if (R_STR_ISNOTEMPTY (host)) {
 		char *url = index > 0
 			? r_str_newf ("%s/cmd/T%%20%d", host, index)
 			: r_str_newf ("%s/cmd/T", host);
-		char *res = r_socket_http_get (url, NULL, NULL);
+		char *res = r_socket_http_get (url, NULL, NULL, NULL);
 		free (url);
 		return res? res: strdup ("");
 	}
@@ -165,7 +162,6 @@ R_API void r_core_log_del(RCore *core, int n) {
 		}
 		core->log->first += idx + 1;
 		char *msg = r_strpool_get_i (core->log->sp, idx);
-		// if (idx >= core->log->last) {
 		if (R_STR_ISEMPTY (msg)) {
 			core->log->first = core->log->last;
 			r_strpool_empty (core->log->sp);

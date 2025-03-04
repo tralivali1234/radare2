@@ -58,9 +58,9 @@ RUN
 
 NAME=WASM: Wasm - entrypoint
 FILE=bins/wasm/start.wasm
-CMDS=ie~vaddr
+CMDS=ie=~vaddr
 EXPECT=<<EOF
-vaddr=0x0000002d paddr=0x0000002d haddr=-1 type=program
+paddr=0x0000002d vaddr=0x0000002d haddr=-1 type=program
 EOF
 RUN
 
@@ -68,15 +68,12 @@ NAME=WASM: Wasm - sections
 FILE=bins/wasm/binary.wasm
 CMDS=iS
 EXPECT=<<EOF
-[Sections]
-
-nth paddr        size vaddr       vsize perm type name
-------------------------------------------------------
-0   0x0000000a   0x11 0x0000000a   0x11 ---- ---- type
-1   0x0000001d   0x2d 0x0000001d   0x2d ---- ---- function
-2   0x0000004d  0x1dd 0x0000004d  0x1dd ---- ---- export
-3   0x0000022d  0x1f7 0x0000022d  0x1f7 ---- ---- code
-
+nth paddr        size vaddr       vsize perm flags type name
+------------------------------------------------------------
+0   0x0000000a   0x11 0x0000000a   0x11 ---- 0x0   ---- type
+1   0x0000001d   0x2d 0x0000001d   0x2d ---- 0x0   ---- function
+2   0x0000004d  0x1dd 0x0000004d  0x1dd ---- 0x0   ---- export
+3   0x0000022d  0x1f7 0x0000022d  0x1f7 ---- 0x0   ---- code
 EOF
 RUN
 
@@ -111,7 +108,6 @@ NAME=WASM Export functions with custom section
 FILE=bins/wasm/sections.wasm
 CMDS=iE
 EXPECT=<<EOF
-[Exports]
 nth paddr      vaddr      bind   type size lib name                      demangled
 ----------------------------------------------------------------------------------
 8   0x000003f1 0x000003f1 GLOBAL FUNC 16       _start
@@ -130,7 +126,6 @@ NAME=WASM Export functions w/o custom section
 FILE=bins/wasm/unary.wasm
 CMDS=iE
 EXPECT=<<EOF
-[Exports]
 nth paddr      vaddr      bind   type size lib name                demangled
 ----------------------------------------------------------------------------
 2   0x000001d2 0x000001d2 GLOBAL FUNC 5        i32_eqz_100
@@ -181,7 +176,6 @@ CMDS=<<EOF
 is
 EOF
 EXPECT=<<EOF
-[Symbols]
 nth paddr      vaddr      bind   type size lib                    name                         demangled
 --------------------------------------------------------------------------------------------------------
 0   ---------- ---------- NONE   FUNC 0    env                    imp.emscripten_asm_const_int

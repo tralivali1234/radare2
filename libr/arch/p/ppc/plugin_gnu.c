@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake */
+/* radare - LGPL - Copyright 2009-2024 - pancake */
 
 #define R_LOG_ORIGIN "arch.ppc.gnu"
 
@@ -160,6 +160,7 @@ static char *regs(RArchSession *as) {
 	const char *const p =
 	"=PC	srr0\n"
 	"=SR	srr1\n" // status register
+	"=BP	r31\n"
 	"=A0	r0\n"
 	"=A1	r1\n"
 	"=A2	r2\n"
@@ -222,7 +223,7 @@ const RArchPlugin r_arch_plugin_ppc_gnu = {
 	.meta = {
 		.name = "ppc.gnu",
 		.desc = "PowerPC analysis plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.cpus = "booke,e300,e500,e500x2,e500mc,e440,e464,efs,ppcps,power4,power5,power6,power7,vsx",
 	.arch = "ppc",

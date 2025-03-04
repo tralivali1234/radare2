@@ -1,4 +1,6 @@
 #!/bin/sh
+
+# TODO: Delete this file?
 CS_URL="$1" # url
 CS_BRA="$2" # branch name
 CS_TIP="$3" # tip commit
@@ -26,14 +28,16 @@ fatal_msg() {
 patch_capstone() {
 	echo "[capstone] Applying patches..."
 	if [ "$CS_BRA" = next ]; then
-		CV=v5
+		CV=v6
 	else
-		CV=v4
+		CV=v5
 	fi
-	for patchfile in ../capstone-patches/$CV/*.patch ; do
-		echo "Patch $patchFile"
-		patch -p 1 < "${patchfile}"
-	done
+	if [ -n "`ls ../capstone-patches/$CV/ 2> /dev/null`" ]; then
+		for patchfile in ../capstone-patches/$CV/*.patch ; do
+			echo "Patch $patchFile"
+			patch -p 1 < "${patchfile}"
+		done
+	fi
 }
 
 parse_capstone_tip() {
@@ -80,6 +84,7 @@ get_capstone() {
 }
 
 update_capstone_git() {
+	export PAGER=cat
 	cd capstone || fatal_msg 'Failed to chdir'
 	git checkout "${CS_BRA}" || fatal_msg "Cannot checkout to branch $CS_BRA"
 #	if [ -n "${CS_TIP}" ]; then

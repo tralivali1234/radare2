@@ -1,8 +1,5 @@
-/* radare - LGPL - Copyright 2009-2023 - nibble, pancake */
+/* radare - LGPL - Copyright 2009-2024 - nibble, pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 #include "mach0/fatmach0.h"
 #include "mach0/mach0.h"
@@ -32,8 +29,8 @@ static bool checkHeader(RBuffer *b) {
 	return false;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
-	r_return_val_if_fail (buf, false);
+static bool check(RBinFile *bf, RBuffer *buf) {
+	R_RETURN_VAL_IF_FAIL (buf, false);
 	return checkHeader (buf);
 }
 
@@ -93,7 +90,7 @@ static RBinXtrData *extract(RBin* bin, int idx) {
 }
 
 static RBinXtrData *oneshot_buffer(RBin *bin, RBuffer *b, int idx) {
-	r_return_val_if_fail (bin && bin->cur, NULL);
+	R_RETURN_VAL_IF_FAIL (bin && bin->cur, NULL);
 
 	if (!bin->cur->xtr_obj) {
 		bin->cur->xtr_obj = r_bin_fatmach0_from_buffer_new (b);
@@ -148,9 +145,12 @@ static RList *oneshotall_buffer(RBin *bin, RBuffer *b) {
 }
 
 RBinXtrPlugin r_bin_xtr_plugin_xtr_fatmach0 = {
-	.name = "xtr.fatmach0",
-	.desc = "fat mach0 bin extractor plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "xtr.fatmach0",
+		.author = "nibble,pancake",
+		.desc = "fat mach0 bin extractor plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.load = &load,
 	.size = &size,
 	.extract = &extract,
@@ -158,7 +158,7 @@ RBinXtrPlugin r_bin_xtr_plugin_xtr_fatmach0 = {
 	.extract_from_buffer = &oneshot_buffer,
 	.extractall_from_buffer = &oneshotall_buffer,
 	.free_xtr = &free_xtr,
-	.check_buffer = check_buffer,
+	.check = check,
 };
 
 #ifndef R2_PLUGIN_INCORE

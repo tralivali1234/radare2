@@ -82,7 +82,7 @@ static ut64 baddr(RBinFile *bf) {
 	return S390_BADDR;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut8 buf[8] = {0};
 	if (r_buf_read_at (b, 0, buf, sizeof (buf)) != sizeof (buf)) {
 		return false;
@@ -96,14 +96,14 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
-	bool res = check_buffer (bf, b);
+static bool load(RBinFile *bf, RBuffer *b, ut64 loadaddr) {
+	bool res = check (bf, b);
 	if (res) {
 		s390user *su = R_NEW0 (s390user);
 		if (su) {
 			su->sb = r_strbuf_new ("");
 			su->symbols = r_list_newf (r_bin_symbol_free);
-			*bin_obj = (void*)su;
+			bf->bo->bin_obj = (void*)su;
 		}
 	}
 	return res;
@@ -132,7 +132,7 @@ static void add_symbol(RList *ret, char *name, ut64 addr) {
 	if (!ptr) {
 		return;
 	}
-	ptr->name = name;
+	ptr->name = r_bin_name_new_from (name);
 	ptr->paddr = ptr->vaddr = addr;
 	ptr->size = 0;
 	ptr->ordinal = 0;
@@ -146,7 +146,7 @@ static void add_symbol(RList *ret, char *name, ut64 addr) {
 } */
 
 static RList *symbols(RBinFile *bf) {
-	s390user *su = bf->o->bin_obj;
+	s390user *su = bf->bo->bin_obj;
 	RList *ret = NULL;
 	RListIter *iter;
 	RBinSymbol *sym;
@@ -155,7 +155,8 @@ static RList *symbols(RBinFile *bf) {
 	}
 	r_list_free (sections (bf));
 	r_list_foreach (su->symbols, iter, sym) {
-		add_symbol (ret, r_str_trim_dup (sym->name), sym->vaddr + su->text0 + S390_BADDR);
+		char *name = r_str_trim_dup (r_bin_name_tostring (sym->name));
+		add_symbol (ret, name, sym->vaddr + su->text0 + S390_BADDR);
 	}
 	return ret;
 }
@@ -176,7 +177,7 @@ static void add_section(RList *ret, char *name, ut64 addr, ut64 len) {
 }
 
 static RList *sections(RBinFile *bf) {
-	s390user *su = bf->o->bin_obj;
+	s390user *su = bf->bo->bin_obj;
 	RList *ret = NULL;
 	if (!(ret = r_list_new ())) {
 		return NULL;
@@ -345,7 +346,7 @@ static RList *sections(RBinFile *bf) {
 }
 
 static RList *entries(RBinFile *bf) {
-	s390user *su = bf->o->bin_obj;
+	s390user *su = bf->bo->bin_obj;
 	RList *ret = r_list_new ();
 	RBinAddr *ptr = R_NEW0 (RBinAddr);
 	if (!ret || !ptr) {
@@ -361,34 +362,36 @@ static RList *entries(RBinFile *bf) {
 }
 
 static void headers(RBinFile *bf) {
-	s390user *su = bf->o->bin_obj;
+	s390user *su = bf->bo->bin_obj;
 	char *s = r_strbuf_get (su->sb);
 	bf->rbin->cb_printf ("%s\n", s);
 }
 
-static int fini(void *user) {
-	RBinFile *bf = (RBinFile*)user;
-	if (bf && bf->o && bf->o->bin_obj) {
-		s390user *su = bf->o->bin_obj;
+static void destroy(RBinFile *bf) {
+	if (bf && bf->bo && bf->bo->bin_obj) {
+		s390user *su = bf->bo->bin_obj;
 		r_strbuf_free (su->sb);
 		free (su);
 	}
-	return 0;
 }
+
 RBinPlugin r_bin_plugin_s390 = {
-	.name = "s390",
-	.desc = "s390 Load Module parser",
-	.license = "LGPL3",
-	.author = "Jose Antonio Romero",
-	.load_buffer = &load_buffer,
-	.check_buffer = &check_buffer,
+	.meta = {
+		.name = "s390",
+		.desc = "s390 Load Module parser",
+		.license = "LGPL-3.0-only",
+		.author = "Jose Antonio Romero",
+	},
+	.weak_guess = true,
+	.load = &load,
+	.check = &check,
 	.baddr = &baddr,
 	.header = &headers,
 	.entries = &entries,
 	.sections = &sections,
 	.symbols = &symbols,
 	.info = &info,
-	.fini = &fini,
+	.destroy = &destroy,
 	.minstrlen = 3
 };
 

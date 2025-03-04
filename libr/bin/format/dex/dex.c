@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, h4ng3r */
+/* radare - LGPL - Copyright 2009-2024 - pancake, h4ng3r */
 
 #define R_LOG_ORIGIN "dex"
 
@@ -7,8 +7,8 @@
 
 #define bprintf if (dex->verbose) eprintf
 
-char* r_bin_dex_get_version(RBinDexObj *bin) {
-	r_return_val_if_fail (bin, NULL);
+R_IPI char* r_bin_dex_get_version(RBinDexObj *bin) {
+	R_RETURN_VAL_IF_FAIL (bin, NULL);
 	char* version = calloc (1, 8);
 	if (version) {
 		r_buf_read_at (bin->b, 4, (ut8*)version, 3);
@@ -225,14 +225,7 @@ static bool readAnnotationSet(RBinDexObj *dex, ut64 addr) {
 	return r_buf_seek (dex->b, addr + (i * sizeof (ut32)), R_BUF_SET) >= 0;
 }
 
-static void r_bin_dex_obj_free(RBinDexObj *dex) {
-	if (dex) {
-		r_buf_free (dex->b);
-		free (dex);
-	}
-}
-
-void r_bin_dex_free(RBinDexObj *dex) {
+R_IPI void r_bin_dex_free(RBinDexObj *dex) {
 	if (!dex) {
 		return;
 	}
@@ -250,10 +243,12 @@ void r_bin_dex_free(RBinDexObj *dex) {
 	free (dex->types);
 	free (dex->fields);
 	free (dex->protos);
+	r_buf_free (dex->b);
+	free (dex);
 }
 
-RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
-	r_return_val_if_fail (buf, NULL);
+R_IPI RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
+	R_RETURN_VAL_IF_FAIL (buf, NULL);
 	int i;
 	RBinDexObj *dex = R_NEW0 (RBinDexObj);
 	if (!dex) {
@@ -313,7 +308,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->strings_size; i++) {
 		ut64 offset = dexhdr->strings_offset + i * sizeof (ut32);
 		if (offset + 4 > dex->size) {
-			free (dex->strings);
 			goto fail;
 		}
 		dex->strings[i] = r_read_le32 (&dex->strings[i]);
@@ -334,8 +328,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->class_size; i++) {
 		ut64 offset = dexhdr->class_offset + i * DEX_CLASS_SIZE;
 		if (offset + 32 > dex->size) {
-			free (dex->strings);
-			free (dex->classes);
 			goto fail;
 		}
 		r_buf_seek (dex->b, offset, R_BUF_SET);
@@ -363,9 +355,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->method_size; i++) {
 		ut64 offset = dexhdr->method_offset + i * sizeof (struct dex_method_t);
 		if (offset + 8 > dex->size) {
-			free (dex->strings);
-			free (dex->classes);
-			free (dex->methods);
 			goto fail;
 		}
 		r_buf_seek (dex->b, offset, R_BUF_SET);
@@ -377,10 +366,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	/* types */
 	int types_size = dexhdr->types_size * sizeof (struct dex_type_t);
 	if (types_size < 0) {
-		free (dex->strings);
-		free (dex->classes);
-		free (dex->methods);
-		free (dex->types);
 		goto fail;
 	}
 	if (dexhdr->types_offset + types_size > dex->size) {
@@ -390,18 +375,10 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 		types_size = dex->size - dexhdr->types_offset;
 	}
 	if (types_size < 0) {
-		free (dex->strings);
-		free (dex->classes);
-		free (dex->methods);
-		free (dex->types);
 		goto fail;
 	}
 	if (types_size > dex->size) {
 		R_LOG_DEBUG ("oom prevented in huge types section %d / %d", types_size, dex->size);
-		free (dex->strings);
-		free (dex->classes);
-		free (dex->methods);
-		free (dex->types);
 		goto fail;
 	}
 	dexhdr->types_size = types_size / sizeof (struct dex_type_t);
@@ -410,10 +387,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->types_size; i++) {
 		ut64 offset = dexhdr->types_offset + i * sizeof (struct dex_type_t);
 		if (offset + 4 > dex->size) {
-			free (dex->strings);
-			free (dex->classes);
-			free (dex->methods);
-			free (dex->types);
 			goto fail;
 		}
 		dex->types[i].descriptor_id = r_buf_read_le32_at (dex->b, offset);
@@ -433,11 +406,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->fields_size; i++) {
 		ut64 offset = dexhdr->fields_offset + i * sizeof (struct dex_field_t);
 		if (offset + 8 > dex->size) {
-			free (dex->strings);
-			free (dex->classes);
-			free (dex->methods);
-			free (dex->types);
-			free (dex->fields);
 			goto fail;
 		}
 		r_buf_seek (dex->b, offset, R_BUF_SET);
@@ -460,12 +428,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 	for (i = 0; i < dexhdr->prototypes_size; i++) {
 		ut64 offset = dexhdr->prototypes_offset + i * sizeof (struct dex_proto_t);
 		if (offset + 12 > dex->size) {
-			free (dex->strings);
-			free (dex->classes);
-			free (dex->methods);
-			free (dex->types);
-			free (dex->fields);
-			free (dex->protos);
 			goto fail;
 		}
 		r_buf_seek (dex->b, offset, R_BUF_SET);
@@ -569,6 +531,6 @@ RBinDexObj *r_bin_dex_new_buf(RBuffer *buf, bool verbose) {
 
 	return dex;
 fail:
-	r_bin_dex_obj_free (dex);
+	r_bin_dex_free (dex);
 	return NULL;
 }

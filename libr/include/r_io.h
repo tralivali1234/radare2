@@ -1,10 +1,11 @@
-/* radare2 - LGPL - Copyright 2017-2023 - condret, pancake */
+/* radare2 - LGPL - Copyright 2017-2024 - condret, pancake */
 
 #ifndef R2_IO_H
 #define R2_IO_H
 
 #include <r_list.h>
 #include <r_util.h>
+#include <r_lib.h>
 #include <r_socket.h>
 #include <r_vector.h>
 #include <r_util/r_w32dw.h>
@@ -122,31 +123,30 @@ typedef struct r_io_cache_layer_t {
 
 typedef struct r_io_cache_t {
 	RList *layers; // a list of cache layers-- must be a vector O(n)
-	int enabled; // R2_590 bool?
 	ut32 mode; // read, write, exec (enabled) sperm = requires maps
+	bool enabled;
 } RIOCache;
 
 // -io-cache-
 
 typedef struct r_io_t {
-	struct r_io_desc_t *desc; // XXX R2_590 - deprecate... we should use only the fd integer, not hold a weak pointer
-	ut64 off;
+	struct r_io_desc_t *desc; // XXX R2_600 - deprecate... we should use only the fd integer, not hold a weak pointer
+	ut64 off; // XXX maybe deprecate this global seek? also it should be addr, not off
 	ut32 bank; // current bank
 	int bits;
 	int va;	// keep it as int, value can be 0, 1 or 2
 	bool ff;
 	ut8 Oxff; // which printable char to use instead of 0xff for unallocated bytes
 	size_t addrbytes; // XXX also available in RArchConfig.addrbytes
-	bool aslr;
 	bool autofd;
 	bool overlay;
 	// moved into cache.mode // ut32 cached; // uses R_PERM_RWX // wtf cache for exec?
 	bool cachemode; // write in cache all the read operations (EXPERIMENTAL)
 	ut32 p_cache; // uses 1, 2, 4.. probably R_PERM_RWX :D
 	ut64 mts; // map "timestamps", this sucks somehow
-	RIDStorage *files; // RIODescs accessible by their fd
-	RIDStorage *maps;  // RIOMaps accessible by their id
-	RIDStorage *banks; // RIOBanks accessible by their id
+	RIDStorage files; // RIODescs accessible by their fd
+	RIDStorage maps;  // RIOMaps accessible by their id
+	RIDStorage banks; // RIOBanks accessible by their id
 	RIOCache cache;
 	ut8 *write_mask;
 	int write_mask_len;
@@ -191,17 +191,10 @@ typedef struct {
 } RIORap;
 
 typedef struct r_io_plugin_t {
-	// RPluginMeta
-	const char *name;
-	const char *desc;
-	const char *version;
-	const char *author;
-	const char *license;
-	void *widget;
+	const RPluginMeta meta;
+	void *data; // kind of globals, used by rlang-io in this case
 	const char *uris;
 	int (*listener)(RIODesc *io);
-	bool (*init)(void);
-	RIOUndo undo;
 	bool isdbg;
 	// int (*is_file_opened)(RIO *io, RIODesc *fd, const char *);
 	char *(*system)(RIO *io, RIODesc *fd, const char *); // Rename to call? or cmd? unify with anal and core
@@ -220,11 +213,51 @@ typedef struct r_io_plugin_t {
 	bool (*getbase)(RIODesc *desc, ut64 *base);
 	///
 	bool (*resize)(RIO *io, RIODesc *fd, ut64 size);
-	int (*extend)(RIO *io, RIODesc *fd, ut64 size);
+	bool (*extend)(RIO *io, RIODesc *fd, ut64 size);
 	bool (*accept)(RIO *io, RIODesc *desc, int fd);
 	int (*create)(RIO *io, const char *file, int mode, int type);
 	bool (*check)(RIO *io, const char *, bool many);
 } RIOPlugin;
+
+#define	R_IO_MAP_TIE_FLG_BACK	1		//ties a map so that it resizes when the desc resizes
+#define	R_IO_MAP_TIE_FLG_FORTH	(1 << 1)	//ties a map so that the desc resizes when the map resizes
+
+typedef enum {
+	R_IO_MAP_META_TYPE_NONE = 0,
+	R_IO_MAP_META_TYPE_HEAP, // heap memory
+	R_IO_MAP_META_TYPE_STACK, // program stack
+	R_IO_MAP_META_TYPE_MMAP, // mapped memory
+	R_IO_MAP_META_TYPE_MMIO, // mapped devices
+	R_IO_MAP_META_TYPE_DMA, // high speed hw data transfer
+	R_IO_MAP_META_TYPE_JIT, // just in time code
+	R_IO_MAP_META_TYPE_BSS, // block started symbol (zero paged memory)
+	R_IO_MAP_META_TYPE_SHARED, // ipc, etc
+	R_IO_MAP_META_TYPE_KERNEL, // VDSO, etc, text|data|buffers
+	R_IO_MAP_META_TYPE_GUARD, // surrounding stack for protections
+	R_IO_MAP_META_TYPE_NULL, // to catch null derefs
+	R_IO_MAP_META_TYPE_GPU, // graphics memory
+	R_IO_MAP_META_TYPE_TLS, // thread-local storage
+	R_IO_MAP_META_TYPE_BUFFER, // temporal
+	R_IO_MAP_META_TYPE_COW, // copy on write
+	R_IO_MAP_META_TYPE_PAGETABLES, // mmu settings
+	R_IO_MAP_META_TYPE_LAST
+} RIOMapMetaType;
+
+#define R_IO_MAP_META_FLAG_LAST 16
+typedef enum {
+	R_IO_MAP_META_FLAG_PAGED, // anything can be non-paged.. must be bitfield
+	R_IO_MAP_META_FLAG_PRIVATE, // private memory
+	R_IO_MAP_META_FLAG_PERSISTENT, // non volatile
+	R_IO_MAP_META_FLAG_ASLR, // randomizable
+	R_IO_MAP_META_FLAG_SWAP, // swappage to disk
+	R_IO_MAP_META_FLAG_DEP, // same as W^X
+	R_IO_MAP_META_FLAG_ENCLAVE, // protected by a secure enclave
+	R_IO_MAP_META_FLAG_COMPRESSED, // compressed memory
+	R_IO_MAP_META_FLAG_ENCRYPTED, // cryptographically secure
+	R_IO_MAP_META_FLAG_LARGE, // different alignment for big data
+	R_IO_MAP_META_FLAG_SYSTEM, // frameworks, dyldcache, ..
+	R_IO_MAP_META_FLAG_LIBRARY, // maybe the same of system?
+} RIOMapMetaFlags;
 
 typedef struct r_io_map_t {
 	int fd;
@@ -235,6 +268,8 @@ typedef struct r_io_map_t {
 	ut64 delta; // paddr = vaddr - itv.addr + delta
 	RRBTree *overlay;
 	char *name;
+	ut32 tie_flags;
+	ut32 meta; // metadata attributes
 } RIOMap;
 
 typedef struct r_io_map_ref_t {
@@ -285,7 +320,7 @@ typedef bool (*RIOFdClose)(RIO *io, int fd);
 typedef ut64 (*RIOFdSeek)(RIO *io, int fd, ut64 addr, int whence);
 typedef ut64 (*RIOFdSize)(RIO *io, int fd);
 typedef bool (*RIOFdResize)(RIO *io, int fd, ut64 newsize);
-typedef ut64 (*RIOP2V)(RIO *io, ut64 pa);
+typedef bool (*RIOP2V)(RIO *io, ut64 p, ut64 *v);
 typedef ut64 (*RIOV2P)(RIO *io, ut64 va);
 typedef int (*RIOFdRead)(RIO *io, int fd, ut8 *buf, int len);
 typedef int (*RIOFdWrite)(RIO *io, int fd, const ut8 *buf, int len);
@@ -297,6 +332,7 @@ typedef RList *(*RIOFdGetMap)(RIO *io, int fd);
 typedef bool (*RIOFdRemap)(RIO *io, int fd, ut64 addr);
 typedef bool (*RIOIsValidOff)(RIO *io, ut64 addr, int hasperm);
 typedef RIOBank *(*RIOBankGet)(RIO *io, ut32 bankid);
+typedef bool (*RIOBankUse)(RIO *io, ut32 bankid);
 typedef RIOMap *(*RIOMapGet)(RIO *io, ut32 id);
 typedef RIOMap *(*RIOMapGetAt)(RIO *io, ut64 addr);
 typedef RIOMap *(*RIOMapGetPaddr)(RIO *io, ut64 paddr);
@@ -336,6 +372,7 @@ typedef struct r_io_bind_t {
 	RIOIsValidOff is_valid_offset;
 	RIOAddrIsMapped addr_is_mapped;
 	RIOBankGet bank_get;
+	RIOBankUse bank_use;
 	RIOMapGet map_get;
 	RIOMapGetAt map_get_at;
 	RIOMapGetPaddr map_get_paddr;
@@ -373,18 +410,21 @@ R_API bool r_io_map_is_in_range(RIOMap *map, ut64 from, ut64 to);
 R_API void r_io_map_set_name(RIOMap *map, const char *name);
 R_API void r_io_map_del_name(RIOMap *map);
 R_API RList* r_io_map_get_by_fd(RIO *io, int fd);
+R_IPI bool io_map_resize(RIO *io, ut32 id, ut64 newsize);
 R_API bool r_io_map_resize(RIO *io, ut32 id, ut64 newsize);
 R_API void r_io_map_read_from_overlay(RIOMap *map, ut64 addr, ut8 *buf, int len);
 R_API bool r_io_map_write_to_overlay(RIOMap *map, ut64 addr, const ut8 *buf, int len);
 R_IPI bool io_map_get_overlay_intersects(RIOMap *map, RQueue *q, ut64 addr, int len);
 R_API void r_io_map_drain_overlay(RIOMap *map);
+typedef void (*RIOMapOverlayForeach)(RInterval itv, const ut8 *data,  void *user);
+R_API void r_io_map_overlay_foreach(RIOMap *map, RIOMapOverlayForeach cb, void *user);
 
 // next free address to place a map.. maybe just unify
 R_API bool r_io_map_locate(RIO *io, ut64 *addr, const ut64 size, ut64 load_align);
 
 // p2v/v2p
 
-R_API ut64 r_io_p2v(RIO *io, ut64 pa);
+R_API bool r_io_p2v(RIO *io, ut64 p, ut64 *v);
 R_API ut64 r_io_v2p(RIO *io, ut64 va);
 
 //io_submap.c
@@ -402,6 +442,7 @@ R_API void r_io_bank_free(RIOBank *bank);
 R_API void r_io_bank_init(RIO *io);
 R_API void r_io_bank_fini(RIO *io);
 R_API RIOBank *r_io_bank_get(RIO *io, const ut32 bankid);
+R_API RIOBank *r_io_bank_get_byname(RIO *io, const char *bankname);
 R_API bool r_io_bank_use(RIO *io, ut32 bankid);
 R_API bool r_io_bank_map_add_top(RIO *io, const ut32 bankid, const ut32 mapid);
 R_API bool r_io_bank_map_add_bottom(RIO *io, const ut32 bankid, const ut32 mapid);
@@ -414,6 +455,8 @@ R_API RIOMap *r_io_bank_get_map_at(RIO *io, const ut32 bankid, const ut64 addr);
 R_API bool r_io_bank_read_at(RIO *io, const ut32 bankid, ut64 addr, ut8 *buf, int len);
 R_API bool r_io_bank_write_at(RIO *io, const ut32 bankid, ut64 addr, const ut8 *buf, int len);
 R_API bool r_io_bank_write_to_overlay_at(RIO *io, const ut32 bankid, ut64 addr, const ut8 *buf, int len);
+typedef void (*RIOOverlayForeach)(RInterval itv, const ut8 *m_data, const ut8 *o_data, void *user);
+R_API void r_io_bank_overlay_foreach(RIO *io, const ut32 bankid, RIOOverlayForeach cb, void *user);
 R_API int r_io_bank_read_from_submap_at(RIO *io, const ut32 bankid, ut64 addr, ut8 *buf, int len);
 R_API int r_io_bank_write_to_submap_at(RIO *io, const ut32 bankid, ut64 addr, const ut8 *buf, int len);
 R_API void r_io_bank_drain(RIO *io, const ut32 bankid);
@@ -444,7 +487,7 @@ R_API ut64 r_io_size(RIO *io);
 R_API bool r_io_is_listener(RIO *io);
 R_API char *r_io_system(RIO *io, const char* cmd);
 R_API bool r_io_resize(RIO *io, ut64 newsize);
-R_API int r_io_extend_at(RIO *io, ut64 addr, ut64 size);
+R_API bool r_io_extend_at(RIO *io, ut64 addr, ut64 size);
 R_API bool r_io_set_write_mask(RIO *io, const ut8 *mask, int len);
 R_API void r_io_bind(RIO *io, RIOBind *bnd);
 R_API bool r_io_shift(RIO *io, ut64 start, ut64 end, st64 move);
@@ -453,13 +496,11 @@ R_API void r_io_drain_overlay(RIO *io);
 R_API bool r_io_get_region_at(RIO *io, RIORegion *region, ut64 addr);
 R_API void r_io_fini(RIO *io);
 R_API void r_io_free(RIO *io);
-#define r_io_bind_init(x) memset (&(x), 0, sizeof (x))
+#define r_io_bind_init(x) (x) = (const RIOBind){0}
 
 R_API bool r_io_plugin_init(RIO *io);
 R_API bool r_io_plugin_add(RIO *io, RIOPlugin *plugin);
 R_API bool r_io_plugin_remove(RIO *io, RIOPlugin *plugin);
-R_API int r_io_plugin_list(RIO *io);
-R_API int r_io_plugin_list_json(RIO *io);
 R_API int r_io_plugin_read(RIODesc *desc, ut8 *buf, int len);
 R_API int r_io_plugin_write(RIODesc *desc, const ut8 *buf, int len);
 R_API int r_io_plugin_read_at(RIODesc *desc, ut64 addr, ut8 *buf, int len);
@@ -552,7 +593,7 @@ R_API void r_io_desc_cache_cleanup(RIODesc *desc);
 R_API void r_io_desc_cache_fini(RIODesc *desc);
 R_API void r_io_desc_cache_fini_all(RIO *io);
 R_API RList *r_io_desc_cache_list(RIODesc *desc);
-R_API int r_io_desc_extend(RIODesc *desc, ut64 size);
+R_API bool r_io_desc_extend(RIODesc *desc, ut64 size);
 
 /* io/fd.c */
 R_API int r_io_fd_open(RIO *io, const char *uri, int flags, int mode);
@@ -579,6 +620,9 @@ R_API int r_io_fd_get_prev(RIO *io, int fd);
 R_API int r_io_fd_get_highest(RIO *io);
 R_API int r_io_fd_get_lowest(RIO *io);
 
+R_API bool r_io_map_setattr_fromstring(RIOMap *map, const char *s);
+R_API bool r_io_map_setattr(RIOMap *map, ut32 type, ut32 flags);
+R_API char *r_io_map_getattr(RIOMap *map);
 
 #define r_io_range_new()	R_NEW0(RIORange)
 #define r_io_range_free(x)	free(x)
@@ -612,6 +656,7 @@ extern RIOPlugin r_io_plugin_w32;
 extern RIOPlugin r_io_plugin_zip;
 extern RIOPlugin r_io_plugin_mmap;
 extern RIOPlugin r_io_plugin_default;
+extern RIOPlugin r_io_plugin_dsc;
 extern RIOPlugin r_io_plugin_ihex;
 extern RIOPlugin r_io_plugin_self;
 extern RIOPlugin r_io_plugin_gzip;
@@ -634,7 +679,10 @@ extern RIOPlugin r_io_plugin_isotp;
 extern RIOPlugin r_io_plugin_xalz;
 extern RIOPlugin r_io_plugin_reg;
 extern RIOPlugin r_io_plugin_treebuf;
+extern RIOPlugin r_io_plugin_sysgdb;
 extern RIOPlugin r_io_plugin_serial;
+extern RIOPlugin r_io_plugin_cyclic;
+extern RIOPlugin r_io_plugin_uf2;
 
 #if __cplusplus
 }

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2022 - pancake */
+/* radare - LGPL - Copyright 2010-2024 - pancake */
 
 #include <r_userconf.h>
 
@@ -34,7 +34,7 @@ static int debug_os_read_at(int fdn, void *buf, int sz, ut64 addr) {
 }
 
 static int __read(RIO *io, RIODesc *fd, ut8 *buf, int len) {
-	memset (buf, 0xff, len); // TODO: only memset the non-readed bytes
+	memset (buf, io->Oxff, len); // TODO: only memset the non-readed bytes
 	return debug_os_read_at (RIOPROCPID_FD (fd), buf, len, io->off);
 }
 
@@ -125,9 +125,12 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 }
 
 RIOPlugin r_io_plugin_procpid = {
-	.name = "procpid",
-	.desc = "Open /proc/[pid]/mem io",
-	.license = "LGPL3",
+	.meta = {
+		.name = "procpid",
+		.author = "pancake",
+		.desc = "Open /proc/[pid]/mem io",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "procpid://",
 	.open = __open,
 	.close = __close,
@@ -140,7 +143,9 @@ RIOPlugin r_io_plugin_procpid = {
 
 #else
 RIOPlugin r_io_plugin_procpid = {
-	.name = NULL
+	.meta = {
+		.name = NULL
+	},
 };
 #endif
 

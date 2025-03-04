@@ -1,15 +1,14 @@
-/* radare - LGPL - Copyright 2019-2023 - pancake */
+/* radare - LGPL - Copyright 2019-2024 - pancake */
 
 #include <r_util/r_table.h>
 #include <r_core.h>
-#include "r_cons.h"
+#include <r_cons.h>
 
 #define READ_SHOW_FLAG(t, bitflag) (((t)->showMode & bitflag) != 0)
 #define WRITE_SHOW_FLAG(t, bitflag, condition) \
 	if ((condition) == true) { \
 		(t)->showMode |= bitflag; \
-	} \
-	else { \
+	} else { \
 		(t)->showMode &= ~bitflag; \
 	}
 
@@ -38,6 +37,28 @@
 static R_TH_LOCAL int Gnth = 0;
 static R_TH_LOCAL RListComparator Gcmp = NULL;
 
+
+R_API RListInfo *r_listinfo_new(const char *name, RInterval pitv, RInterval vitv, int perm, const char *extra) {
+	RListInfo *info = R_NEW (RListInfo);
+	info->name = name ? strdup (name) : NULL;
+	info->pitv = pitv;
+	info->vitv = vitv;
+	info->perm = perm;
+	info->extra = extra ? strdup (extra) : NULL;
+	return info;
+}
+
+static void r_listinfo_fini(RListInfo *info) {
+	free (info->name);
+	free (info->extra);
+}
+
+R_API void r_listinfo_free(RListInfo *info) {
+	if (info) {
+		r_listinfo_fini (info);
+		free (info);
+	}
+}
 static int sortString(const void *a, const void *b) {
 	return strcmp (a, b);
 }
@@ -46,10 +67,17 @@ static int sortNumber(const void *a, const void *b) {
 	return r_num_get (NULL, a) - r_num_get (NULL, b);
 }
 
+static int sortFloat(const void *a, const void *b) {
+	double fa = strtod ((const char *) a, NULL);
+	double fb = strtod ((const char *) b, NULL);
+	return (int)((fa * 100) - (fb * 100));
+}
+
 // maybe just index by name instead of exposing those symbols as global
 static RTableColumnType r_table_type_string = { "string", sortString };
 static RTableColumnType r_table_type_number = { "number", sortNumber };
 static RTableColumnType r_table_type_bool = { "bool", sortNumber };
+static RTableColumnType r_table_type_float = { "float", sortFloat };
 
 R_API RTableColumnType *r_table_type(const char *name) {
 	if (r_str_startswith (name, "bool")) {
@@ -61,10 +89,12 @@ R_API RTableColumnType *r_table_type(const char *name) {
 	if (!strcmp (name, "number")) {
 		return &r_table_type_number;
 	}
+	if (!strcmp (name, "float")) {
+		return &r_table_type_float;
+	}
 	return NULL;
 }
 
-// TODO: unused for now, maybe good to call after filter :?
 static void __table_adjust(RTable *t) {
 	RListIter *iter, *iter2;
 	RTableColumn *col;
@@ -81,6 +111,9 @@ static void __table_adjust(RTable *t) {
 			RTableColumn *c = r_list_get_n (t->cols, ncol);
 			if (c) {
 				c->width = R_MAX (c->width, itemLength);
+				if (t->maxColumnWidth > 0) {
+					c->width = R_MIN (t->maxColumnWidth, c->width);
+				}
 			}
 			ncol ++;
 		}
@@ -94,9 +127,11 @@ R_API void r_table_row_free(void *_row) {
 }
 
 R_API void r_table_column_free(void *_col) {
-	RTableColumn *col = _col;
-	free (col->name);
-	free (col);
+	if (_col) {
+		RTableColumn *col = _col;
+		free (col->name);
+		free (col);
+	}
 }
 
 R_API RTableRow *r_table_row_clone(RTableRow *row) {
@@ -110,10 +145,8 @@ R_API RTableRow *r_table_row_clone(RTableRow *row) {
 }
 
 R_API RTableColumn *r_table_column_clone(RTableColumn *col) {
+	R_RETURN_VAL_IF_FAIL (col, NULL);
 	RTableColumn *c = R_NEW0 (RTableColumn);
-	if (!c) {
-		return NULL;
-	}
 	memcpy (c, col, sizeof (*c));
 	c->name = strdup (c->name);
 	return c;
@@ -121,40 +154,44 @@ R_API RTableColumn *r_table_column_clone(RTableColumn *col) {
 
 R_API RTable *r_table_new(const char *name) {
 	RTable *t = R_NEW0 (RTable);
-	if (t) {
-		t->name = strdup (name);
-		t->cols = r_list_newf (r_table_column_free);
-		t->rows = r_list_newf (r_table_row_free);
-		SET_SHOW_HEADER (t, true);
-		SET_SHOW_SUM (t, false);
-	}
+	t->name = strdup (name);
+	t->cols = r_list_newf (r_table_column_free);
+	t->rows = r_list_newf (r_table_row_free);
+	t->maxColumnWidth = 32;
+	t->wrapColumns = false;
+	SET_SHOW_HEADER (t, true);
+	SET_SHOW_SUM (t, false);
 	return t;
 }
 
+R_API void r_table_set_width(RTable *t, int maxColumnWidth, bool wrap) {
+	R_RETURN_IF_FAIL (t);
+	t->maxColumnWidth = maxColumnWidth;
+	t->wrapColumns = wrap;
+}
+
 R_API void r_table_free(RTable *t) {
-	if (!t) {
-		return;
+	if (R_LIKELY (t)) {
+		r_list_free (t->cols);
+		r_list_free (t->rows);
+		free (t->name);
+		free (t);
 	}
-	r_list_free (t->cols);
-	r_list_free (t->rows);
-	free (t->name);
-	free (t);
 }
 
 R_API void r_table_add_column(RTable *t, RTableColumnType *type, const char *name, int maxWidth) {
 	RTableColumn *c = R_NEW0 (RTableColumn);
-	if (c) {
-		c->name = strdup (name);
-		c->maxWidth = maxWidth;
-		c->type = type;
-		int itemLength = r_str_len_utf8_ansi (name) + 1;
-		c->width = itemLength;
-		r_list_append (t->cols, c);
-		c->total = -1;
-	}
+	c->name = strdup (name);
+	c->maxWidth = maxWidth;
+	c->type = type;
+	int itemLength = r_str_len_utf8_ansi (name) + 1;
+	c->width = itemLength;
+	r_list_append (t->cols, c);
+	c->total = -1;
 }
 
 R_API RTableRow *r_table_row_new(RList *items) {
+	R_RETURN_VAL_IF_FAIL (items, NULL);
 	RTableRow *row = R_NEW (RTableRow);
 	row->items = items;
 	return row;
@@ -171,23 +208,40 @@ static bool __addRow(RTable *t, RList *items, const char *arg, int col) {
 	return false;
 }
 
+static void wrap_items(RTable *t, RList *items) {
+	if (t->wrapColumns && t->maxColumnWidth > 0) {
+		char *item;
+		RListIter *iter;
+		r_list_foreach (items, iter, item) {
+			int itemLength = r_str_len_utf8_ansi (item);
+			if (itemLength + 3 > t->maxColumnWidth) {
+				char *p = (char *)r_str_ansi_chrn (item, t->maxColumnWidth - 3);
+				strcpy (p, "..");
+			}
+		}
+	}
+}
+
 R_API void r_table_add_row_list(RTable *t, RList *items) {
-	r_return_if_fail (t && items);
+	R_RETURN_IF_FAIL (t && items);
 	RTableRow *row = r_table_row_new (items);
+	wrap_items (t, items);
 	r_list_append (t->rows, row);
 	// throw warning if not enough columns defined in header
 	t->totalCols = R_MAX (t->totalCols, r_list_length (items));
 }
 
 R_API void r_table_set_columnsf(RTable *t, const char *fmt, ...) {
+	R_RETURN_IF_FAIL (t && fmt);
 	va_list ap;
 	va_start (ap, fmt);
 	RTableColumnType *typeString = r_table_type ("string");
 	RTableColumnType *typeNumber = r_table_type ("number");
+	RTableColumnType *typeFloat = r_table_type ("float");
 	RTableColumnType *typeBool = r_table_type ("bool");
 	const char *name;
 	const char *f = fmt;
-	for (;*f;f++) {
+	for (; *f; f++) {
 		name = va_arg (ap, const char *);
 		if (!name) {
 			break;
@@ -199,6 +253,9 @@ R_API void r_table_set_columnsf(RTable *t, const char *fmt, ...) {
 		case 's':
 		case 'z':
 			r_table_add_column (t, typeString, name, 0);
+			break;
+		case 'f':
+			r_table_add_column (t, typeFloat, name, 0);
 			break;
 		case 'i':
 		case 'd':
@@ -228,8 +285,11 @@ R_API void r_table_add_rowf(RTable *t, const char *fmt, ...) {
 			arg = va_arg (ap, const char *);
 			r_list_append (list, strdup (r_str_get (arg)));
 			break;
+		case 'f':
+			r_list_append (list, r_str_newf ("%.03lf", va_arg (ap, double)));
+			break;
 		case 'b':
-			r_list_append (list, r_str_new (r_str_bool (va_arg (ap, int))));
+			r_list_append (list, strdup (r_str_bool (va_arg (ap, int))));
 			break;
 		case 'i':
 		case 'd':
@@ -285,6 +345,7 @@ R_API void r_table_add_row(RTable *t, const char *name, ...) {
 		col++;
 	}
 	va_end (ap);
+	wrap_items (t, items);
 	RTableRow *row = r_table_row_new (items);
 	r_list_append (t->rows, row);
 	// throw warning if not enough columns defined in header
@@ -437,9 +498,7 @@ static int __strbuf_append_col_aligned(RStrBuf *sb, RTableColumn *col, const cha
 }
 
 R_API char *r_table_tostring(RTable *t) {
-	if (!t) { // guard
-		return strdup ("");
-	}
+	R_RETURN_VAL_IF_FAIL (t, NULL);
 	if (SHOULD_SHOW_R2 (t)) {
 		return r_table_tor2cmds (t);
 	}
@@ -525,7 +584,8 @@ R_API char *r_table_tosimplestring(RTable *t) {
 		}
 		r_list_foreach (t->cols, iter, col) {
 			bool nopad = !iter->n;
-			(void)__strbuf_append_col_aligned (sb, col, sdb_itoa (col->total, 10, tmp, sizeof (tmp)), nopad);
+			char *num = col->total == -1 ? "" : sdb_itoa (col->total, 10, tmp, sizeof (tmp));
+			(void)__strbuf_append_col_aligned (sb, col, num, nopad);
 		}
 	}
 	return r_strbuf_drain (sb);
@@ -565,7 +625,7 @@ R_API char *r_table_tor2cmds(RTable *t) {
 }
 
 R_API char *r_table_tosql(RTable *t) {
-	r_return_val_if_fail (t, NULL);
+	R_RETURN_VAL_IF_FAIL (t, NULL);
 	RStrBuf *sb = r_strbuf_new ("");
 	RTableRow *row;
 	RTableColumn *col;
@@ -718,7 +778,7 @@ R_API char *r_table_tojson(RTable *t) {
 }
 
 R_API void r_table_filter(RTable *t, int nth, int op, const char *un) {
-	r_return_if_fail (t && un);
+	R_RETURN_IF_FAIL (t && un);
 	RTableRow *row;
 	RListIter *iter, *iter2;
 	ut64 uv = r_num_math (NULL, un);
@@ -1161,7 +1221,7 @@ static bool __table_special(RTable *t, const char *columnName) {
 }
 
 R_API bool r_table_query(RTable *t, const char *q) {
-	r_return_val_if_fail (t, false);
+	R_RETURN_VAL_IF_FAIL (t, false);
 	q = r_str_trim_head_ro (q);
 	// TODO support parenthesis and (or)||
 	// split by "&&" (or comma) -> run .filter on each

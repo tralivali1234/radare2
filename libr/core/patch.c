@@ -1,8 +1,9 @@
-/* radare - LGPL - Copyright 2011-2023 - pancake */
+/* radare - LGPL - Copyright 2011-2025 - pancake */
 
 #include <r_core.h>
 
 R_API bool r_core_patch_line(RCore *core, char *str) {
+	R_RETURN_VAL_IF_FAIL (core && str, false);
 	char *q, *p = strchr (str + 1, ' ');
 	if (!p) {
 		return false;
@@ -12,16 +13,16 @@ R_API bool r_core_patch_line(RCore *core, char *str) {
 
 	switch (*p) {
 	case '"':
-		q = strchr (p + 1,'"');
+		q = strchr (p + 1, '"');
 		if (q) {
 			*q = 0;
 		}
-		r_core_cmdf (core, "\"\"s %s", str);
-		r_core_cmdf (core, "\"\"w %s", p+1);
+		r_core_cmdf (core, "'s %s", str);
+		r_core_cmdf (core, "'w %s", p + 1);
 		break;
 	case ':':
-		r_core_cmdf (core, "\"\"s %s", str);
-		r_core_cmdf (core, "\"\"wa %s", p);
+		r_core_cmdf (core, "'s %s", str);
+		r_core_cmdf (core, "'wa %s", p);
 		break;
 	case 'v':
 		q = strchr (p + 1, ' ');
@@ -31,12 +32,12 @@ R_API bool r_core_patch_line(RCore *core, char *str) {
 		} else {
 			return 0;
 		}
-		r_core_cmdf (core, "\"\"s %s", str);
-		r_core_cmdf (core, "\"\"wv%s %s", p + 1, q);
+		r_core_cmdf (core, "'s %s", str);
+		r_core_cmdf (core, "'wv%s %s", p + 1, q);
 		break;
 	default:
-		r_core_cmdf (core, "\"\"s %s", str);
-		r_core_cmdf (core, "\"\"wx %s", p);
+		r_core_cmdf (core, "'s %s", str);
+		r_core_cmdf (core, "'wx %s", p);
 		break;
 	}
 	return true;
@@ -101,13 +102,27 @@ static bool __core_patch_bracket(RCore *core, const char *str, ut64 *noff) {
 	return true;
 }
 
-R_API int r_core_patch(RCore *core, const char *patch) {
+R_API bool r_core_patch_file(RCore *core, const char *patch) {
+	R_RETURN_VAL_IF_FAIL (core && patch, false);
+	char *data = r_file_slurp (patch, NULL);
+	if (!data) {
+		R_LOG_ERROR ("Cannot open %s", patch);
+		return false;
+	}
+	bool res = r_core_patch (core, data);
+	free (data);
+	return res;
+}
+
+
+R_API bool r_core_patch(RCore *core, const char *patch) {
+	R_RETURN_VAL_IF_FAIL (core && patch, false);
 	char *p, *p0, *str;
 	ut64 noff = 0LL;
 
 	p = p0 = str = strdup (patch);
 	if (!p) {
-		return 0;
+		return false;
 	}
 	for (; *p; p++) {
 		/* read until newline */
@@ -143,5 +158,6 @@ R_API int r_core_patch(RCore *core, const char *patch) {
 		str = p;
 	}
 	free (p0);
-	return 0;
+	// TODO do some minimum error checking
+	return true;
 }

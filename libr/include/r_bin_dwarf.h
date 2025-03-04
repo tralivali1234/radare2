@@ -545,6 +545,8 @@ extern "C" {
 #define DW_LANG_UPC                     0x0012
 #define DW_LANG_D                       0x0013
 #define DW_LANG_Python                  0x0014
+#define DW_LANG_OpenCL                  0x0015
+#define DW_LANG_Modula3                 0x0016
 #define DW_LANG_Rust                    0x001c
 #define DW_LANG_C11                     0x001d
 #define DW_LANG_Swift                   0x001e
@@ -657,11 +659,20 @@ typedef struct {
 } RBinDwarfState;
 
 typedef struct {
-	ut64 address;
-	char *file;
-	unsigned int line;
-	unsigned int column;
-} RBinDwarfRow;
+	ut64 addr;
+	const char *file;
+	const char *path;
+	ut32 line;
+	ut32 column;
+} RBinDbgItem;
+
+typedef struct {
+	ut64 addr;
+	ut32 path;
+	ut32 file;
+	ut32 line;
+	ut32 colu;
+} RBinDbgItemInternal;
 
 #define DWARF_INIT_LEN_64	0xffffffff
 typedef union {
@@ -770,8 +781,8 @@ typedef struct {
 	RBinDwarfDie *dies;
 } RBinDwarfCompUnit;
 
-#define COMP_UNIT_CAPACITY	8
-#define DEBUG_INFO_CAPACITY	8
+#define COMP_UNIT_CAPACITY 8
+#define DEBUG_INFO_CAPACITY 8
 typedef struct {
 	size_t count;
 	size_t capacity;
@@ -779,7 +790,7 @@ typedef struct {
 	HtUP/*<ut64 offset, DwarfDie *die>*/ *lookup_table;
 } RBinDwarfDebugInfo;
 
-#define	ABBREV_DECL_CAP		8
+#define	ABBREV_DECL_CAP 8
 
 typedef struct {
 	ut64 code;
@@ -799,20 +810,17 @@ typedef struct {
 	RBinDwarfAbbrevDecl *decls;
 } RBinDwarfDebugAbbrev;
 
-#define		DWARF_FALSE	0
-#define		DWARF_TRUE	1
-
 typedef struct {
 	ut64 address;
 	ut64 op_index;
 	ut64 file;
 	ut64 line;
 	ut64 column;
-	ut8 is_stmt;
-	ut8 basic_block;
-	ut8 end_sequence;
-	ut8 prologue_end;
-	ut8 epilogue_begin;
+	bool is_stmt;
+	bool basic_block;
+	bool end_sequence;
+	bool prologue_end;
+	bool epilogue_begin;
 	ut64 isa;
 	ut64 discriminator;
 } RBinDwarfSMRegisters;
@@ -820,6 +828,8 @@ typedef struct {
 typedef struct {
 	char *name;
 	ut32 id_idx, mod_time, file_len;
+	bool has_checksum;
+	ut8 md5sum[16];
 } file_entry;
 
 typedef struct {
@@ -858,7 +868,7 @@ typedef struct r_bin_dwarf_loc_list_t {
 R_API void r_bin_dwarf_parse_aranges(RBin *a, int mode);
 R_API RList *r_bin_dwarf_parse_line(RBin *a, int mode);
 R_API RBinDwarfDebugAbbrev *r_bin_dwarf_parse_abbrev(RBin *a, int mode);
-R_API RBinDwarfDebugInfo *r_bin_dwarf_parse_info(RBinDwarfDebugAbbrev *da, RBin *a, int mode);
+R_API RBinDwarfDebugInfo *r_bin_dwarf_parse_info(RBin *a, RBinDwarfDebugAbbrev *da, int mode);
 R_API HtUP/*<offset, RBinDwarfLocList*>*/  *r_bin_dwarf_parse_loc(RBin *bin, int addr_size);
 R_API void r_bin_dwarf_print_loc(HtUP /*<offset, RBinDwarfLocList*>*/  *loc_table, int addr_size, PrintfCallback print);
 R_API void r_bin_dwarf_free_loc(HtUP /*<offset, RBinDwarfLocList*>*/  *loc_table);

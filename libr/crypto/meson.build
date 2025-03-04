@@ -5,11 +5,13 @@ r_crypto_sources = files(
   'p/crypto_aes_algo.c',
   'p/crypto_aes_cbc.c',
   'p/crypto_aes_wrap.c',
+  'p/crypto_bech32.c',
   'p/crypto_base64.c',
   'p/crypto_base91.c',
   'p/crypto_blowfish.c',
   'p/crypto_cps2.c',
   'p/crypto_des.c',
+  'p/crypto_ed25519.c',
   'p/crypto_punycode.c',
   'p/crypto_rc2.c',
   'p/crypto_rc4.c',
@@ -36,6 +38,12 @@ r_crypto_sources += files(
   'hash/ssdeep.c',
   'hash/luhn.c',
   'hash/state.c'
+)
+
+r_crypto_sources += files(
+  'signature/ed25519/fe.c',
+  'signature/ed25519/ge.c',
+  'signature/ed25519/sc.c',
 )
 
 r_crypto_deps = [r_util_dep]

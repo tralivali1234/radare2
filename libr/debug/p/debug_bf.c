@@ -1,6 +1,5 @@
-/* radare - LGPL - Copyright 2011-2022 - pancake */
+/* radare - LGPL - Copyright 2011-2024 - pancake */
 
-#include <r_asm.h>
 #include <r_debug.h>
 #undef R_API
 #define R_API static inline
@@ -31,8 +30,8 @@ typedef struct plugin_data_t {
 
 static bool is_io_bf(RDebug *dbg) {
 	RIODesc *d = dbg->iob.io->desc;
-	if (d && d->plugin && d->plugin->name) {
-		if (!strcmp ("bfdbg", d->plugin->name)) {
+	if (d && d->plugin && d->plugin->meta.name) {
+		if (!strcmp ("bfdbg", d->plugin->meta.name)) {
 			return true;
 		}
 	}
@@ -64,7 +63,7 @@ static bool r_debug_bf_step(RDebug *dbg) {
 }
 
 static bool r_debug_bf_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
-	r_return_val_if_fail (dbg && buf && size > 0, -1);
+	R_RETURN_VAL_IF_FAIL (dbg && buf && size > 0, -1);
 	if (!is_io_bf (dbg)) {
 		return false;
 	}
@@ -90,7 +89,7 @@ static bool r_debug_bf_reg_read(RDebug *dbg, int type, ut8 *buf, int size) {
 }
 
 static bool r_debug_bf_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
-	r_return_val_if_fail (dbg, false);
+	R_RETURN_VAL_IF_FAIL (dbg, false);
 	if (!is_io_bf (dbg)) {
 		return 0;
 	}
@@ -199,7 +198,7 @@ static RList *r_debug_native_map_get(RDebug *dbg) {
 	return list;
 }
 
-static int r_debug_bf_stop(RDebug *dbg) {
+static bool r_debug_bf_stop(RDebug *dbg) {
 	if (!is_io_bf (dbg)) {
 		return false;
 	}
@@ -210,14 +209,14 @@ static int r_debug_bf_stop(RDebug *dbg) {
 }
 
 static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	ds->plugin_data = R_NEW0 (PluginData);
 	return !!ds->plugin_data;
 }
 
 static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	if (!ds->plugin_data) {
 		return false;
@@ -232,10 +231,10 @@ RDebugPlugin r_debug_plugin_bf = {
 		.name = "bf",
 		.author = "pancake",
 		.desc = "BF debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "bf",
-	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_PACK2 (32, 64),
 	.init_plugin = init_plugin,
 	.fini_plugin = fini_plugin,
 	.step = r_debug_bf_step,

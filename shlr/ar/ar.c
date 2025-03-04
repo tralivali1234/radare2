@@ -1,4 +1,5 @@
 /* radare - LGPLv3 - Copyright 2017 - xarkes */
+
 #include <stdio.h>
 #include <r_util.h>
 #include "ar.h"
@@ -13,7 +14,7 @@ typedef struct Filetable {
 } filetable;
 
 static RArFp *arfp_new(RBuffer *b, ut32 *refcount) {
-	r_return_val_if_fail (b, NULL);
+	R_RETURN_VAL_IF_FAIL (b, NULL);
 	RArFp *f = R_NEW (RArFp);
 	if (f) {
 		if (refcount) {
@@ -64,7 +65,7 @@ static char *name_from_table(ut64 off, filetable *tbl) {
 	if (i == off) {
 		return NULL;
 	}
-	return r_str_newlen (buf + off, i - off - 1);
+	return R_STR_NDUP (buf + off, i - off - 1);
 }
 
 #define VERIFY_AR_NUM_FIELD(x, s)                                                                \
@@ -77,7 +78,7 @@ static char *name_from_table(ut64 off, filetable *tbl) {
 
 /* -1 error, 0 continue, 1 finished */
 static int ar_parse_header(RArFp *arf, filetable *tbl, ut64 arsize) {
-	r_return_val_if_fail (arf && arf->buf && tbl, -1);
+	R_RETURN_VAL_IF_FAIL (arf && arf->buf && tbl, -1);
 	RBuffer *b = arf->buf;
 
 	ut64 h_off = r_buf_tell (b);
@@ -291,7 +292,7 @@ R_API RList *ar_open_all(const char *arname) {
  * >0 if it's done.
  */
 R_API int ar_open_all_cb(const char *arname, RArOpenManyCB cb, void *user) {
-	r_return_val_if_fail (arname, -1);
+	R_RETURN_VAL_IF_FAIL (arname, -1);
 	RBuffer *b = r_buf_new_file (arname, O_RDWR, 0);
 	if (!b) {
 		r_sys_perror (__FUNCTION__);
@@ -310,15 +311,6 @@ R_API int ar_open_all_cb(const char *arname, RArOpenManyCB cb, void *user) {
 	filetable tbl = { NULL, 0, 0 };
 
 	ut32 *refc = R_NEW (ut32);
-	if (!refc) {
-		r_buf_free (b);
-		free (refc);
-		return -1;
-	}
-	/* The refcount is artificially inflated here. This allows the callback to
-	 * use ar_close without fear of free'ing the RBuffer. The refcounter must
-	 * be decremented later before returning.
-	*/
 	*refc = 1;
 
 	int r = 0;
@@ -340,11 +332,10 @@ R_API int ar_open_all_cb(const char *arname, RArOpenManyCB cb, void *user) {
 
 	if (*refc == 1) {
 		// the cb closed all the RArFp's, so we free these resources
-		free (refc);
 		r_buf_free (b);
 	} else {
 		// return recf to true value
-		(*refc)--;
+		refc--;
 	}
 
 	return r;
@@ -357,8 +348,8 @@ R_API int ar_close(RArFp *f) {
 
 		// no more files open, clean underlying buffer
 		if (*f->refcount == 0) {
-			free (f->refcount);
 			r_buf_free (f->buf);
+			free (f->refcount);
 		}
 		free (f);
 	}

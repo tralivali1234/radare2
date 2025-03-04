@@ -47,7 +47,8 @@ RebuildSpp() {
 }
 
 RebuildQJS() {
-	rm -f shlr/qjs/js_repl.c
+# rm -f shlr/qjs/js_repl.c
+	rm -f shlr/qjs/js_r2papi.c
 	make -C shlr/qjs
 	Rebuild libr/lang
 	touch libr/core/cmd.c
@@ -72,7 +73,7 @@ RebuildCapstone() {
 }
 
 RebuildSdb() {
-	Rebuild shlr/sdb
+	Rebuild subprojects/sdb
 	Rebuild libr/util
 }
 
@@ -84,6 +85,11 @@ RebuildFs() {
 RebuildBin() {
 	Rebuild libr/bin
 	Rebuild libr/core
+}
+
+RebuildAr() {
+	Rebuild shlr/ar
+	Rebuild libr/io
 }
 
 RebuildGdb() {
@@ -112,6 +118,7 @@ case "$1" in
 grub|fs)RebuildFs; ;;
 bin)    RebuildBin ; ;;
 gdb)    RebuildGdb ; ;;
+ar)     RebuildAr ; ;;
 winkd)  RebuildWinkd ; ;;
 sdb)    RebuildSdb ; ;;
 spp)    RebuildSpp ; ;;

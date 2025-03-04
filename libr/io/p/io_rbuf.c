@@ -1,9 +1,9 @@
-/* radare2 - LGPL - Copyright 2017-2022 - pancake, condret */
+/* radare2 - LGPL - Copyright 2017-2024 - pancake, condret */
 
 #include <r_io.h>
 
 static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	r_return_val_if_fail (io && fd && buf && fd->data, -1);
+	R_RETURN_VAL_IF_FAIL (io && fd && buf && fd->data, -1);
 	if (count >= 0 && fd->perm & R_PERM_W) {
 		RBuffer *b = fd->data;
 		return r_buf_write (b, buf, count);
@@ -12,7 +12,7 @@ static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 }
 
 static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	r_return_val_if_fail (io && fd && buf, -1);
+	R_RETURN_VAL_IF_FAIL (io && fd && buf, -1);
 	RBuffer *b = fd->data;
 	return r_buf_read (b, buf, count);
 }
@@ -31,7 +31,7 @@ static bool __check(RIO *io, const char *pathname, bool many) {
 }
 
 static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
-	r_return_val_if_fail (io && pathname, NULL);
+	R_RETURN_VAL_IF_FAIL (io && pathname, NULL);
 	if (r_sandbox_enable (false)) {
 		R_LOG_ERROR ("rbuf:// doesnt work with sandbox enabled");
 		return NULL;
@@ -45,12 +45,14 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 }
 
 RIOPlugin r_io_plugin_rbuf = {
-	.name = "rbuf",
-	.desc = "Unsafe RBuffer IO plugin",
+	.meta = {
+		.name = "rbuf",
+		.desc = "Unsafe RBuffer IO plugin",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "rbuf://",
-	.license = "LGPL",
 	.open = __open,
-	.author = "pancake",
 	.close = __close,
 	.read = __read,
 	.seek = __lseek,

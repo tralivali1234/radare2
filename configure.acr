@@ -1,5 +1,5 @@
 PKGNAME radare2
-VERSION 5.8.9
+VERSION 5.9.9
 CONTACT pancake ; pancake@nopcode.org
 
 DESCRIPTION The UNIX-like reverse engineering toolkit ;
@@ -18,8 +18,19 @@ CHKPRG! PATCH patch
 CHKPRG! AR ar
 CHKPRG GIT git
 CHKPRG GPERF gperf
+CHKLIB atomic
 CHKLIB magic
 CHKINC linux/can.h
+
+ARG_WITH USE_LIB_ATOMIC libatomic force to use libatomic ;
+IFAND HAVE_LIB_ATOMIC USE_LIB_ATOMIC {
+	USE_LIB_ATOMIC = 1 ;
+	LIBATOMIC = '-latomic' ;
+}{
+	USE_LIB_ATOMIC = 0 ;
+	LIBATOMIC = '' ;
+}
+
 ARG_WITH USE_MAGIC sysmagic force to use system's magic ;
 IFAND HAVE_LIB_MAGIC USE_MAGIC {
 	USE_LIB_MAGIC = 1 ;
@@ -36,6 +47,7 @@ ARG_DISABLE LOADLIBS loadlibs disable loading plugins ;
 
 ARG_ENABLE R_CRITICAL_ENABLED threadsafety enable mutexes in critical code paths ;
 
+ARG_WITHOUT WANT_QJS qjs build without the QuickJS runtime ;
 ARG_WITHOUT WANT_DYLINK dylink disable support for dynamic loading of plugins ;
 ARG_WITHOUT HAVE_FORK fork disable fork ;
 ARG_WITHOUT WANT_PTRACE_WRAP ptrace-wrap build ptrace-wrap support needed for the iaito debugger on Linux ;
@@ -50,10 +62,13 @@ ARG_WITH WITH_LIBR libr build libr.a and libr.dylib ;
 ARG_WITH WITH_STATIC_THEMES static-themes default themes are compiled and fallback if not available on disk ;
 
 (( CAPSTONE ))
-ARG_WITH USE_CS5 capstone5 build next branch of capstone5 (default) ;
+ARG_WITH USE_CSNEXT capstone-next build next branch of the capstone disassembler ;
+(( TODO rename to capstone-v5 and capstone-v4 ))
+ARG_WITH USE_CS5 capstone5 build v5 branch of capstone5 (default) ;
 ARG_WITH USE_CS4 capstone4 build v4 branch of capstone ;
 
 ARG_WITH WITH_CAPSTONE syscapstone force to use system-wide capstone ;
+ARG_WITHOUT WITHOUT_SYSCAPSTONE syscapstone avoid the system-wide capstone ;
 IF WITH_CAPSTONE {
 	PKGCFG CAPSTONE_CFLAGS CAPSTONE_LDFLAGS capstone
 }
@@ -61,6 +76,22 @@ IFAND WITH_CAPSTONE HAVE_PKGCFG_CAPSTONE {
 	USE_CAPSTONE = 1 ;
 }{
 	USE_CAPSTONE = 0 ;
+}
+
+IFNOT WITHOUT_SYSCAPSTONE {
+	USE_CAPSTONE = 0 ;
+	HAVE_PKGCFG_CAPSTONE = 0 ;
+	CAPSTONE_CFLAGS = "" ;
+	CAPSTONE_LDFLAGS = "" ;
+}
+
+(( SQSH ))
+PKGCFG SQSH_CFLAGS SQSH_LDFLAGS libsqsh
+ARG_WITHOUT WITH_SQSH sqsh ensure squashfs support is not included, even if library is found ;
+IFAND WITH_SQSH HAVE_PKGCFG_LIBSQSH {
+	USE_SQSH = 1 ;
+}{
+	USE_SQSH = 0 ;
 }
 
 (( LZ4 ))
@@ -108,8 +139,19 @@ CHKFNC c arc4random_uniform
 CHKFNC c explicit_bzero
 CHKFNC c explicit_memset
 CHKFNC c clock_nanosleep
+CHKFNC c __atomic_fetch_add_8
 CHKFNC c sigaction
 CHKFNC c clock_gettime
+
+IFNOT HAVE___ATOMIC_FETCH_ADD_8 {
+	IF HAVE_LIB_ATOMIC {
+		FORCE_LIB_ATOMIC = 1 ;
+		LIBATOMIC ?= '-latomic' ;
+	}{
+		FORCE_LIB_ATOMIC = 0 ;
+		LIBATOMIC ?= '' ;
+	}
+}
 
 IFNOT HAVE_CLOCK_GETTIME {
 	IF HAVE_DECL___GLIBC__ {
@@ -129,35 +171,34 @@ HAVE_LIB_GMP = 0 ;
 
 
 (( openssl is used for https:// in rsocket and crypto/hash ))
-CHKLIB ssl
-PKGCFG SSL_CFLAGS SSL_LDFLAGS openssl
-IFNOTNULL SSL_LDFLAGS {
-	HAVE_OPENSSL = 1 ;
-}
-
 ARG_WITH WANT_SSL ssl build with (Open|Boring|..)SSL if possible ;
-IFAND WANT_SSL HAVE_OPENSSL {
-	HAVE_OPENSSL = 1 ;
-}{
+ARG_WITH WANT_SSL_CRYPTO ssl-crypto build crypto code with libssl ;
+IFNOT WANT_SSL {
 	HAVE_OPENSSL = 0 ;
 	SSL_CFLAGS = "" ;
 	SSL_LDFLAGS = "" ;
-}
-IFNULL SSL_LDFLAGS {
-	IFNOT HAVE_LIB_SSL {
-		HAVE_OPENSSL = 0 ;
+}{
+	CHKLIB ssl
+	PKGCFG SSL_CFLAGS SSL_LDFLAGS openssl
+	IFNOTNULL SSL_LDFLAGS {
+		HAVE_OPENSSL = 1 ;
+	}
+
+	IFNULL SSL_LDFLAGS {
+		IFNOT HAVE_LIB_SSL {
+			HAVE_OPENSSL = 0 ;
+		}{
+			SSL_LDFLAGS = -lssl ;
+		}
+	}
+	IFAND WANT_SSL_CRYPTO HAVE_OPENSSL {
+		WANT_SSL_CRYPTO = 1 ;
 	}{
-		SSL_LDFLAGS = -lssl ;
+		WANT_SSL_CRYPTO = 0 ;
 	}
 }
-ARG_WITH WANT_SSL_CRYPTO ssl-crypto build crypto code with libssl ;
-IFAND WANT_SSL_CRYPTO HAVE_OPENSSL {
-	WANT_SSL_CRYPTO = 1 ;
-}{
-	WANT_SSL_CRYPTO = 0 ;
-}
 
-ARG_WITH WANT_LIBUV libuv disable libuv dependency ;
+ARG_WITH WANT_LIBUV libuv use libuv if available ;
 CHKVER libuv 1.0.0
 IF HAVE_LIBUV_VERSION_1_0_0 {
 	PKGCFG LIBUV_CFLAGS LIBUV_LDFLAGS libuv
@@ -172,6 +213,8 @@ IF HAVE_LIBUV_VERSION_1_0_0 {
 }{
 	HAVE_LIBUV = 0 ;
 }
+
+ARG_WITH USE_NEW_ABI new-abi use the new ABI breaking changes scheduled for the next major release ;
 
 ARG_WITH USE_RPATH rpath use rpath to build ;
 
@@ -222,10 +265,13 @@ IFEQ USEROSTYPE auto ; {
 	}{
 	IFEQ HOST_OS darwin ; {
 		USEROSTYPE = darwin ;
-        }{
+	}{
 	IFEQ HOST_OS haiku ; {
 		USEROSTYPE = haiku ;
-	} } } } } } } } } } } } }
+	}{
+	IFEQ HOST_OS aix ; {
+		USEROSTYPE = aix ;
+	} } } } } } } } } } } } } }
 }
 
 (( this hack is required for openbsd ports ))
@@ -264,9 +310,13 @@ IFEQ USEROSTYPE haiku ; {
 	HAVE_PTRACE = 0 ;
 	USE_PTRACE_WRAP = 0 ;
 }{
+IFEQ USEROSTYPE aix ; {
+	HAVE_PTRACE = 0 ;
+	USE_PTRACE_WRAP = 0 ;
+}{
 	HAVE_PTRACE = 1 ;
 	USE_PTRACE_WRAP = 0 ;
-} } } } } }
+} } } } } } }
 
 IFNOT DEBUGGER {
 	HAVE_PTRACE = 0 ;
@@ -277,13 +327,15 @@ IFEQ WANT_PTRACE_WRAP 0 ; {
 }
 
 ARG_WITH R_CHECKS_LEVEL=2 checks-level value between 0 and 3 to enable different level of assert (see R_CHECKS_LEVEL) ;
+ARG_DISABLE WANT_DEBUGSTUFF debug-stuff disable the log messages and disable control-c ;
 
 REPORT
-	BUILD CC CFLAGS DEBUGGER HAVE_ARC4RANDOM_UNIFORM HAVE_EXPLICIT_BZERO
-	HAVE_EXPLICIT_MEMSET HAVE_FORK HAVE_GPERF HAVE_LIBUV HAVE_LIB_GMP
+	BUILD CC CFLAGS DEBUGGER HAVE_ARC4RANDOM_UNIFORM HAVE_EXPLICIT_BZERO USE_NEW_ABI
+	HAVE_EXPLICIT_MEMSET HAVE_FORK HAVE_GPERF HAVE_LIBUV HAVE_LIB_GMP WANT_DEBUGSTUFF
 	HAVE_OPENSSL WANT_SSL_CRYPTO HAVE_PTRACE HOST LDFLAGS LIBVERSION PKGCONFIG PREFIX
-	R_CHECKS_LEVEL TARGET USERCC USEROSTYPE USE_CAPSTONE USE_LIB_MAGIC NEW_IO_CACHE
+	R_CHECKS_LEVEL TARGET USERCC USEROSTYPE USE_CAPSTONE USE_LIB_MAGIC NEW_IO_CACHE USE_SQSH
 	USE_LIB_XXHASH USE_LIB_ZIP USE_PTRACE_WRAP USE_SYSLZ4 VERSION WANT_DYLINK USE_SMALLZ4
+	USE_LIB_ATOMIC HAVE___ATOMIC_FETCH_ADD_8 FORCE_LIB_ATOMIC WANT_QJS
 ;
 
 PKGCFG_DO pkgcfg/r_egg.pc r_egg r_asm r_syscall r_util r_reg r_flag r_cons ;

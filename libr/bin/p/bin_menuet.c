@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2016-2019 - pancake */
+/* radare2 - LGPL - Copyright 2016-2024 - pancake */
 
 #include <r_bin.h>
 
@@ -46,7 +46,7 @@ dd 0
 
 #endif
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut8 buf[8];
 	if (r_buf_read_at (b, 0, buf, sizeof (buf)) != sizeof (buf)) {
 		return false;
@@ -63,8 +63,8 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (bf, b);
+static bool load(RBinFile *bf, RBuffer *b, ut64 loadaddr) {
+	return check (bf, b);
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -110,7 +110,7 @@ static RList* sections(RBinFile *bf) {
 	const int buf_size = R_MIN (sizeof (buf), r_buf_size (bf->buf));
 
 	r_buf_read_at (bf->buf, 0, buf, buf_size);
-	if (!bf->o->info) {
+	if (!bf->bo->info) {
 		return NULL;
 	}
 
@@ -172,10 +172,10 @@ static RBinInfo* info(RBinFile *bf) {
 
 static ut64 size(RBinFile *bf) {
 	ut8 buf[4] = {0};
-	if (!bf->o->info) {
-		bf->o->info = info (bf);
+	if (!bf->bo->info) {
+		bf->bo->info = info (bf);
 	}
-	if (!bf->o->info) {
+	if (!bf->bo->info) {
 		return 0;
 	}
 	r_buf_read_at (bf->buf, 16, buf, 4);
@@ -201,12 +201,15 @@ static RBuffer* create(RBin* bin, const ut8 *code, int codelen, const ut8 *data,
 }
 
 RBinPlugin r_bin_plugin_menuet = {
-	.name = "menuet",
-	.desc = "Menuet/KolibriOS bin plugin",
-	.license = "LGPL3",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "menuet",
+		.desc = "Menuet/KolibriOS bin plugin",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
+	.load = &load,
 	.size = &size,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.entries = &entries,
 	.sections = &sections,

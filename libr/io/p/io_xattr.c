@@ -116,11 +116,13 @@ static bool __close(RIODesc *fd) {
 }
 
 RIOPlugin r_io_plugin_xattr = {
-	.name = "xattr",
-	.desc = "access extended file attribute",
-	.author = "pancake",
+	.meta = {
+		.name = "xattr",
+		.desc = "access extended file attribute",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "xattr://",
-	.license = "LGPL3",
 	.open = __open,
 	.close = __close,
 	.read = io_memory_read,
@@ -133,10 +135,13 @@ RIOPlugin r_io_plugin_xattr = {
 #else // HAS_XATTR
 
 RIOPlugin r_io_plugin_xattr = {
-	.name = "xattr",
-	.desc = "access extended file attribute (not supported)",
+	.meta = {
+		.name = "xattr",
+		.author = "pancake",
+		.desc = "access extended file attribute (not supported)",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "xattr://",
-	.license = "LGPL3",
 };
 #endif
 

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2022 - pancake */
+/* radare - LGPL - Copyright 2008-2024 - pancake */
 
 #include <r_io.h>
 #include "config.h"
@@ -8,8 +8,8 @@ static RIOPlugin *io_static_plugins[] = {
 };
 
 R_API bool r_io_plugin_add(RIO *io, RIOPlugin *plugin) {
-	r_return_val_if_fail (io && plugin && io->plugins, false);
-	if (!plugin->name) {
+	R_RETURN_VAL_IF_FAIL (io && plugin && io->plugins, false);
+	if (!plugin->meta.name) {
 		return false;
 	}
 	ls_append (io->plugins, plugin);
@@ -17,30 +17,21 @@ R_API bool r_io_plugin_add(RIO *io, RIOPlugin *plugin) {
 }
 
 R_API bool r_io_plugin_remove(RIO *io, RIOPlugin *plugin) {
-	// R2_590 TODO
+	// XXX TODO
 	return true;
 }
 
 R_API bool r_io_plugin_init(RIO *io) {
-	RIOPlugin *static_plugin;
 	int i;
 	if (!io) {
 		return false;
 	}
-	io->plugins = ls_newf (free);
+	io->plugins = ls_newf (NULL); // fine to use NULL here?
 	for (i = 0; io_static_plugins[i]; i++) {
-		if (!io_static_plugins[i]->name) {
+		if (!io_static_plugins[i]->meta.name) {
 			continue;
 		}
-		static_plugin = R_NEW0 (RIOPlugin);
-		if (!static_plugin) {
-			return false;
-		}
-		memcpy (static_plugin, io_static_plugins[i], sizeof (RIOPlugin));
-		if (!r_io_plugin_add (io, static_plugin)) {
-			free (static_plugin);
-			return false;
-		}
+		r_io_plugin_add (io, io_static_plugins[i]);
 	}
 	return true;
 }
@@ -66,90 +57,11 @@ R_API RIOPlugin *r_io_plugin_byname(RIO *io, const char *name) {
 	SdbListIter *iter;
 	RIOPlugin *iop;
 	ls_foreach (io->plugins, iter, iop) {
-		if (!strcmp (name, iop->name)) {
+		if (!strcmp (name, iop->meta.name)) {
 			return iop;
 		}
 	}
 	return NULL;
-}
-
-R_API int r_io_plugin_list(RIO *io) {
-	RIOPlugin *plugin;
-	SdbListIter *iter;
-	char str[4];
-	int n = 0;
-
-	ls_foreach (io->plugins, iter, plugin) {
-		str[0] = 'r';
-		str[1] = plugin->write ? 'w' : '_';
-		str[2] = plugin->isdbg ? 'd' : '_';
-		str[3] = 0;
-		io->cb_printf ("%s  %-8s %-6s %s.", str,
-			r_str_get (plugin->name), r_str_get (plugin->license), r_str_get (plugin->desc));
-		if (plugin->uris) {
-			io->cb_printf (" %s", plugin->uris);
-		}
-		io->cb_printf ("\n");
-		n++;
-	}
-	return n;
-}
-
-R_API int r_io_plugin_list_json(RIO *io) {
-	RIOPlugin *plugin;
-	SdbListIter *iter;
-	PJ *pj = pj_new ();
-	if (!pj) {
-		return 0;
-	}
-
-	char str[4];
-	int n = 0;
-	pj_a (pj);
-	ls_foreach (io->plugins, iter, plugin) {
-		str[0] = 'r';
-		str[1] = plugin->write ? 'w' : '_';
-		str[2] = plugin->isdbg ? 'd' : '_';
-		str[3] = 0;
-
-		pj_o (pj);
-		pj_ks (pj, "permissions", str);
-		if (plugin->name) {
-			pj_ks (pj, "name", plugin->name);
-		}
-		if (plugin->desc) {
-			pj_ks (pj, "description", plugin->desc);
-		}
-		if (plugin->license) {
-			pj_ks (pj, "license", plugin->license);
-		}
-		if (plugin->uris) {
-			char *uri;
-			char *uris = strdup (plugin->uris);
-			RList *plist = r_str_split_list (uris, ",",  0);
-			RListIter *piter;
-			pj_k (pj, "uris");
-			pj_a (pj);
-			r_list_foreach (plist, piter, uri) {
-				pj_s (pj, uri);
-			}
-			pj_end (pj);
-			r_list_free (plist);
-			free (uris);
-		}
-		if (plugin->version) {
-			pj_ks (pj, "version", plugin->version);
-		}
-		if (plugin->author) {
-			pj_ks (pj, "author", plugin->author);
-		}
-		pj_end (pj);
-		n++;
-	}
-	pj_end (pj);
-	io->cb_printf ("%s", pj_string (pj));
-	pj_free (pj);
-	return n;
 }
 
 R_API int r_io_plugin_read(RIODesc *desc, ut8 *buf, int len) {

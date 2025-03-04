@@ -15,7 +15,6 @@ R_LIB_VERSION_HEADER(r_bp);
 #define R_BP_MAXPIDS 10
 #define R_BP_CONT_NORMAL 0
 #define R_BP_CONT_NORMAL 0
-
 typedef struct r_bp_arch_t {
 	int bits;
 	int length;
@@ -32,7 +31,7 @@ enum {
 };
 
 typedef struct r_bp_plugin_t {
-	char *name;
+	RPluginMeta meta;
 	char *arch;
 	int type; // R_BP_TYPE_SW
 	int nbps;
@@ -160,7 +159,7 @@ R_API ut64 r_bp_traptrace_next(RBreakpoint *bp, ut64 addr);
 R_API int r_bp_traptrace_add(RBreakpoint *bp, ut64 from, ut64 to);
 R_API int r_bp_traptrace_free_at(RBreakpoint *bp, ut64 from);
 R_API void r_bp_traptrace_list(RBreakpoint *bp);
-R_API int r_bp_traptrace_at(RBreakpoint *bp, ut64 from, int len);
+R_API bool r_bp_traptrace_at(RBreakpoint *bp, ut64 from, int len);
 R_API RList *r_bp_traptrace_new(void);
 R_API void r_bp_traptrace_enable(RBreakpoint *bp, int enable);
 
@@ -174,7 +173,9 @@ extern RBreakpointPlugin r_bp_plugin_mips;
 extern RBreakpointPlugin r_bp_plugin_ppc;
 extern RBreakpointPlugin r_bp_plugin_sh;
 extern RBreakpointPlugin r_bp_plugin_bf;
+extern RBreakpointPlugin r_bp_plugin_null;
 extern RBreakpointPlugin r_bp_plugin_riscv;
+extern RBreakpointPlugin r_bp_plugin_s390x;
 #endif
 #ifdef __cplusplus
 }

@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2015-2019 - pancake */
+/* radare2 - LGPL - Copyright 2015-2024 - pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -18,11 +18,11 @@ typedef struct sbl_header {
 	ut32 cert_sz;
 } SblHeader;
 
-// TODO move this global into the bf->obj
+// TODO move this global into the bf->bobj
 static R_TH_LOCAL SblHeader sb = {0};
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
-	r_return_val_if_fail (b, false);
+static bool check(RBinFile *bf, RBuffer *b) {
+	R_RETURN_VAL_IF_FAIL (b, false);
 	ut64 bufsz = r_buf_size (b);
 	if (sizeof (SblHeader) < bufsz) {
 		int ret = r_buf_fread_at (b, 0, (ut8*)&sb, "10i", 1);
@@ -71,8 +71,8 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 	return false;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
-	return check_buffer (bf, b);
+static bool load(RBinFile *bf, RBuffer *b, ut64 loadaddr) {
+	return check (bf, b);
 }
 
 static ut64 baddr(RBinFile *bf) {
@@ -178,13 +178,16 @@ static ut64 size(RBinFile *bf) {
 }
 
 RBinPlugin r_bin_plugin_mbn = {
-	.name = "mbn",
-	.desc = "MBN/SBL bootloader things",
-	.license = "LGPL3",
+	.meta = {
+		.name = "mbn",
+		.desc = "MBN/SBL bootloader things",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.minstrlen = 10,
-	.load_buffer = &load_buffer,
+	.load = &load,
 	.size = &size,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.entries = &entries,
 	.sections = &sections,

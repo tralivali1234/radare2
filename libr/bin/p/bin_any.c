@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2023 - pancake, nibble */
+/* radare - LGPL - Copyright 2009-2024 - pancake, nibble */
 
 #include <r_bin.h>
 #include <r_magic.h>
@@ -31,19 +31,21 @@ static RBinInfo *info(RBinFile *bf) {
 	return ret;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 	return true;
 }
 
 static void fini(RBinFile *bf) {
-	r_buf_free (bf->o->bin_obj);
+	r_buf_free (bf->bo->bin_obj);
 }
 
 RBinPlugin r_bin_plugin_any = {
-	.name = "any",
-	.desc = "Dummy format r_bin plugin",
-	.license = "LGPL3",
-	.load_buffer = load_buffer,
+	.meta = {
+		.name = "any",
+		.desc = "Dummy format r_bin plugin",
+		.license = "LGPL-3.0-only",
+	},
+	.load = load,
 	.destroy = fini,
 	.info = info,
 	.minstrlen = 0,

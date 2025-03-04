@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2021-2022 - RHL120, pancake */
+/* radare - LGPL - Copyright 2021-2024 - RHL120, pancake */
 
 #define R_LOG_ORIGIN "vc.rvc"
 
@@ -9,7 +9,7 @@
 #include <rvc.h>
 
 #define FIRST_BRANCH "branches.master"
-#define NOT_SPECIAL(c) IS_DIGIT (c) || IS_LOWER (c) || c == '_'
+#define NOT_SPECIAL(c) isdigit (c) || islower (c) || c == '_'
 #define COMMIT_BLOB_SEP "----"
 #define DBNAME "branches.sdb"
 #define CURRENTB "current_branch"
@@ -21,6 +21,26 @@
 static RList *uncommited_rvc(Rvc *rvc);
 static bool save_rvc(Rvc *vc);
 extern const RvcPlugin r_vc_plugin_rvc;
+
+static char *sha256_data(const ut8 *data, size_t len) {
+	RSha256Context ctx;
+	R_SHA2_API (r_sha256_init) (&ctx);
+	R_SHA2_API (r_sha256_update) (&ctx, data, len);
+	char textdigest[R_SHA256_DIGEST_STRING_LENGTH] = {0};
+	R_SHA2_API (r_sha256_end) (&ctx, textdigest);
+	return strdup (textdigest);
+}
+
+static inline char *sha256_file(const char *fname) {
+	size_t content_length = 0;
+	char *content = r_file_slurp (fname, &content_length);
+	if (content) {
+		char *res = sha256_data ((const ut8 *)content, content_length);
+		free (content);
+		return res;
+	}
+	return NULL;
+}
 
 static void free_blobs(RList *blobs) {
 	if (blobs) {
@@ -66,7 +86,7 @@ static Rvc *rvc_rvc_new(const char *path) {
 		R_LOG_ERROR ("Failed to create repo");
 		return NULL;
 	}
-	rvc->path = r_str_new (path);
+	rvc->path = strdup (path);
 	if (!rvc->path) {
 		free (rvc);
 		return NULL;
@@ -115,25 +135,22 @@ static Rvc *rvc_rvc_new(const char *path) {
 	return rvc_save (rvc)? rvc : NULL;
 }
 
-
 static inline void rvc_warn(void) {
 	R_LOG_WARN ("rvc is still under development and can be unstable, be careful");
 }
 
+// removes the double slash
 static char *strip_sys_dir(const char *path) {
 	char *res = strdup (path);
 	char *ptr = res;
+	const char *dds = (*R_SYS_DIR == '/')? "//": "\\\\";
 	while (*ptr) {
-		if (*ptr == *R_SYS_DIR) {
-			if (ptr[1] == *R_SYS_DIR) {
-				char *ptr2 = ptr + 1;
-				while (*ptr2 == *R_SYS_DIR) {
-					ptr2++;
-				}
-				memmove (ptr + 1, ptr2, strlen (ptr2) + 1);
-			}
+		char *ss = strstr (ptr, dds);
+		if (!ss) {
+			break;
 		}
-		ptr++;
+		memmove (ss, ss + 1, strlen (ss));
+		ptr = ss;
 	}
 	return res;
 }
@@ -168,7 +185,6 @@ static bool in_rvc_ignore(const RList *ignore, const char *rpf) {
 			}
 			free (stripped);
 		}
-
 	}
 	return ret;
 }
@@ -183,15 +199,15 @@ static bool update_blobs(const RList *ignore, RList *blobs, const RList *nh) {
 		if (strcmp (nh->head->data, blob->fname)) {
 			continue;
 		}
-		blob->fhash = r_str_new (nh->tail->data);
+		blob->fhash = R_STR_DUP (nh->tail->data);
 		return (bool) blob->fhash;
 	}
 	blob = R_NEW (RvcBlob);
 	if (!blob) {
 		return false;
 	}
-	blob->fhash = r_str_new (nh->tail->data);
-	blob->fname = r_str_new (nh->head->data);
+	blob->fhash = R_STR_DUP (nh->tail->data);
+	blob->fname = R_STR_DUP (nh->head->data);
 	if (!blob->fhash || !blob->fname) {
 		goto fail_ret;
 	}
@@ -204,28 +220,8 @@ fail_ret:
 	free (blob->fname);
 	free (blob);
 	return false;
-
 }
 
-static char *compute_hash(const ut8 *data, size_t len) {
-	RSha256Context ctx;
-	r_sha256_init (&ctx);
-	r_sha256_update (&ctx, data, len);
-	char textdigest[R_SHA256_DIGEST_STRING_LENGTH] = {0};
-	r_sha256_end (&ctx, textdigest);
-	return strdup (textdigest);
-}
-
-static inline char *sha256_file(const char *fname) {
-	size_t content_length = 0;
-	char *content = r_file_slurp (fname, &content_length);
-	if (content) {
-		char *res = compute_hash ((const ut8 *)content, content_length);
-		free (content);
-		return res;
-	}
-	return NULL;
-}
 static bool traverse_files(RList *dst, const char *dir) {
 	char *name;
 	RListIter *iter;
@@ -325,7 +321,7 @@ static char *absp2rp(Rvc *rvc, const char *absp) {
 		free (arp);
 		return NULL;
 	}
-	char *p = r_str_new (absp + r_str_len_utf8 (arp));
+	char *p = strdup (absp + r_str_len_utf8 (arp));
 	free (arp);
 	if (!p) {
 		return NULL;
@@ -352,7 +348,7 @@ static RvcBlob *bfadd(Rvc *rvc, const char *fname) {
 		return NULL;
 	}
 	if (!r_file_exists (absp)) {
-		ret->fhash = r_str_new (NULLVAL);
+		ret->fhash = strdup (NULLVAL);
 		if (!ret->fhash) {
 			goto fail_ret;
 		}
@@ -574,8 +570,7 @@ static RList *get_blobs(Rvc *rvc, RList *ignore) {
 	RListIter *i;
 	char *hash;
 	r_list_foreach (commits, i, hash) {
-		char *commit_path = r_file_new (rvc->path, ".rvc", "commits",
-				hash, NULL);
+		char *commit_path = r_file_new (rvc->path, ".rvc", "commits", hash, NULL);
 		if (!commit_path) {
 			goto fail_ret;
 		}
@@ -643,7 +638,7 @@ static char *find_blob_hash(Rvc *rvc, const char *fname) {
 		RvcBlob *b;
 		r_list_foreach_prev (blobs, i, b) {
 			if (!strcmp (b->fname, fname)) {
-				char *bhash = r_str_new (b->fhash);
+				char *bhash = strdup (b->fhash);
 				free_blobs (blobs);
 				return bhash;
 			}
@@ -662,7 +657,7 @@ static char *write_commit(Rvc *rvc, const char *message, const char *author, RLi
 	}
 	size_t len = r_strbuf_length (sb);
 	char *content = r_strbuf_drain (sb);
-	char *commit_hash = compute_hash ((const ut8*)content, len);
+	char *commit_hash = sha256_data ((const ut8*)content, len);
 	if (commit_hash) {
 		char *commit_path = r_file_new (rvc->path, ".rvc", "commits", commit_hash, NULL);
 		if (!commit_path || !r_file_dump (commit_path, (const ut8*)content, -1, false)) {
@@ -717,7 +712,7 @@ R_API RList *branches_rvc(Rvc *rvc) {
 		if (!r_str_startswith ((char *)kv->base.key, BPREFIX)) {
 			continue;
 		}
-		if (!r_list_append (ret, r_str_new ((char *)kv->base.key + bplen))
+		if (!r_list_append (ret, strdup ((char *)kv->base.key + bplen))
 				&& !ret->head->data) {
 			r_list_free (ret);
 			ret = NULL;
@@ -792,7 +787,7 @@ R_API bool r_vc_checkout(Rvc *rvc, const char *bname) {
 		return false;
 	}
 	r_list_free (uncommitted);
-	//Must set to NULL to avoid double r_list_free on fail_ret
+	// Must set to NULL to avoid double r_list_free on fail_ret
 	uncommitted = NULL;
 	const char *oldb;
 	{
@@ -937,6 +932,8 @@ static bool log_rvc(Rvc *rvc) {
 	r_list_free (commits);
 	return ret;
 }
+
+// XXX must be static
 R_API char *curbranch_rvc(Rvc *rvc) {
 	if (!rvc_repo_exists (rvc->path)) {
 		R_LOG_ERROR ("No valid repo in %s", rvc->path);
@@ -945,13 +942,13 @@ R_API char *curbranch_rvc(Rvc *rvc) {
 	if (!rvc->db) {
 		return NULL;
 	}
-	char *ret = r_str_new (sdb_const_get (rvc->db, CURRENTB, 0)
+	char *ret = R_STR_DUP (sdb_const_get (rvc->db, CURRENTB, 0)
 			+ r_str_len_utf8 (BPREFIX));
 	return ret;
 }
 
 R_API bool r_vc_reset(Rvc *rvc) {
-	r_return_val_if_fail (rvc, false);
+	R_RETURN_VAL_IF_FAIL (rvc, false);
 	if (!rvc_repo_exists (rvc->path)) {
 		return false;
 	}
@@ -1017,24 +1014,24 @@ static Sdb *vcdb_open(const char *rp) {
 }
 
 static Rvc *open_rvc(const char *rp) {
-	if (rvc_repo_exists(rp)) {
-		Rvc *repo = R_NEW (Rvc);
-		if (repo) {
-			repo->p = &r_vc_plugin_rvc;
-			repo->db = vcdb_open (rp);
-			if (repo->db) {
-				repo->path = strdup(rp);
-				if (repo->path) {
-					return repo;
-				}
+	if (rvc_repo_exists (rp)) {
+		Rvc *repo = R_NEW0 (Rvc);
+		repo->p = &r_vc_plugin_rvc;
+		repo->db = vcdb_open (rp);
+		if (repo->db) {
+			repo->path = strdup(rp);
+			if (repo->path) {
+				return repo;
 			}
 		}
+		rvc_free (repo);
 	} else {
 		Rvc *repo = rvc_rvc_new (rp);
 		if (repo) {
 			repo->p = &r_vc_plugin_rvc;
 			return repo;
 		}
+		rvc_free (repo);
 	}
 	R_LOG_ERROR ("Can't open rvc repo in: %s", rp);
 	return NULL;
@@ -1067,7 +1064,7 @@ R_API bool clone_rvc(const Rvc *rvc, const char *dst) {
 }
 
 static void close_rvc(Rvc *vc, bool save) {
-	r_return_if_fail (vc);
+	R_RETURN_IF_FAIL (vc);
 	if (save) {
 		save_rvc (vc);
 	}
@@ -1075,7 +1072,7 @@ static void close_rvc(Rvc *vc, bool save) {
 }
 
 static bool save_rvc(Rvc *vc) {
-	r_return_val_if_fail (vc, false);
+	R_RETURN_VAL_IF_FAIL (vc, false);
 	if (vc->db) {
 		sdb_sync (vc->db);
 		return true;
@@ -1163,7 +1160,7 @@ static RList *uncommited_rvc(Rvc *rvc) {
 			continue;
 		}
 		free (rfp);
-		char *append = r_str_new (file);
+		char *append = R_STR_DUP (file);
 		if (!append) {
 			goto fail_ret;
 		}
@@ -1197,4 +1194,3 @@ const RvcPlugin r_vc_plugin_rvc = {
 	.save = save_rvc,
 	.open = open_rvc,
 };
-

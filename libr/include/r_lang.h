@@ -3,6 +3,7 @@
 
 #include <r_types.h>
 #include <r_list.h>
+#include <r_util/r_table.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,6 +13,7 @@ R_LIB_VERSION_HEADER(r_lang);
 
 typedef char* (*RCoreCmdStrCallback)(void* core, const char *s);
 typedef int (*RCoreCmdfCallback)(void* core, const char *s, ...);
+typedef char *(*RCoreCallAtCallback)(void* core, ut64 addr, const char *s);
 
 typedef struct r_lang_t {
 	void *user;
@@ -20,6 +22,7 @@ typedef struct r_lang_t {
 	PrintfCallback cb_printf;
 	RCoreCmdStrCallback cmd_str;
 	RCoreCmdfCallback cmdf;
+	RCoreCallAtCallback call_at;
 	RList *sessions;
 	struct r_lang_session_t *session;
 } RLang;
@@ -34,13 +37,13 @@ typedef bool (*RLangPluginRun)(_RLangSession *s, const char *code, int len);
 typedef bool (*RLangPluginRunFile)(_RLangSession *s, const char *file);
 typedef int (*RLangPluginSetArgv)(_RLangSession *s, int argc, char **argv);
 
+#include <r_lib.h>
+
 typedef struct r_lang_plugin_t {
-	const char *name;
+	RPluginMeta meta;
+	// TODO add those into meta too?
 	const char *alias;
-	const char *desc;
-	const char *author;
 	const char *example;
-	const char *license;
 	const char **help;
 	const char *ext;
 	RLangPluginInit init;
@@ -71,7 +74,6 @@ R_API void r_lang_free(RLang *lang);
 R_API bool r_lang_setup(RLang *lang);
 R_API bool r_lang_plugin_add(RLang *lang, RLangPlugin *plugin);
 R_API bool r_lang_plugin_remove(RLang *lang, RLangPlugin *plugin);
-R_API void r_lang_list(RLang *lang, int mode);
 R_API bool r_lang_use(RLang *lang, const char *name);
 R_API bool r_lang_use_plugin(RLang *lang, RLangPlugin *h);
 R_API bool r_lang_run(RLang *lang, const char *code, int len);

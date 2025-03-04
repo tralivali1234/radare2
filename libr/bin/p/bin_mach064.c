@@ -6,7 +6,7 @@
 #include "objc/mach064_classes.h"
 #include "../format/mach0/mach064_is_kernelcache.c"
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut8 buf[4] = {0};
 	if (r_buf_size (b) > 4) {
 		r_buf_read_at (b, 0, buf, sizeof (buf));
@@ -269,7 +269,7 @@ static RBinAddr* binsym(RBinFile *bf, int sym) {
 	switch (sym) {
 	case R_BIN_SYM_MAIN:
 		{
-			struct MACH0_(obj_t) *mo = R_UNWRAP3 (bf, o, bin_obj);
+			struct MACH0_(obj_t) *mo = R_UNWRAP3 (bf, bo, bin_obj);
 			ut64 addr = MACH0_(get_main) (mo);
 			if (addr != UT64_MAX && addr) {
 				ret = R_NEW0 (RBinAddr);
@@ -284,13 +284,15 @@ static RBinAddr* binsym(RBinFile *bf, int sym) {
 }
 
 RBinPlugin r_bin_plugin_mach064 = {
-	.name = "mach064",
-	.desc = "mach064 bin plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "mach064",
+		.desc = "mach064 bin plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.get_sdb = &get_sdb,
-	.load_buffer = &load_buffer,
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.binsym = binsym,
 	.entries = &entries,

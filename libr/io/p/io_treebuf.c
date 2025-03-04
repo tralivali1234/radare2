@@ -1,8 +1,6 @@
-/* radare - LGPL - Copyright 2022 - condret */
+/* radare - LGPL - Copyright 2022-2024 - condret */
 
 #include <r_io.h>
-#include <r_lib.h>
-#include <r_util.h>
 
 typedef struct io_treebuf_t {
 	RRBTree *tree;
@@ -78,7 +76,7 @@ static ut64 __lseek(RIO* io, RIODesc *desc, ut64 offset, int whence) {
 	case R_IO_SEEK_SET:
 		return treebuf->seek = offset;
 	case R_IO_SEEK_END:
-		return treebuf->seek = UT64_MAX;
+		return treebuf->seek = UT64_MAX - 1;
 	case R_IO_SEEK_CUR:
 		return treebuf->seek = R_MAX (treebuf->seek, treebuf->seek + offset);
 	}
@@ -191,17 +189,17 @@ static int __write(RIO *io, RIODesc *desc, const ut8 *buf, int len) {
 			r_crbtree_delete (treebuf->tree, &chunk->itv, _treebuf_chunk_find, NULL);
 			chunk = node? (IOTreeBufChunk *)node->data: NULL;
 		}
-	}
-	if (chunk && r_itv_end (search_itv) >= r_itv_begin (chunk->itv)) {
-		chunk->buf = realloc (chunk->buf, r_itv_end (chunk->itv) - r_itv_begin (search_itv));
-		memmove (&chunk->buf[r_itv_size (search_itv)],
-			&chunk->buf[r_itv_end (search_itv) - r_itv_begin (chunk->itv)],
-			r_itv_end (chunk->itv) - r_itv_end (search_itv));
-		memcpy (chunk->buf, buf, r_itv_size (search_itv));
-		chunk->itv.size = r_itv_end (chunk->itv) - r_itv_begin (search_itv);
-		chunk->itv.addr = search_itv.addr;
-		treebuf->seek = r_itv_end (search_itv);
-		return (int)r_itv_size (search_itv);
+		if (chunk && r_itv_end (search_itv) >= r_itv_begin (chunk->itv)) {
+			chunk->buf = realloc (chunk->buf, r_itv_end (chunk->itv) - r_itv_begin (search_itv));
+			memmove (&chunk->buf[r_itv_size (search_itv)],
+				&chunk->buf[r_itv_end (search_itv) - r_itv_begin (chunk->itv)],
+				r_itv_end (chunk->itv) - r_itv_end (search_itv));
+			memcpy (chunk->buf, buf, r_itv_size (search_itv));
+			chunk->itv.size = r_itv_end (chunk->itv) - r_itv_begin (search_itv);
+			chunk->itv.addr = search_itv.addr;
+			treebuf->seek = r_itv_end (search_itv);
+			return (int)r_itv_size (search_itv);
+		}
 	}
 	chunk = R_NEW0 (IOTreeBufChunk);
 	chunk->buf = R_NEWS (ut8, r_itv_size (search_itv));
@@ -213,10 +211,13 @@ static int __write(RIO *io, RIODesc *desc, const ut8 *buf, int len) {
 }
 
 RIOPlugin r_io_plugin_treebuf = {
-	.name = "treebuf",
-	.desc = "Dynamic sparse like buffer without size restriction",
+	.meta = {
+		.name = "treebuf",
+		.author = "condret",
+		.desc = "Dynamic sparse like buffer without size restriction",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "treebuf://",
-	.license = "LGPL",
 	.system = __system,
 	.open = __open,
 	.close = __close,

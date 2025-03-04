@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2008-2023 - pancake */
+/* radare2 - LGPL - Copyright 2008-2024 - pancake */
 
 #include <r_arch.h>
 #include <sdb/ht_uu.h>
@@ -7,20 +7,13 @@
 
 static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
 	int bits = s->config->bits;
-	if (bits & R_SYS_BITS_32) {
-		bits = 32;
-	} else if (bits & R_SYS_BITS_16) {
-		bits = 16;
-	}
-#if 0
-	if (s->config->bits & R_SYS_BITS_64) {
+	if (R_SYS_BITS_CHECK (bits, 64)) {
 		bits = 64;
-	} else if (s->config->bits & R_SYS_BITS_32) {
+	} else if (R_SYS_BITS_CHECK (bits, 32)) {
 		bits = 32;
-	} else if (s->config->bits & R_SYS_BITS_16) {
+	} else if (R_SYS_BITS_CHECK (bits, 16)) {
 		bits = 16;
 	}
-#endif
 	const bool is_thumb = (bits == 16);
 	int opsize;
 	ut32 opcode = UT32_MAX;
@@ -51,87 +44,25 @@ static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
 				r_write_be32 (opbuf, opcode);
 			}
 		} else if (opsize == 2) {
-			if (be) {
-				r_write_le16 (opbuf, opcode & UT16_MAX);
-			} else {
-				r_write_be16 (opbuf, opcode & UT16_MAX);
-			}
+			r_write_ble16 (opbuf, opcode & UT16_MAX, !be);
 		}
 	} else {
 		opsize = 4;
-		if (be) {
-			r_write_le32 (opbuf, opcode);
-		} else {
-			r_write_be32 (opbuf, opcode);
-		}
+		r_write_ble32 (opbuf, opcode, !be);
 	}
 	r_anal_op_set_bytes (op, op->addr, opbuf, opsize);
 	// r_strbuf_setbin (&op->buf, opbuf, opsize);
 	return true;
 }
 
-#if 0
-// old api
-static int assemble(RAsm *a, RAsmOp *op, const char *buf) {
-	const int bits = a->config->bits;
-	const bool is_thumb = (bits == 16);
-	int opsize;
-	ut32 opcode = UT32_MAX;
-	if (bits == 64) {
-		if (!arm64ass (buf, a->pc, &opcode)) {
-			return -1;
-		}
-	} else {
-		opcode = armass_assemble (buf, a->pc, is_thumb);
-		if (bits != 32 && bits != 16) {
-			R_LOG_ERROR ("ARM assembler only supports 16 or 32 bits");
-			return -1;
-		}
-	}
-	if (opcode == UT32_MAX) {
-		return -1;
-	}
-	ut8 opbuf[4];
-	const bool be = R_ARCH_CONFIG_IS_BIG_ENDIAN (a->config);
-	if (is_thumb) {
-		const int o = opcode >> 16;
-		opsize = o > 0? 4: 2;
-		if (opsize == 4) {
-			if (be) {
-				r_write_le16 (opbuf, opcode >> 16);
-				r_write_le16 (opbuf + 2, opcode & UT16_MAX);
-			} else {
-				r_write_be32 (opbuf, opcode);
-			}
-		} else if (opsize == 2) {
-			if (be) {
-				r_write_le16 (opbuf, opcode & UT16_MAX);
-			} else {
-				r_write_be16 (opbuf, opcode & UT16_MAX);
-			}
-		}
-	} else {
-		opsize = 4;
-		if (be) {
-			r_write_le32 (opbuf, opcode);
-		} else {
-			r_write_be32 (opbuf, opcode);
-		}
-	}
-	r_strbuf_setbin (&op->buf, opbuf, opsize);
-// XXX. thumb endian assembler needs no swap
-	return opsize;
-}
-#endif
-
 static int archinfo(RArchSession *a, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_DATA_ALIGN:
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_DATA_ALIGN:
+	case R_ARCH_INFO_INVOP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		break;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_MINOP_SIZE:
+	case R_ARCH_INFO_CODE_ALIGN:
 		if (a->config && a->config->bits == 16) {
 			return 2;
 		}
@@ -143,9 +74,9 @@ static int archinfo(RArchSession *a, ut32 q) {
 const RArchPlugin r_arch_plugin_arm = {
 	.meta = {
 		.name = "arm.nz",
-		.desc = "custom thumb, arm32 and arm64 assembler",
+		.desc = "Custom thumb, arm32 and arm64 assembler",
 		.author = "pancake",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "arm",
 	.info = archinfo,

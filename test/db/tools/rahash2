@@ -78,7 +78,7 @@ NAME=rahash2 -h
 FILE=-
 CMDS=!rahash2~Usage
 EXPECT=<<EOF
-Usage: rahash2 [-BhjkLqrv] [-b S] [-a A] [-c H] [-E A] [-s S] [-f O] [-t O] [file] ...
+Usage: rahash2 [-BehjkLqrvX] [-b S] [-a A] [-c H] [-E A] [-s S] [-f O] [-t O] [file] ...
 EOF
 RUN
 
@@ -162,25 +162,29 @@ NAME=rahash2 -L
 FILE=-
 CMDS=!rahash2 -L
 EXPECT=<<EOF
-c      aes-ecb   MIT  pancake
-c      aes-cbc  LGPL  
-c     aes-wrap  LGPL  Sylvain Pelissier
-e       base64  LGPL  rakholiyajenish.07
-e       base91  LGPL  pancake
-c     blowfish LGPL3  
-c         cps2  LGPL  pof,esanfelix
-c      des-ecb  LGPL  deroad
-h      entropy   MIT  pancake
-e     punycode  LGPL  
-c          rc2  LGPL  
-c          rc4  LGPL  
-c          rc6  LGPL  pancake
-c          rol  LGPL  pancake
-c          ror  LGPL  
-c          rot   MIT  pancake
-c  serpent-ecb  LGPL  
-c      sm4-ecb LGPL3  Sylvain Pelissier
-c          xor  LGPL  
+c      aes-ecb  Rijndael block cipher with Electronic Code Book mode
+c      aes-cbc  Rijndael block cipher with Cipher Block Chaining mode
+c     aes-wrap  Rijndael block cipher with Key Wrap Algorithm (RFC 3394)
+e       base64  Binary to text encoding scheme using 64 ascii characters
+e       base91  Binary to text encoding scheme using 91 ascii characters
+e       bech32  
+c     blowfish  Bruce Schneier's symetric-key block cipher
+c         cps2  Capcom Play System 2
+c      des-ecb  DES with with Electronic Code Book mode
+s      ed25519  Elliptic curve pubkey cryptographic algorithm used for signing and verification
+h      entropy  Shannon entropy
+e     punycode  Unicoded represented in plain ascii
+c          rc2  Ron Rivest's Code symmetric key encryption also known as ARC2
+c          rc4  Rivest Cipher 4
+c          rc6  Rivest's Cipher 6
+e          rol  Rotate Left N bits
+e          ror  Rotate Right N bits
+e          rot  Rotate Encryption
+c  serpent-ecb  Serpent block cipher with Electronic Code Book mode
+h          sip  SipHash-2-4
+c      sm4-ecb  ShāngMì4 block cipher with Electronic Code Book mode
+h      strhash  String hash using a modified DJB2 xor
+c          xor  Byte level Exclusive Or
 h          md5
 h         sha1
 h       sha256
@@ -224,7 +228,7 @@ h    fletcher8
 h   fletcher16
 h   fletcher32
 h   fletcher64
-h          sip
+h          elf
 EOF
 RUN
 
@@ -361,6 +365,20 @@ FILE=bins/other/admin.txt
 CMDS=!rahash2 -f0x1 -t0x5 -qq -a md5 bins/other/admin.txt
 EXPECT=<<EOF
 21232f297a57a5a743894a0e4a801fc3
+EOF
+RUN
+
+NAME=rahash2 -Bb 1 -a md5 admin.txt
+FILE=bins/other/admin.txt
+CMDS=!rahash2 -Bb 1 -a md5 bins/other/admin.txt
+EXPECT=<<EOF
+0x00000000-0x00000000 md5: 0cc175b9c0f1b6a831c399e269772661
+0x00000001-0x00000001 md5: 0cc175b9c0f1b6a831c399e269772661
+0x00000002-0x00000002 md5: 8277e0910d750195b448797616e091ad
+0x00000003-0x00000003 md5: 6f8f57715090da2632453988d9a1501b
+0x00000004-0x00000004 md5: 865c0c0b4ab0e063e5caa3387c1a8741
+0x00000005-0x00000005 md5: 7b8b965ad4bca0e41ab51de7b31363a1
+0x00000006-0x00000006 md5: 0cc175b9c0f1b6a831c399e269772661
 EOF
 RUN
 
@@ -1077,6 +1095,14 @@ FILE=-
 CMDS=!rahash2 -j -a md4,md5 bins/elf/analysis/hello-linux-x86_64
 EXPECT=<<EOF
 [{"name":"md5","hash":"c957bd5bd6204470256bc15248ccafd4"},{"name":"md4","hash":"d4d61472a12d59be3a85e07ff9065658"}]
+EOF
+RUN
+
+NAME=rahash2 -j file ssdeep
+FILE=-
+CMDS=!rahash2 -j -a ssdeep bins/elf/analysis/hello-linux-x86_64
+EXPECT=<<EOF
+[{"name":"ssdeep","hash":"96:aPsZ7JSRX4hHmfSz/XWwZpxI9LGr5lar87cZGbbgb:aPeJiam6zWQpxKLElZE"}]
 EOF
 RUN
 

@@ -1,5 +1,6 @@
 NAME=f_123
 FILE=-
+ARGS=-1
 CMDS=<<EOF
 f _foo=123
 f _123=_foo
@@ -15,18 +16,19 @@ f $foo=456
 ?v $foo
 EOF
 EXPECT=<<EOF
+ERROR: Invalid flag name '123'
+ERROR: Invalid flag name '$123'
+ERROR: Invalid flag name '$foo'
 0x7b
 0x7b
 0x141
 0x7b
-0xffffffffffffffff
-0xffffffffffffffff
+ERROR: cant find flag
+0x0
+ERROR: cant find flag
+0x0
 EOF
-EXPECT_ERR=<<EOF
-ERROR: Invalid flag name '123'
-ERROR: Invalid flag name '$123'
-ERROR: Invalid flag name '$foo'
-EOF
+EXPECT_ERR=
 RUN
 
 NAME=f?flag
@@ -101,7 +103,7 @@ fs *
 fs~?*
 EOF
 EXPECT=<<EOF
-9
+8
 EOF
 RUN
 
@@ -280,7 +282,7 @@ f bloh 0x00000003 @ 0x00000002
 fj
 EOF
 EXPECT=<<EOF
-[{"name":"bloh","size":3,"offset":2},{"name":"blah","size":10,"offset":11}]
+[{"name":"bloh","size":3,"addr":2},{"name":"blah","size":10,"addr":11}]
 EOF
 RUN
 
@@ -439,6 +441,7 @@ all
 f.patata@0x00400410
 EOF
 EXPECT_ERR=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
 ERROR: Cannot find function at 0x00000000
 EOF
 RUN
@@ -462,6 +465,7 @@ all
 {"entry0":{"patata":4195344}}
 EOF
 EXPECT_ERR=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
 ERROR: Cannot find function at 0x00000000
 EOF
 RUN
@@ -478,7 +482,9 @@ EOF
 EXPECT=<<EOF
 0x00400410 patata   [entry0 + 0]
 EOF
-EXPECT_ERR=
+EXPECT_ERR=<<EOF
+WARN: Relocs has not been applied. Please use `-e bin.relocs.apply=true` or `-e bin.cache=true` next time
+EOF
 RUN
 
 NAME=f-.
@@ -503,7 +509,7 @@ e asm.arch=x86
 e asm.bits=32
 s entry0
 e asm.lines=false
-e asm.offset=false
+e asm.addr=false
 e asm.functions=false
 e asm.comments=false
 f--
@@ -547,7 +553,7 @@ f+skutter 1 @ 12
 fj
 EOF
 EXPECT=<<EOF
-[{"name":"cat","size":1,"offset":0},{"name":"rimmer","size":12,"offset":0},{"name":"skutter","size":1,"offset":12},{"name":"lister","size":32,"offset":666},{"name":"kryten","size":32,"offset":666}]
+[{"name":"cat","size":1,"addr":0},{"name":"rimmer","size":12,"addr":0},{"name":"skutter","size":1,"addr":12},{"name":"lister","size":32,"addr":666},{"name":"kryten","size":32,"addr":666}]
 EOF
 RUN
 
@@ -665,12 +671,12 @@ fj
 EOF
 EXPECT=<<EOF
 fs *
-f direct1 1 0x00000000 base64:dmVyYmF0aW0=
+'f direct1 1 0x00000000 base64:dmVyYmF0aW0=
 fs *
-f direct2 1 0x00000010 base64:ImJhc2U2NCBhcm1vcmVkIg==
+'f direct2 1 0x00000010 base64:ImJhc2U2NCBhcm1vcmVkIg==
 fs *
-f indirect 1 0x00000020 base64:d29ya3MgdG9v
-[{"name":"direct1","size":1,"offset":0,"comment":"verbatim"},{"name":"direct2","size":1,"offset":16,"comment":"\"base64 armored\""},{"name":"indirect","size":1,"offset":32,"comment":"works too"}]
+'f indirect 1 0x00000020 base64:d29ya3MgdG9v
+[{"name":"direct1","size":1,"comment":"verbatim","addr":0},{"name":"direct2","size":1,"comment":"\"base64 armored\"","addr":16},{"name":"indirect","size":1,"comment":"works too","addr":32}]
 EOF
 RUN
 

@@ -8,7 +8,6 @@ radare2 contributes to the One Byte Per Child foundation.
 3nl4r9e y0\/r r4d4r3
 I did it for the pwnz.
 If you send the program you are debugging to 15 friends in 143 minutes and then step three times on the same opcode you will get the name of the person who loves you.
-To remove this message, put `dbxenv suppress_startup_message 7.5' in your .dbxrc
 Heisenbug: A bug that disappears or alters its behavior when one attempts to probe or isolate it.
 radare2 is for lulzhats
 Microloft Visual Radare.NET 2008. Now OOXML Powered!
@@ -332,3 +331,30 @@ Caps lock is on.
 $10 or mistery box?
 INSERT COIN
 This program is not compatible with your device.
+Hey hey hey everyone! welcome to infoflash
+Rise and shine beyond the Black wall
+Relic malfunction detected
+It's now safe to turn off your computer.
+No newline at end of file
+Display output is not active.
+The Quick Brown Fox Jumped Over The Lazy Dog!
+gcc: error: no input files
+Now you're thinking with portals
+The bug you've just found it's fixed in git
+Plug me in, and I'll take you up.
+Plug me in, we're running out of time.
+Corrupted cores! We're in luck.
+You think I'll betray you. And on any other day, you'd be right
+I can't believe you came back.
+You don't have permission to access this resource.
+Sign in or head back to home.
+I'd love to help you solve the tests. But I can't.
+Did anything happen while I was out?
+You look great, by the way. Very healthy
+Press the button again.
+It's been a long time.
+Relic malfunction detected.
+You are offline. Some functionality may be unavailable.
+Patching instructions should be illegal
+Are you still watching?
+Downloading update 1 of 1 ...

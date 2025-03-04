@@ -13,7 +13,7 @@ For information about the git process, see
 ## IDE settings
 ### generate compile_commands.json
 compile_commands.json records the dependency relationship between `.c/.h` file.
-It is used by language server(ccls, clang, e.g.) to provide accurate code 
+It is used by language server(ccls, clang, e.g.) to provide accurate code
 completion, syntax highlighting, and other intelligent code analysis features.
 
 If you haven't built the project yet, you can do the following:
@@ -29,7 +29,7 @@ bear -- make install
 `bear` is tool that will hook the usage of gcc and generate `compile_commands.json`.
 
 ### language server
-Both of `ccls` and `clangd` supports `compile_commands.json`. You can add 
+Both of `ccls` and `clangd` supports `compile_commands.json`. You can add
 corresponding plugin for your IDE.
 
 ## Documentation
@@ -55,7 +55,7 @@ with features.
 * `sys/sanitize.sh`: Compile with ASan, the address sanitizer. Provides
   detailed backtraces for memory errors.
 * `R2_DEBUG_ASSERT=1`: Provides a backtrace when a debug assert (typically a
-  `r_return_` macro) fails.
+  `R_RETURN_` macro) fails.
 * `R2_DEBUG=1`: Show error messages and crash signal. Used for debugging plugin
   loading issues.
 
@@ -63,15 +63,16 @@ with features.
 
 During abi-stable seassons [x.y.0-x.y.8] it is not allowed to break the abi, this
 is checked in the CI using the `abidiff` tool on every commit. Sometimes keeping
-the abi/api stable implies doing ugly hacks. Those must be marked with the corresponding
-to the next MAJOR.MINOR release of r2.
+the abi/api stable implies doing ugly hacks. Those must be marked with the
+corresponding to the next MAJOR.MINOR release of r2.
 
 
-For example, during the development of 5.8.x we add a comment or use `#if R2_590` code
-blocks to specify those lines need to be changed when 5.8.9 in git.
+For example, during the development of 5.8.x we add a comment or use `#if R2_590`
+code blocks to specify those lines need to be changed when 5.8.9 in git.
 
-Only the even patch version numbers are considered a release. This means that if you have
-an odd patch version of r2 it was built from git instead of the release tarball or binaries.
+Only the even patch version numbers are considered a release. This means that if
+you have an odd patch version of r2 it was built from git instead of the release
+tarball or binaries.
 
 For more details read [doc/abi.md](doc/abi.md)
 
@@ -195,7 +196,7 @@ if (a == b) {
   example of a good name could be `out_buffer:` if the `goto` frees `buffer`.
   Avoid using GW-BASIC names like `err1:` and `err2:`.
 
-* Use `r_return_*` macros to check for conditions that are caused by
+* Use `R_RETURN_*` macros to check for conditions that are caused by
   programming errors or bugs; i.e.: conditions that should **never** happen. Do
   not use them when checking for runtime error conditions, such as a `NULL`
   value being returned from `malloc()`. Use a standard if statement for these
@@ -204,8 +205,8 @@ if (a == b) {
 ```c
 int check(RCore *c, int a, int b) {
         /* check for programming errors */
-        r_return_val_if_fail (c, false);
-        r_return_val_if_fail (a >= 0, b >= 1, false);
+        R_RETURN_VAL_IF_FAIL (c, false);
+        R_RETURN_VAL_IF_FAIL (a >= 0, b >= 1, false);
 
         /* check for runtime errors */
         ut8 *buf = calloc (b, sizeof (a));
@@ -440,11 +441,11 @@ The above is not very easy to read. Within radare2, use endianness helper
 functions to interpret byte streams in a given endianness.
 
 ```c
-val32 = r_read_be32(buffer)         // reads 4 bytes from a stream in BE
-val32 = r_read_le32(buffer)         // reads 4 bytes from a stream in LE
-val32 = r_read_ble32(buffer, isbig) // reads 4 bytes from a stream:
-                                    //   if isbig is true, reads in BE
-                                    //   otherwise reads in LE
+val32 = r_read_be32 (buffer)         // reads 4 bytes from a stream in BE
+val32 = r_read_le32 (buffer)         // reads 4 bytes from a stream in LE
+val32 = r_read_ble32 (buffer, isbig) // reads 4 bytes from a stream:
+                                     //   if isbig is true, reads in BE
+                                     //   otherwise reads in LE
 ```
 
 Such helper functions exist for 64, 32, 16, and 8 bit reads and writes.
@@ -452,7 +453,94 @@ Such helper functions exist for 64, 32, 16, and 8 bit reads and writes.
 * Note that 8 bit reads are equivalent to casting a single byte of the buffer
   to a `ut8` value, i.e.: endian is irrelevant.
 
-## Editor configuration
+## Allocations
+
+Instantiating structures in memory ends up depending on the standard malloc/free
+provided by your system's libc. But radare2 provides some helper macros in order
+to simplify the use of it.
+
+Instead of:
+
+```c
+Foo *foo = malloc (sizeof (Foo));
+memset (foo, 0, sizeof (Foo));
+```
+
+Use the following:
+
+```c
+Foo *foo = R_NEW0 (Foo);
+```
+
+Note that we could use `calloc` instead of the  malloc+memset, but we can
+avoid handwriting the sizeof byjust using `R_NEW` or `R_NEW0`.
+
+### Null checks
+
+When calling malloc we want to check if the allocation worked or not. But
+checking for every allocation is kind of expensive and boring, we (recently)
+decided to reduce the amount of valid allocations.
+
+* If the allocation size is known at compile time we won't check for null.
+
+This is, most mallocs of small sizes won't fail, and actually, most modern
+libcs will never return null.
+
+The only reason for a heap allocator to fail is when we are requesting large
+areas or negative sizes, therefor, check for multiplication overflows before
+computing the amount of memory necessary (see the integer overflow section)
+and then check for null.
+
+For example:
+
+```c
+if (ST32_ADD_OVFCHK (sizeof (Object), counter)) {
+	void *amount = calloc (sizeof (Object), counter);
+	if (!amount) {
+		R_LOG_DEBUG ("Cannot allocate %d objects", counter);
+		return;
+	}
+```
+
+### Stack allocations
+
+Never ever do dynamic size stack allocations. With this I mean that it is
+forbidden in r2land to use code like this:
+
+```c
+void foo(int amount) {
+	int array[amount];
+}
+```
+
+Or constructions like this:
+
+```c
+void foo(int amount) {
+	int *array = alloca (amount * sizeof (int));
+}
+```
+
+Instead you must use the heap. The reason is because there's no way to determine
+if alloca is exhausting the stack given by the system. Also there's no portable
+way to know how big the system stack is and the final reason is because you can
+pass negative values to alloca, some implementations will decrement the frame
+pointer causing a fatal corruption.
+
+### Freeing nulls
+
+Yes, this is totally legit and valid posix. Please don't submit code like this:
+
+```c
+if (maybenull) {
+	free (maybenull);
+}
+```
+
+Just remove the conditional block, free is already checking for null and it's
+not necessary to compare it two times.
+
+## Editor setup
 
 Vim/Neovim:
 
@@ -511,6 +599,35 @@ R_PACKED (typedef struct mystruct_t {
 }) mystruct;
 ```
 
+Note that we also have the `R_ALIGN` macro to define the alignment
+requirements for struct fields or local stack variables. Use `git grep`
+for some examples.
+
+## Logging Messages
+
+Use the `R_LOG_` APIs to display error, tracing, information or other
+information to the user via the stderr file descriptor.
+
+* Only use `eprintf` for draft/wip development reasons.
+
+The `R_LOG` macros will end up calling the `r_log` functions which can
+be configured with eval variables.
+
+```console
+[0x00000000]> e??log.
+           log.color: Should the log output use colors
+            log.cons: Log messages using rcons (handy for monochannel r2pipe)
+            log.file: Save log messages to given filename
+          log.filter: Filter only messages matching given origin
+           log.level: Target log level/severity (0:FATAL 1:ERROR 2:INFO 3:WARN 4:TODO 5:DEBUG)
+          log.origin: Show [origin] in log messages
+           log.quiet: Be quiet, dont log anything to console
+          log.source: Show source [file:line] in the log message
+       log.traplevel: Log level for trapping R2 when hit
+              log.ts: Show timestamp in log messages
+[0x00000000]>
+```
+
 ## Modules
 
 radare2 is split into modular libraries in the `libr/` directory. The `binr/`
@@ -563,6 +680,18 @@ export CC="ccache gcc"
 
 This will automatically detect when files do not need to recompiled and avoid
 unnecessary work.
+
+It is not necessary to recompile the whole project everytime. Just run make in
+the directory you are working on to compile these parts only by using:
+
+```sh
+make
+```
+
+while inside a modified module (eg: `libr/core`).
+
+Note that if you have radare2 already installed, you don't have to reinstall it
+again after recompilation, as the compiled libraries are connected through the symlinks.
 
 ## Repeated installation
 

@@ -1,7 +1,8 @@
-/* radare2 - LGPL - Copyright 2015-2022 - pancake */
+/* radare2 - LGPL - Copyright 2015-2024 - pancake */
 
 #include <r_arch.h>
 #include <capstone/capstone.h>
+#include "m68kass.c"
 
 #ifdef CAPSTONE_M68K_H
 #define CAPSTONE_HAS_M68K 1
@@ -245,7 +246,7 @@ static void op_fillval(PluginData *pd, RAnalOp *op, csh handle, cs_insn *insn) {
 }
 
 static inline csh cs_handle_for_session(RArchSession *as) {
-	r_return_val_if_fail (as && as->data, 0);
+	R_RETURN_VAL_IF_FAIL (as && as->data, 0);
 	CapstonePluginData *pd = as->data;
 	return pd->cs_handle;
 }
@@ -855,15 +856,15 @@ static char *regs(RArchSession *as) {
 
 static int archinfo(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 2;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		return 6;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 2;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 2;
-	case R_ANAL_ARCHINFO_DATA_ALIGN:
+	case R_ARCH_INFO_DATA_ALIGN:
 		{
 		const char *cpu = as->config->cpu;
 		if (strstr (cpu, "68030") || strstr (cpu, "68040") || strstr (cpu, "68060")) {
@@ -881,7 +882,7 @@ static char *mnemonics(RArchSession *s, int id, bool json) {
 }
 
 static bool init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	if (s->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -903,18 +904,30 @@ static bool init(RArchSession *s) {
 }
 
 static bool fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	CapstonePluginData *cpd = s->data;
 	cs_close (&cpd->cs_handle);
 	R_FREE (s->data);
 	return true;
 }
 
+static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
+	R_RETURN_VAL_IF_FAIL (s->data, false);
+	// PluginData *pd = s->data;
+	ut8 data[32] = {0};
+	const int len = m68kass (op->mnemonic, data, sizeof (data));
+	if (len > 0) {
+		r_anal_op_set_bytes (op, op->addr, data, len);
+		return true;
+	}
+	return false;
+}
+
 const RArchPlugin r_arch_plugin_m68k_cs = {
 	.meta = {
 		.name = "m68k",
-		.desc = "Capstone M68K analyzer",
-		.license = "BSD",
+		.desc = "Capstone M68K architecture",
+		.license = "BSD-3-Clause",
 	},
 	.cpus = "68000,68010,68020,68030,68040,68060",
 	.arch = "m68k",
@@ -922,17 +935,18 @@ const RArchPlugin r_arch_plugin_m68k_cs = {
 	.regs = regs,
 	.bits = R_SYS_BITS_PACK1 (32),
 	.decode = decode,
+	.encode = encode,
 	.mnemonics = mnemonics,
 	.init = init,
 	.fini = fini,
 };
 #else
 const RArchPlugin r_arch_plugin_m68k_cs = {
-	.name = "m68k (unsupported)",
-	.desc = "Capstone M68K analyzer (unsupported)",
-	.license = "BSD",
-	.arch = "m68k",
-	.bits = R_SYS_BITS_PACK1 (32),
+	.meta = {
+		.name = "m68k (unsupported)",
+		.desc = "Capstone M68K architecture",
+		.license = "BSD-3-Clause",
+	},
 };
 #endif
 

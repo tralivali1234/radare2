@@ -526,30 +526,30 @@ static void hint_merge(RAnalHint *hint, RAnalAddrHintRecord *record) {
 }
 
 R_API RAnalHint *r_anal_hint_get(RAnal *a, ut64 addr) {
-	RAnalHint *hint = R_NEW0 (RAnalHint);
-	if (!hint) {
+	R_RETURN_VAL_IF_FAIL (a, NULL);
+	const char *arch = r_anal_hint_arch_at (a, addr, NULL);
+	const int bits = r_anal_hint_bits_at (a, addr, NULL);
+	const RVector *records = r_anal_addr_hints_at (a, addr);
+	if ((!records || r_vector_empty (records)) && !arch && !bits) {
+		// no hints found
 		return NULL;
 	}
+
+	RAnalHint *hint = R_NEW0 (RAnalHint);
 	hint->addr = addr;
 	hint->jump = UT64_MAX;
 	hint->fail = UT64_MAX;
 	hint->ret = UT64_MAX;
 	hint->val = UT64_MAX;
+	// hint->ptr = UT64_MAX; some test fail. ptr 0 should be valid if we do it properly
 	hint->stackframe = UT64_MAX;
-	const RVector *records = r_anal_addr_hints_at (a, addr);
 	if (records) {
 		RAnalAddrHintRecord *record;
 		r_vector_foreach (records, record) {
 			hint_merge (hint, record);
 		}
 	}
-	const char *arch = r_anal_hint_arch_at (a, addr, NULL);
 	hint->arch = arch ? strdup (arch) : NULL;
-	hint->bits = r_anal_hint_bits_at (a, addr, NULL);
-	if ((!records || r_vector_empty (records)) && !hint->arch && !hint->bits) {
-		// no hints found
-		free (hint);
-		return NULL;
-	}
+	hint->bits = bits;
 	return hint;
 }

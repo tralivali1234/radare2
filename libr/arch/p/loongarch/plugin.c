@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2021-2023 - junchao82@qq.com;zhaojunchao@loongson.cn love lanhy*/
+/* radare - LGPL - Copyright 2021-2024 - junchao82@qq.com;zhaojunchao@loongson.cn love lanhy*/
 
 #include <r_arch.h>
 #include "../../include/disas-asm.h"
@@ -1383,7 +1383,7 @@ static char *regs(RArchSession* as) {
 }
 
 static bool init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	if (s->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -1400,7 +1400,7 @@ static bool init(RArchSession *s) {
 }
 
 static bool fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	R_FREE (s->data);
 	return true;
 }
@@ -1408,8 +1408,9 @@ static bool fini(RArchSession *s) {
 const RArchPlugin r_arch_plugin_loongarch_gnu = {
 	.meta = {
 		.name = "loongarch",
-		.desc = "loongson loongarch code analysis plugin",
-		.license = "LGPL3",
+		.author = "junchao82,zhaojunchao",
+		.desc = "Loongson / loongarch architecture",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "loongarch",
 	.bits = 64,

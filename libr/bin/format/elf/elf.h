@@ -12,6 +12,8 @@
 #define R_BIN_ELF_SCN_IS_EXECUTABLE(x) x & SHF_EXECINSTR
 #define R_BIN_ELF_SCN_IS_READABLE(x)   x & SHF_ALLOC
 #define R_BIN_ELF_SCN_IS_WRITABLE(x)   x & SHF_WRITE
+#define R_BIN_ELF_SCN_IS_COMPRESSED(x)   x & SHF_COMPRESSED
+
 
 #define R_BIN_ELF_SYMTAB_SYMBOLS 1 << 0
 #define R_BIN_ELF_DYNSYM_SYMBOLS 1 << 1
@@ -157,6 +159,7 @@ struct Elf_(obj_t) {
 	ut32 g_reloc_num;
 	bool relocs_loaded;
 	RVector g_relocs;  // RBinElfReloc
+	RList *relocs_list;
 	bool sections_loaded;
 	bool sections_cached;
 #if R2_590
@@ -170,6 +173,7 @@ struct Elf_(obj_t) {
 	bool fields_loaded;
 	RVector g_fields;  // RBinElfField
 	int limit;
+	char *osabi;
 };
 
 int Elf_(has_va)(struct Elf_(obj_t) *bin);
@@ -224,6 +228,6 @@ bool Elf_(has_nx)(struct Elf_(obj_t) *bin);
 bool Elf_(has_nobtcfi)(ELFOBJ *eo);
 ut8 *Elf_(grab_regstate)(struct Elf_(obj_t) *bin, int *len);
 RList *Elf_(get_maps)(ELFOBJ *bin);
-RBinSymbol *Elf_(convert_symbol)(struct Elf_(obj_t) *bin, RBinElfSymbol *symbol, const char *namefmt);
+RBinSymbol *Elf_(convert_symbol)(struct Elf_(obj_t) *bin, RBinElfSymbol *symbol);
 R_API RBinSection *r_bin_section_clone(RBinSection *s);
 #endif

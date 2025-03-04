@@ -1,4 +1,4 @@
-/* radare - GPL - Copyright 2010-2022 pancake */
+/* radare - GPL - Copyright 2010-2024 pancake */
 
 #include <r_io.h>
 #include <r_lib.h>
@@ -22,9 +22,9 @@ static bool __plugin_open(RIO *io, const char *file, bool many) {
 
 /* hacky cache to speedup io a bit */
 /* reading in a different place clears the previous cache */
-static ut64 c_addr = UT64_MAX;
-static ut32 c_size = UT32_MAX;
-static ut8 *c_buff = NULL;
+static R_TH_LOCAL ut64 c_addr = UT64_MAX;
+static R_TH_LOCAL ut32 c_size = UT32_MAX;
+static R_TH_LOCAL ut8 *c_buff = NULL;
 #define SILLY_CACHE 0
 
 static int debug_qnx_read_at(ut8 *buf, int sz, ut64 addr) {
@@ -74,12 +74,10 @@ static int debug_qnx_write_at(const ut8 *buf, int sz, ut64 addr) {
 		qnxr_write_memory (desc, addr + x * size_max,
 				   (buf + x * size_max), last);
 	}
-
 	return sz;
 }
 
 static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
-	RIOQnx *rioq;
 	char host[128], *port, *p;
 
 	if (!__plugin_open (io, file, 0)) {
@@ -107,7 +105,7 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 		R_LOG_ERROR ("sandbox: Cannot use network");
 		return NULL;
 	}
-	rioq = R_NEW0 (RIOQnx);
+	RIOQnx *rioq = R_NEW0 (RIOQnx);
 	qnxr_init (&rioq->desc);
 	int i_port = atoi (port);
 	if (qnxr_connect (&rioq->desc, host, i_port) == 0) {
@@ -133,7 +131,7 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 }
 
 static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	memset (buf, 0xff, count);
+	memset (buf, io->Oxff, count);
 	ut64 addr = io->off;
 	if (!desc) {
 		return -1;
@@ -151,9 +149,11 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 }
 
 RIOPlugin r_io_plugin_qnx = {
-	.name = "qnx",
-	.license = "GPL3",
-	.desc = "Attach to QNX pdebug instance",
+	.meta = {
+		.name = "qnx",
+		.desc = "Attach to QNX pdebug instance",
+		.license = "GPL-3.0-only",
+	},
 	.uris = "qnx://",
 	.open = __open,
 	.close = __close,
@@ -176,9 +176,11 @@ R_API RLibStruct radare_plugin = {
 #else
 
 RIOPlugin r_io_plugin_qnx = {
-	.name = "qnx",
-	.license = "GPL3",
-	.desc = "Attach to QNX pdebug instance (compiled without GPL)",
+	.meta = {
+		.name = "qnx",
+		.license = "GPL-3.0-only",
+		.desc = "Attach to QNX pdebug instance (compiled without GPL)",
+	},
 };
 #endif
 

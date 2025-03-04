@@ -1,4 +1,4 @@
-/* radare2 - MIT - Copyright 2023 - keegan */
+/* radare2 - MIT - Copyright 2023-2024 - keegan */
 
 #define R_LOG_ORIGIN "bin.dis"
 
@@ -7,7 +7,7 @@
 #include "../../arch/p/dis/dis.h"
 #include "../../arch/p/dis/dis.c"
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+static bool check(RBinFile *bf, RBuffer *buf) {
 	ut64 pos = r_buf_tell (buf);
 	r_buf_seek (buf, 0, R_BUF_SET);
 	st32 magic;
@@ -20,10 +20,10 @@ static bool check_buffer(RBinFile *bf, RBuffer *buf) {
 	return (magic == XMAGIC || magic == SMAGIC) && r_buf_size (buf) > 12;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
 	ut32 i;
 
-	if (!check_buffer (bf, buf)) {
+	if (!check (bf, buf)) {
 		return false;
 	}
 
@@ -153,10 +153,7 @@ static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadadd
 		}
 	}
 	o->link_size = r_buf_tell (buf) - addr;
-
-	if (bin_obj) {
-		*bin_obj = o;
-	}
+	bf->bo->bin_obj = o;
 
 	return true;
 invalid:
@@ -166,7 +163,7 @@ invalid:
 }
 
 static void destroy(RBinFile *bf) {
-	RBinDisObj *o = (RBinDisObj *)bf->o->bin_obj;
+	RBinDisObj *o = (RBinDisObj *)bf->bo->bin_obj;
 	ht_uu_free (o->pcs);
 	free (o);
 }
@@ -175,7 +172,7 @@ static RList *entries(RBinFile *bf) {
 	bool found;
 	RList *ret;
 	RBinAddr *ptr = NULL;
-	RBinDisObj *o = (RBinDisObj *)bf->o->bin_obj;
+	RBinDisObj *o = (RBinDisObj *)bf->bo->bin_obj;
 
 	ut64 entry_address = ht_uu_find (o->pcs, o->header.entry_pc, &found);
 	if (!found) {
@@ -200,9 +197,9 @@ static RList *entries(RBinFile *bf) {
 static RList *sections(RBinFile *bf) {
 	RList *ret = NULL;
 	RBinSection *ptr = NULL;
-	RBinDisObj *o = (RBinDisObj *)bf->o->bin_obj;
+	RBinDisObj *o = (RBinDisObj *)bf->bo->bin_obj;
 
-	if (!bf->o->info) {
+	if (!bf->bo->info) {
 		return NULL;
 	}
 
@@ -267,12 +264,10 @@ static RList *sections(RBinFile *bf) {
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	RBinInfo *ret = NULL;
-
-	if (!(ret = R_NEW0 (RBinInfo))) {
+	RBinInfo *ret = R_NEW0 (RBinInfo);
+	if (!ret) {
 		return NULL;
 	}
-
 	ret->file = strdup (bf->file);
 	ret->bclass = strdup ("program");
 	ret->rclass = strdup ("dis");
@@ -288,12 +283,15 @@ static RBinInfo *info(RBinFile *bf) {
 }
 
 RBinPlugin r_bin_plugin_dis = {
-	.name = "dis",
-	.desc = "Inferno Dis VM bin plugin",
-	.license = "MIT",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "dis",
+		.author = "keegan",
+		.desc = "Inferno Dis VM bin plugin",
+		.license = "MIT",
+	},
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.entries = &entries,
 	.sections = &sections,
 	.info = &info,

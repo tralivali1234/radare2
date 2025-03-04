@@ -1,18 +1,6 @@
-/* radare - LGPL - Copyright 2013-2021 pancake */
-// r2 -Desil ls
+/* radare - LGPL - Copyright 2013-2024 pancake */
 
-#include <r_asm.h>
 #include <r_debug.h>
-
-#if 0
-static bool is_io_esil(RDebug *dbg) {
-	RIODesc *d = dbg->iob.io->desc;
-	if (d && d->plugin && d->plugin->name)
-		if (!strcmp ("esil", d->plugin->name))
-			return true;
-	return false;
-}
-#endif
 
 static bool __esil_step_over(RDebug *dbg) {
 	R_LOG_TODO ("ESIL STEP OVER");
@@ -46,7 +34,8 @@ static bool __esil_step(RDebug *dbg) {
 }
 
 static bool __esil_init(RDebug *dbg) {
-	dbg->tid = dbg->pid = 1;
+	R_LOG_DEBUG ("esil_init");
+	// dbg->tid = dbg->pid = 1;
 	// aeim
 	// aei
 	return true;
@@ -121,7 +110,7 @@ static bool __esil_kill(RDebug *dbg, int pid, int tid, int sig) {
 	return true;
 }
 
-static int __esil_stop(RDebug *dbg) {
+static bool __esil_stop(RDebug *dbg) {
 	eprintf ("ESIL: stop\n");
 	return true;
 }
@@ -140,10 +129,10 @@ RDebugPlugin r_debug_plugin_esil = {
 		.name = "esil",
 		.author = "pancake",
 		.desc = "esil debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "any", // TODO: exception!
-	.bits = R_SYS_BITS_32 | R_SYS_BITS_64,
+	.bits = R_SYS_BITS_PACK2 (32, 64),
 	.init_debugger = __esil_init,
 	.step = __esil_step,
 	.step_over = __esil_step_over,

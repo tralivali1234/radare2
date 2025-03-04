@@ -253,7 +253,7 @@ void __free_window (void *ptr) {
 }
 
 static window *__window_from_handle(HANDLE hwnd) {
-	r_return_val_if_fail (hwnd, NULL);
+	R_RETURN_VAL_IF_FAIL (hwnd, NULL);
 	window *win = R_NEW0 (window);
 	if (!win) {
 		return NULL;
@@ -289,7 +289,7 @@ static RTable *__create_window_table(void) {
 }
 
 static void __add_window_to_table(RTable *tbl, window *win) {
-	r_return_if_fail (tbl && win);
+	R_RETURN_IF_FAIL (tbl && win);
 	char *handle = r_str_newf ("0x%08"PFMT64x, (ut64)win->h);
 	char *pid = r_str_newf ("%lu", win->pid);
 	char *tid = r_str_newf ("%lu", win->tid);
@@ -377,7 +377,7 @@ static ut64 __get_dispatchmessage_offset(RDebug *dbg) {
 	if (!found) {
 		return 0;
 	}
-	char *res = dbg->coreb.cmdstr (dbg->coreb.core, "f~DispatchMessageW");
+	char *res = dbg->coreb.cmdStr (dbg->coreb.core, "f~DispatchMessageW");
 	if (!*res) {
 		free (res);
 		return 0;
@@ -449,7 +449,7 @@ R_API void r_w32_print_windows(RDebug *dbg) {
 }
 
 R_API bool r_w32_add_winmsg_breakpoint(RDebug *dbg, const char *input) {
-	r_return_val_if_fail (dbg && input, false);
+	R_RETURN_VAL_IF_FAIL (dbg && input, false);
 	char *name = strdup (input);
 	r_str_trim (name);
 	char *window_id = strchr (name, ' ');
@@ -495,7 +495,7 @@ R_API bool r_w32_add_winmsg_breakpoint(RDebug *dbg, const char *input) {
 		cond = r_str_newf ("?= `ae %lu,edx,-`", type);
 	} else {
 		char *reg;
-		if (dbg->bits == R_SYS_BITS_64) {
+		if (R_SYS_BITS_CHECK (dbg->bits, 64)) {
 			reg = "rcx";
 		} else {
 			reg = "ecx";

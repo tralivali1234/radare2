@@ -11,13 +11,33 @@ NAME=tc2
 FILE=bins/mach0/objc-employee
 CMDS=icc*
 EXPECT=<<EOF
-typedef struct class_Employee {
-    struct objc_class * isa; // 0
-    short _shortWord; // 8
-    struct NSString* _username; // 16
-    struct NSString* _firstName; // 24
-    uint64_t _wideWord; // 32
-} Employee;
+@interface Employee : NSObject
+{
+  struct objc_class * Employee::(var)isa
+  s Employee::(var)_shortWord
+  @"NSString" Employee::(var)_username
+  @"NSString" Employee::(var)_firstName
+  Q Employee::(var)_wideWord
+  isa Employee::(property)username
+  isa Employee::(property)firstName
+  isa Employee::(property)shortWord
+  isa Employee::(property)wideWord
+}
++ (void) helloWorld
++ (id) sayHello
++ (unknown) p0
++ (unknown) p1
++ (unknown) p2
++ (unknown) p3
++ (unknown) base
++ (id) username
++ (void) setUsername:
++ (id) firstName
++ (void) setFirstName:
++ (short) shortWord
++ (unsigned long long) wideWord
+- (id) sayHello
+@end
 EOF
 RUN
 
@@ -27,32 +47,32 @@ ARGS=-e bin.types=true
 CMDS=ic*
 EXPECT=<<EOF
 fs classes
-"f class.Employee = 0x100001ae0"
-"f super.Employee.NSObject = 0"
-"f method.Employee.helloWorld = 0x100001ae0"
-"f method.Employee.sayHello = 0x100001b10"
-"f method.Employee.p0 = 0x100001b40"
-"f method.Employee.p1 = 0x100001b60"
-"f method.Employee.p2 = 0x100001b80"
-"f method.Employee.p3 = 0x100001ba0"
-"f method.Employee.base = 0x100001bc0"
-"f method.Employee.username = 0x100001c10"
-"f method.Employee.setUsername: = 0x100001c40"
-"f method.Employee.firstName = 0x100001c80"
-"f method.Employee.setFirstName: = 0x100001cb0"
-"f method.Employee.shortWord = 0x100001cf0"
-"f method.Employee.wideWord = 0x100001d10"
-"f method.class.Employee.sayHello = 0x100001be0"
-"f field.Employee.isa = 0x00000000"
-"f field.Employee.Employee::_ivar__shortWord = 0x100003328"
-"f field.Employee.Employee::_ivar__username = 0x100003330"
-"f field.Employee.Employee::_ivar__firstName = 0x100003338"
-"f field.Employee.Employee::_ivar__wideWord = 0x100003340"
-"f field.Employee.Employee::_property_username = 0x00000000"
-"f field.Employee.Employee::_property_firstName = 0x00000000"
-"f field.Employee.Employee::_property_shortWord = 0x00000000"
-"f field.Employee.Employee::_property_wideWord = 0x00000000"
-""td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
+'f class.Employee = 0x100001ae0
+'f super.Employee.NSObject = 0
+'f method.Employee.helloWorld = 0x100001ae0
+'f method.Employee.sayHello = 0x100001b10
+'f method.Employee.p0 = 0x100001b40
+'f method.Employee.p1 = 0x100001b60
+'f method.Employee.p2 = 0x100001b80
+'f method.Employee.p3 = 0x100001ba0
+'f method.Employee.base = 0x100001bc0
+'f method.Employee.username = 0x100001c10
+'f method.Employee.setUsername: = 0x100001c40
+'f method.Employee.firstName = 0x100001c80
+'f method.Employee.setFirstName: = 0x100001cb0
+'f method.Employee.shortWord = 0x100001cf0
+'f method.Employee.wideWord = 0x100001d10
+'f method.Employee.class.sayHello = 0x100001be0
+'f field.Employee.var.isa = 0x00000000
+'f field.Employee.var._shortWord = 0x100003328
+'f field.Employee.var._username = 0x100003330
+'f field.Employee.var._firstName = 0x100003338
+'f field.Employee.var._wideWord = 0x100003340
+'f field.Employee.property.username = 0x00000000
+'f field.Employee.property.firstName = 0x00000000
+'f field.Employee.property.shortWord = 0x00000000
+'f field.Employee.property.wideWord = 0x00000000
+'td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
 EOF
 RUN
 
@@ -77,6 +97,27 @@ struct NSString {
   size_t p1;
   char *str;
   int len;
+};
+enum CCAlgorithm {
+	kCCAlgorithmAES = 0,
+	kCCAlgorithmDES = 1,
+	kCCAlgorithm3DES = 2,
+	kCCAlgorithmCAST = 3,
+	kCCAlgorithmRC4 = 4,
+	kCCAlgorithmRC2 = 5
+};
+enum CCCryptorStatus {
+	kCCSuccess = 0,
+	kCCParamError = 1,
+	kCCBufferTooSmall = 2,
+	kCCMemoryFailure = 3,
+	kCCAlignmentError = 4,
+	kCCDecodeError = 5,
+	kCCUnimplemented = 6
+};
+enum CCOperation {
+	kCCEncrypt = 0,
+	kCCDecrypt = 1
 };
 enum mach0_build_platform {
 	MACOS = 1,
@@ -240,13 +281,34 @@ NAME=tc2 iOS14 arm64
 FILE=bins/mach0/objc-employee-ios14-arm64
 CMDS=icc*
 EXPECT=<<EOF
-typedef struct class_Employee {
-    struct objc_class * isa; // 0
-    short _shortWord; // 8
-    struct NSString* _username; // 16
-    struct NSString* _firstName; // 24
-    uint64_t _wideWord; // 32
-} Employee;
+@interface Employee : NSObject
+{
+  struct objc_class * Employee::(var)isa
+  s Employee::(var)_shortWord
+  @"NSString" Employee::(var)_username
+  @"NSString" Employee::(var)_firstName
+  Q Employee::(var)_wideWord
+  isa Employee::(property)username
+  isa Employee::(property)firstName
+  isa Employee::(property)shortWord
+  isa Employee::(property)wideWord
+}
++ (void) sayHello
++ (void) helloWorld
++ (unknown) p0
++ (unknown) p1
++ (unknown) p2
++ (unknown) p3
++ (unknown) base
++ (id) username
++ (void) setUsername:
++ (id) firstName
++ (void) setFirstName:
++ (short) shortWord
++ (unsigned long long) wideWord
++ (void) .cxx_destruct
+- (void) sayHello
+@end
 EOF
 RUN
 
@@ -255,33 +317,33 @@ FILE=bins/mach0/objc-employee-ios14-arm64
 CMDS=ic*
 EXPECT=<<EOF
 fs classes
-"f class.Employee = 0x100007958"
-"f super.Employee.NSObject = 0"
-"f method.Employee.sayHello = 0x100007984"
-"f method.Employee.helloWorld = 0x1000079b0"
-"f method.Employee.p0 = 0x1000079dc"
-"f method.Employee.p1 = 0x1000079f8"
-"f method.Employee.p2 = 0x100007a14"
-"f method.Employee.p3 = 0x100007a30"
-"f method.Employee.base = 0x100007a4c"
-"f method.Employee.username = 0x100007a64"
-"f method.Employee.setUsername: = 0x100007a8c"
-"f method.Employee.firstName = 0x100007ac4"
-"f method.Employee.setFirstName: = 0x100007aec"
-"f method.Employee.shortWord = 0x100007b24"
-"f method.Employee.wideWord = 0x100007b44"
-"f method.Employee..cxx_destruct = 0x100007b60"
-"f method.class.Employee.sayHello = 0x100007958"
-"f field.Employee.isa = 0x00000000"
-"f field.Employee.Employee::_ivar__shortWord = 0x10000c228"
-"f field.Employee.Employee::_ivar__username = 0x10000c22c"
-"f field.Employee.Employee::_ivar__firstName = 0x10000c230"
-"f field.Employee.Employee::_ivar__wideWord = 0x10000c234"
-"f field.Employee.Employee::_property_username = 0x00000000"
-"f field.Employee.Employee::_property_firstName = 0x00000000"
-"f field.Employee.Employee::_property_shortWord = 0x00000000"
-"f field.Employee.Employee::_property_wideWord = 0x00000000"
-""td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
+'f class.Employee = 0x100007958
+'f super.Employee.NSObject = 0
+'f method.Employee.sayHello = 0x100007984
+'f method.Employee.helloWorld = 0x1000079b0
+'f method.Employee.p0 = 0x1000079dc
+'f method.Employee.p1 = 0x1000079f8
+'f method.Employee.p2 = 0x100007a14
+'f method.Employee.p3 = 0x100007a30
+'f method.Employee.base = 0x100007a4c
+'f method.Employee.username = 0x100007a64
+'f method.Employee.setUsername: = 0x100007a8c
+'f method.Employee.firstName = 0x100007ac4
+'f method.Employee.setFirstName: = 0x100007aec
+'f method.Employee.shortWord = 0x100007b24
+'f method.Employee.wideWord = 0x100007b44
+'f method.Employee..cxx_destruct = 0x100007b60
+'f method.Employee.class.sayHello = 0x100007958
+'f field.Employee.var.isa = 0x00000000
+'f field.Employee.var._shortWord = 0x10000c228
+'f field.Employee.var._username = 0x10000c22c
+'f field.Employee.var._firstName = 0x10000c230
+'f field.Employee.var._wideWord = 0x10000c234
+'f field.Employee.property.username = 0x00000000
+'f field.Employee.property.firstName = 0x00000000
+'f field.Employee.property.shortWord = 0x00000000
+'f field.Employee.property.wideWord = 0x00000000
+'td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
 EOF
 RUN
 
@@ -308,6 +370,27 @@ struct NSString {
   size_t p1;
   char *str;
   int len;
+};
+enum CCAlgorithm {
+	kCCAlgorithmAES = 0,
+	kCCAlgorithmDES = 1,
+	kCCAlgorithm3DES = 2,
+	kCCAlgorithmCAST = 3,
+	kCCAlgorithmRC4 = 4,
+	kCCAlgorithmRC2 = 5
+};
+enum CCCryptorStatus {
+	kCCSuccess = 0,
+	kCCParamError = 1,
+	kCCBufferTooSmall = 2,
+	kCCMemoryFailure = 3,
+	kCCAlignmentError = 4,
+	kCCDecodeError = 5,
+	kCCUnimplemented = 6
+};
+enum CCOperation {
+	kCCEncrypt = 0,
+	kCCDecrypt = 1
 };
 enum mach0_build_platform {
 	MACOS = 1,
@@ -471,13 +554,34 @@ NAME=tc2 iOS14 arm64e
 FILE=bins/mach0/objc-employee-ios14-arm64e
 CMDS=icc*
 EXPECT=<<EOF
-typedef struct class_Employee {
-    struct objc_class * isa; // 0
-    short _shortWord; // 8
-    struct NSString* _username; // 16
-    struct NSString* _firstName; // 24
-    uint64_t _wideWord; // 32
-} Employee;
+@interface Employee : NSObject
+{
+  struct objc_class * Employee::(var)isa
+  s Employee::(var)_shortWord
+  @"NSString" Employee::(var)_username
+  @"NSString" Employee::(var)_firstName
+  Q Employee::(var)_wideWord
+  isa Employee::(property)username
+  isa Employee::(property)firstName
+  isa Employee::(property)shortWord
+  isa Employee::(property)wideWord
+}
++ (void) sayHello
++ (void) helloWorld
++ (unknown) p0
++ (unknown) p1
++ (unknown) p2
++ (unknown) p3
++ (unknown) base
++ (id) username
++ (void) setUsername:
++ (id) firstName
++ (void) setFirstName:
++ (short) shortWord
++ (unsigned long long) wideWord
++ (void) .cxx_destruct
+- (void) sayHello
+@end
 EOF
 RUN
 
@@ -486,33 +590,33 @@ FILE=bins/mach0/objc-employee-ios14-arm64e
 CMDS=ic*
 EXPECT=<<EOF
 fs classes
-"f class.Employee = 0x1000079a8"
-"f super.Employee.NSObject = 0"
-"f method.Employee.sayHello = 0x1000079d8"
-"f method.Employee.helloWorld = 0x100007a08"
-"f method.Employee.p0 = 0x100007a38"
-"f method.Employee.p1 = 0x100007a54"
-"f method.Employee.p2 = 0x100007a70"
-"f method.Employee.p3 = 0x100007a8c"
-"f method.Employee.base = 0x100007aa8"
-"f method.Employee.username = 0x100007ac0"
-"f method.Employee.setUsername: = 0x100007ae8"
-"f method.Employee.firstName = 0x100007b24"
-"f method.Employee.setFirstName: = 0x100007b4c"
-"f method.Employee.shortWord = 0x100007b88"
-"f method.Employee.wideWord = 0x100007ba8"
-"f method.Employee..cxx_destruct = 0x100007bc4"
-"f method.class.Employee.sayHello = 0x1000079a8"
-"f field.Employee.isa = 0x00000000"
-"f field.Employee.Employee::_ivar__shortWord = 0x10000c1d8"
-"f field.Employee.Employee::_ivar__username = 0x10000c1dc"
-"f field.Employee.Employee::_ivar__firstName = 0x10000c1e0"
-"f field.Employee.Employee::_ivar__wideWord = 0x10000c1e4"
-"f field.Employee.Employee::_property_username = 0x00000000"
-"f field.Employee.Employee::_property_firstName = 0x00000000"
-"f field.Employee.Employee::_property_shortWord = 0x00000000"
-"f field.Employee.Employee::_property_wideWord = 0x00000000"
-""td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
+'f class.Employee = 0x1000079a8
+'f super.Employee.NSObject = 0
+'f method.Employee.sayHello = 0x1000079d8
+'f method.Employee.helloWorld = 0x100007a08
+'f method.Employee.p0 = 0x100007a38
+'f method.Employee.p1 = 0x100007a54
+'f method.Employee.p2 = 0x100007a70
+'f method.Employee.p3 = 0x100007a8c
+'f method.Employee.base = 0x100007aa8
+'f method.Employee.username = 0x100007ac0
+'f method.Employee.setUsername: = 0x100007ae8
+'f method.Employee.firstName = 0x100007b24
+'f method.Employee.setFirstName: = 0x100007b4c
+'f method.Employee.shortWord = 0x100007b88
+'f method.Employee.wideWord = 0x100007ba8
+'f method.Employee..cxx_destruct = 0x100007bc4
+'f method.Employee.class.sayHello = 0x1000079a8
+'f field.Employee.var.isa = 0x00000000
+'f field.Employee.var._shortWord = 0x10000c1d8
+'f field.Employee.var._username = 0x10000c1dc
+'f field.Employee.var._firstName = 0x10000c1e0
+'f field.Employee.var._wideWord = 0x10000c1e4
+'f field.Employee.property.username = 0x00000000
+'f field.Employee.property.firstName = 0x00000000
+'f field.Employee.property.shortWord = 0x00000000
+'f field.Employee.property.wideWord = 0x00000000
+'td struct Employee { struct objc_class * isa; short _shortWord; struct NSString* _username; struct NSString* _firstName; uint64_t _wideWord; void* username; void* firstName; void* shortWord; void* wideWord;};
 EOF
 RUN
 
@@ -539,6 +643,27 @@ struct NSString {
   size_t p1;
   char *str;
   int len;
+};
+enum CCAlgorithm {
+	kCCAlgorithmAES = 0,
+	kCCAlgorithmDES = 1,
+	kCCAlgorithm3DES = 2,
+	kCCAlgorithmCAST = 3,
+	kCCAlgorithmRC4 = 4,
+	kCCAlgorithmRC2 = 5
+};
+enum CCCryptorStatus {
+	kCCSuccess = 0,
+	kCCParamError = 1,
+	kCCBufferTooSmall = 2,
+	kCCMemoryFailure = 3,
+	kCCAlignmentError = 4,
+	kCCDecodeError = 5,
+	kCCUnimplemented = 6
+};
+enum CCOperation {
+	kCCEncrypt = 0,
+	kCCDecrypt = 1
 };
 enum mach0_build_platform {
 	MACOS = 1,
@@ -697,5 +822,16 @@ ttc string
 EOF
 EXPECT=<<EOF
 typedef char * string;
+EOF
+RUN
+
+NAME=dwarf declaration dont overwrite type
+FILE=bins/elf/dwarf_typedecl
+CMDS=tsc
+EXPECT=<<EOF
+struct Foo {
+  int bar;
+  int baz;
+};
 EOF
 RUN

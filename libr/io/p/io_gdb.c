@@ -1,10 +1,7 @@
-/* radare - LGPL - Copyright 2010-2020 pancake */
+/* radare - LGPL - Copyright 2010-2024 pancake, defragger */
 
 #include <r_io.h>
 #include <r_lib.h>
-#include <r_socket.h>
-#include <r_util.h>
-#include <ctype.h>
 #define IRAPI static inline
 #include <libgdbr.h>
 #include <gdbclient/commands.h>
@@ -16,9 +13,17 @@ typedef struct {
 
 #define R_GDB_MAGIC r_str_hash ("gdb")
 
-// XXX kill those globals cmon
-static bool __close(RIODesc *fd);
-static libgdbr_t *desc = NULL;
+static R_TH_LOCAL libgdbr_t *desc = NULL;
+
+static bool __close(RIODesc *fd) {
+	if (fd) {
+		R_FREE (fd->name);
+	}
+	gdbr_disconnect (desc);
+	gdbr_cleanup (desc);
+	R_FREE (desc);
+	return true;
+}
 
 static bool __plugin_open(RIO *io, const char *file, bool many) {
 	return r_str_startswith (file, "gdb://");
@@ -61,8 +66,7 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 	if (!__plugin_open (io, file, 0)) {
 		return NULL;
 	}
-	strncpy (host, file + 6, sizeof (host) - 1);
-	host [sizeof (host) - 1] = '\0';
+	r_str_ncpy (host, file + 6, sizeof (host));
 	if (host[0] == '/') {
 		isdev = true;
 	}
@@ -136,7 +140,7 @@ static RIODesc *__open(RIO *io, const char *file, int rw, int mode) {
 }
 
 static int __write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	ut64 addr = io->off;
+	const ut64 addr = io->off;
 	if (!desc || !desc->data) {
 		return -1;
 	}
@@ -152,7 +156,8 @@ static ut64 __lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
 		io->off += offset;
 		break;
 	case R_IO_SEEK_END:
-		io->off = ST64_MAX;
+		io->off = UT64_MAX;
+		break;
 	}
 	return io->off;
 }
@@ -161,22 +166,12 @@ static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 	if (!io || !fd || !buf || count < 1) {
 		return -1;
 	}
-	memset (buf, 0xff, count);
+	memset (buf, io->Oxff, count);
 	ut64 addr = io->off;
 	if (!desc || !desc->data) {
 		return -1;
 	}
 	return debug_gdb_read_at (buf, count, addr);
-}
-
-static bool __close(RIODesc *fd) {
-	if (fd) {
-		R_FREE (fd->name);
-	}
-	gdbr_disconnect (desc);
-	gdbr_cleanup (desc);
-	R_FREE (desc);
-	return true;
 }
 
 static int __getpid(RIODesc *fd) {
@@ -403,10 +398,13 @@ static char *__system(RIO *io, RIODesc *fd, const char *cmd) {
 }
 
 RIOPlugin r_io_plugin_gdb = {
+	.meta = {
+		.name = "gdb",
+		.author = "defragger",
+		.license = "LGPL-3.0-only",
+		.desc = "Attach to gdbserver instance",
+	},
 	//void *plugin;
-	.name = "gdb",
-	.license = "LGPL3",
-	.desc = "Attach to gdbserver instance",
 	.uris = "gdb://",
 	.open = __open,
 	.close = __close,

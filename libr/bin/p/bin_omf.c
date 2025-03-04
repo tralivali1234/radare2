@@ -1,25 +1,23 @@
-/* radare - LGPL - Copyright 2015-2019 - ampotos, pancake */
+/* radare - LGPL - Copyright 2015-2024 - ampotos, pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 #include "omf/omf.h"
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *b, ut64 loadaddr, Sdb *sdb) {
+static bool load(RBinFile *bf, RBuffer *b, ut64 loadaddr) {
+	R_RETURN_VAL_IF_FAIL (bf && b, false);
 	ut64 size;
 	const ut8 *buf = r_buf_data (b, &size);
-	r_return_val_if_fail (buf, false);
-	*bin_obj = r_bin_internal_omf_load (buf, size);
-	return *bin_obj;
+	R_RETURN_VAL_IF_FAIL (buf, false);
+	bf->bo->bin_obj = r_bin_internal_omf_load (buf, size);
+	return bf->bo->bin_obj != NULL;
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_free_all_omf_obj (bf->o->bin_obj);
-	bf->o->bin_obj = NULL;
+	r_bin_free_all_omf_obj (bf->bo->bin_obj);
+	bf->bo->bin_obj = NULL;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	int i;
 	ut8 ch;
 	if (r_buf_read_at (b, 0, &ch, 1) != 1) {
@@ -50,7 +48,7 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 		r_buf_read_at (b, 0, buf, sizeof (buf));
 		return r_bin_checksum_omf_ok (buf, sizeof (buf));
 	}
-	r_return_val_if_fail (buf, false);
+	R_RETURN_VAL_IF_FAIL (buf, false);
 	return r_bin_checksum_omf_ok (buf, length);
 }
 
@@ -69,7 +67,7 @@ static RList *entries(RBinFile *bf) {
 		r_list_free (ret);
 		return NULL;
 	}
-	if (!r_bin_omf_get_entry (bf->o->bin_obj, addr)) {
+	if (!r_bin_omf_get_entry (bf->bo->bin_obj, addr)) {
 		R_FREE (addr);
 	} else {
 		r_list_append (ret, addr);
@@ -81,10 +79,10 @@ static RList *sections(RBinFile *bf) {
 	RList *ret;
 	ut32 ct_omf_sect = 0;
 
-	if (!bf || !bf->o || !bf->o->bin_obj) {
+	if (!bf || !bf->bo || !bf->bo->bin_obj) {
 		return NULL;
 	}
-	r_bin_omf_obj *obj = bf->o->bin_obj;
+	r_bin_omf_obj *obj = bf->bo->bin_obj;
 
 	if (!(ret = r_list_new ())) {
 		return NULL;
@@ -92,7 +90,7 @@ static RList *sections(RBinFile *bf) {
 
 	while (ct_omf_sect < obj->nb_section) {
 		if (!r_bin_omf_send_sections (ret,\
-			    obj->sections[ct_omf_sect++], bf->o->bin_obj)) {
+			    obj->sections[ct_omf_sect++], bf->bo->bin_obj)) {
 			return ret;
 		}
 	}
@@ -104,7 +102,7 @@ static RList *symbols(RBinFile *bf) {
 	RBinSymbol *sym;
 	OMF_symbol *sym_omf;
 	int ct_sym = 0;
-	if (!bf || !bf->o || !bf->o->bin_obj) {
+	if (!bf || !bf->bo || !bf->bo->bin_obj) {
 		return NULL;
 	}
 	if (!(ret = r_list_new ())) {
@@ -113,15 +111,15 @@ static RList *symbols(RBinFile *bf) {
 
 	ret->free = free;
 
-	while (ct_sym < ((r_bin_omf_obj *) bf->o->bin_obj)->nb_symbol) {
+	while (ct_sym < ((r_bin_omf_obj *) bf->bo->bin_obj)->nb_symbol) {
 		if (!(sym = R_NEW0 (RBinSymbol))) {
 			return ret;
 		}
-		sym_omf = ((r_bin_omf_obj *) bf->o->bin_obj)->symbols[ct_sym++];
-		sym->name = strdup (sym_omf->name);
+		sym_omf = ((r_bin_omf_obj *) bf->bo->bin_obj)->symbols[ct_sym++];
+		sym->name = r_bin_name_new (sym_omf->name);
 		sym->forwarder = "NONE";
-		sym->paddr = r_bin_omf_get_paddr_sym (bf->o->bin_obj, sym_omf);
-		sym->vaddr = r_bin_omf_get_vaddr_sym (bf->o->bin_obj, sym_omf);
+		sym->paddr = r_bin_omf_get_paddr_sym (bf->bo->bin_obj, sym_omf);
+		sym->vaddr = r_bin_omf_get_vaddr_sym (bf->bo->bin_obj, sym_omf);
 		sym->ordinal = ct_sym;
 		sym->size = 0;
 		r_list_append (ret, sym);
@@ -146,7 +144,7 @@ static RBinInfo *info(RBinFile *bf) {
 	ret->big_endian = false;
 	ret->has_va = true;
 	ret->has_lit = true;
-	ret->bits = r_bin_omf_get_bits (bf->o->bin_obj);
+	ret->bits = r_bin_omf_get_bits (bf->bo->bin_obj);
 	ret->dbg_info = 0;
 	ret->has_nx = false;
 	return ret;
@@ -157,12 +155,16 @@ static ut64 get_vaddr(RBinFile *bf, ut64 baddr, ut64 paddr, ut64 vaddr) {
 }
 
 RBinPlugin r_bin_plugin_omf = {
-	.name = "omf",
-	.desc = "omf bin plugin",
-	.license = "LGPL3",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "omf",
+		.desc = "omf bin plugin",
+		.author = "ampotos",
+		.license = "LGPL-3.0-only",
+	},
+	.weak_guess = true,
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.entries = &entries,
 	.sections = &sections,

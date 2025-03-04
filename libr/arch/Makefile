@@ -9,19 +9,19 @@ CFLAGS:=-I.. -I$(LTOP)/arch/include -DR2_PLUGIN_INCORE -Iarch -I$(TOP)/shlr $(CF
 LDFLAGS+=$(CS_LDFLAGS)
 
 .PHONY: pre
-pre: p v35pre
+pre: p
 	$(MAKE) libr_arch.$(EXT_SO)
 	$(MAKE) libr_arch.$(EXT_AR)
 
-v35pre:
-	$(MAKE) -C p/arm/v35
+# v35pre:
+#	$(MAKE) -C p/arm/v35
 
 include $(STATIC_ARCH_PLUGINS)
 include $(STOP)/java/deps.mk
 
 STATIC_OBJS=$(subst ..,p/..,$(subst arch_,p/arch_,$(STATIC_OBJ)))
 OBJS=arch.o arch_config.o arch_switch.o arch_op.o
-OBJS+=arch_value.o arch_cond.o arch_session.o
+OBJS+=arch_value.o arch_cond.o arch_session.o arch_platform.o
 OBJS+=${STATIC_OBJS}
 
 include ../rules.mk

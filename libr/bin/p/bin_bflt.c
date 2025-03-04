@@ -1,18 +1,18 @@
-/* radare - LGPL - Copyright 2016-2023 - Oscar Salvador */
+/* radare - LGPL - Copyright 2016-2024 - Oscar Salvador */
 
 #include <r_bin.h>
 #include <r_io.h>
 #include "bflt/bflt.h"
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	*bin_obj = r_bin_bflt_new_buf (buf);
-	return *bin_obj;
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
+	bf->bo->bin_obj = r_bin_bflt_new_buf (buf);
+	return bf->bo->bin_obj != NULL;
 }
 
 static RList *entries(RBinFile *bf) {
 	RList *ret = r_list_newf (free);
 	if (ret) {
-		struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) R_UNWRAP3 (bf, o, bin_obj);
+		struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) R_UNWRAP3 (bf, bo, bin_obj);
 		RBinAddr *ptr = r_bflt_get_entry (obj);
 		if (ptr) {
 			r_list_append (ret, ptr);
@@ -38,7 +38,7 @@ static int search_old_relocation(struct reloc_struct_t *reloc_table, ut32 addr_t
 }
 
 static RList *patch_relocs(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->rbin && bf->rbin->iob.io, NULL);
+	R_RETURN_VAL_IF_FAIL (bf && bf->rbin && bf->rbin->iob.io, NULL);
 	struct r_bin_bflt_obj *bin = NULL;
 	RBin *b = bf->rbin;
 	RBinObject *obj = r_bin_cur_object (b);
@@ -118,7 +118,10 @@ static ut32 get_ngot_entries(struct r_bin_bflt_obj *obj) {
 }
 
 static RList *relocs(RBinFile *bf) {
-	struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) bf->o->bin_obj;
+	struct r_bin_bflt_obj *obj = (struct r_bin_bflt_obj *) bf->bo->bin_obj;
+	if (obj->relocs_list) {
+		return r_list_clone (obj->relocs_list, NULL);
+	}
 	RList *list = r_list_newf ((RListFree) free);
 	ut32 i, len, n_got, amount;
 	if (!list || !obj) {
@@ -223,7 +226,8 @@ static RList *relocs(RBinFile *bf) {
 		free (reloc_pointer_table);
 		obj->reloc_table = reloc_table;
 	}
-	return list;
+	obj->relocs_list = list;
+	return r_list_clone (list, NULL);
 out_error:
 	r_list_free (list);
 	return NULL;
@@ -232,7 +236,7 @@ out_error:
 static RBinInfo *info(RBinFile *bf) {
 	RBinInfo *info = R_NEW0 (RBinInfo);
 	if (info) {
-		struct r_bin_bflt_obj *obj = R_UNWRAP3 (bf, o, bin_obj);
+		struct r_bin_bflt_obj *obj = R_UNWRAP3 (bf, bo, bin_obj);
 		info->file = bf->file? strdup (bf->file): NULL;
 		info->rclass = strdup ("bflt");
 		info->bclass = strdup ("bflt" );
@@ -249,23 +253,26 @@ static RBinInfo *info(RBinFile *bf) {
 	return info;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+static bool check(RBinFile *bf, RBuffer *buf) {
 	ut8 tmp[4] = {0};
 	int r = r_buf_read_at (buf, 0, tmp, sizeof (tmp));
 	return r == sizeof (tmp) && !memcmp (tmp, "bFLT", 4);
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_bflt_free (bf->o->bin_obj);
+	r_bin_bflt_free (bf->bo->bin_obj);
 }
 
 RBinPlugin r_bin_plugin_bflt = {
-	.name = "bflt",
-	.desc = "bFLT format r_bin plugin",
-	.license = "LGPL3",
-	.load_buffer = &load_buffer,
+	.meta = {
+		.name = "bflt",
+		.author = "Oscar Salvador",
+		.desc = "bFLT format r_bin plugin",
+		.license = "LGPL-3.0-only",
+	},
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.entries = &entries,
 	.info = &info,
 	.relocs = &relocs,

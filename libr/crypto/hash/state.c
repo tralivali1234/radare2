@@ -1,40 +1,12 @@
-/* radare - LGPL - Copyright 2009-2023 pancake */
+/* radare - LGPL - Copyright 2009-2025 pancake */
 
 #include <r_hash.h>
 #include <r_util.h>
 
-#if WANT_SSL_CRYPTO
-#  include <openssl/md4.h>
-#  include <openssl/md5.h>
-#  include <openssl/sha.h>
-
-#  define R_SHA256_BLOCK_LENGTH SHA256_BLOCK_LENGTH
-
-#  define r_sha1_init           SHA1_Init
-#  define r_sha1_update         SHA1_update
-#  define r_sha1_final          SHA1_Final
-
-#  define r_sha256_init         SHA256_Init
-#  define r_sha256_update       SHA256_update
-#  define r_sha256_final        SHA256_Final
-
-#  define r_sha384_init         SHA384_Init
-#  define r_sha384_update       SHA384_update
-#  define r_sha384_final        SHA384_Final
-
-#  define r_sha512_init         SHA512_Init
-#  define r_sha512_update       SHA512_update
-#  define r_sha512_final        SHA512_Final
-
-#  define r_hash_md5_init       MD5_Init
-#  define r_hash_md5_update     MD5_update
-#  define r_hash_md5_final      MD5_Final
-#else
-#  include "md4.h"
-#  include "md5.h"
-#  include "sha1.h"
-#  include "sha2.h"
-#endif
+#include "md4.h"
+#include "md5.h"
+#include "sha1.h"
+#include "sha2.h"
 
 #define CHKFLAG(x) if (!flags || flags & (x))
 
@@ -44,14 +16,13 @@ R_API RHash *r_hash_new(bool rst, ut64 flags) {
 		R_LOG_WARN ("Too many hash algorithms registered, some may be unavailable");
 	}
 	RHash *ctx = R_NEW0 (RHash);
-	if (ctx) {
-		r_hash_do_begin (ctx, flags);
-		ctx->rst = rst;
-	}
+	r_hash_do_begin (ctx, flags);
+	ctx->rst = rst;
 	return ctx;
 }
 
 R_API void r_hash_do_begin(RHash *ctx, ut64 flags) {
+	R_RETURN_IF_FAIL (ctx);
 	CHKFLAG (R_HASH_MD5) r_hash_do_md5 (ctx, NULL, -1);
 	CHKFLAG (R_HASH_SHA1) r_sha1_init (&ctx->sha1);
 	CHKFLAG (R_HASH_SHA256) r_sha256_init (&ctx->sha256);
@@ -61,6 +32,7 @@ R_API void r_hash_do_begin(RHash *ctx, ut64 flags) {
 }
 
 R_API void r_hash_do_end(RHash *ctx, ut64 flags) {
+	R_RETURN_IF_FAIL (ctx);
 	CHKFLAG (R_HASH_MD5) r_hash_do_md5 (ctx, NULL, -2);
 	CHKFLAG (R_HASH_SHA1) r_sha1_final (ctx->digest, &ctx->sha1);
 	CHKFLAG (R_HASH_SHA256) r_sha256_final (ctx->digest, &ctx->sha256);
@@ -74,6 +46,7 @@ R_API void r_hash_free(RHash *ctx) {
 }
 
 R_API ut8 *r_hash_do_sip(RHash *ctx, const ut8 *input, int len) {
+	R_RETURN_VAL_IF_FAIL (ctx && input, NULL);
 	if (len < 0) {
 		return NULL;
 	}
@@ -85,6 +58,7 @@ R_API ut8 *r_hash_do_sip(RHash *ctx, const ut8 *input, int len) {
 }
 
 R_API ut8 *r_hash_do_ssdeep(RHash *ctx, const ut8 *input, int len) {
+	R_RETURN_VAL_IF_FAIL (ctx && input, NULL);
 	if (len < 0) {
 		return NULL;
 	}
@@ -97,6 +71,7 @@ R_API ut8 *r_hash_do_ssdeep(RHash *ctx, const ut8 *input, int len) {
 }
 
 R_API ut8 *r_hash_do_sha1(RHash *ctx, const ut8 *input, int len) {
+	R_RETURN_VAL_IF_FAIL (ctx && input, NULL);
 	if (len < 0) {
 		return NULL;
 	}
@@ -111,6 +86,7 @@ R_API ut8 *r_hash_do_sha1(RHash *ctx, const ut8 *input, int len) {
 }
 
 R_API ut8 *r_hash_do_sha256(RHash *ctx, const ut8 *input, int len) {
+	R_RETURN_VAL_IF_FAIL (ctx && input, NULL);
 	if (len < 0) {
 		return NULL;
 	}
@@ -139,6 +115,7 @@ R_API ut8 *r_hash_do_sha384(RHash *ctx, const ut8 *input, int len) {
 }
 
 R_API ut8 *r_hash_do_sha512(RHash *ctx, const ut8 *input, int len) {
+	R_RETURN_VAL_IF_FAIL (ctx && input, NULL);
 	if (len < 0) {
 		return NULL;
 	}

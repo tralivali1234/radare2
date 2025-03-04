@@ -13,7 +13,7 @@ struct snes_asm_flags {
 };
 
 static bool snes_init(RArchSession *s) {
-	r_return_val_if_fail (s && !s->data, false);
+	R_RETURN_VAL_IF_FAIL (s && !s->data, false);
 	s->data = R_NEW0 (struct snes_asm_flags);
 	return s->data? true: false;
 }
@@ -76,14 +76,14 @@ static char *snes_disass(struct snes_asm_flags snesflags, ut64 pc, const ut8 *bu
 
 static int snes_info(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 1;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		// some ops accept newline terminated strings of arbitrary len...
 		return 3;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 1;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 1;
 	}
 	return -1;
@@ -285,14 +285,14 @@ static bool snes_anop(RArchSession *as, RAnalOp *op, RArchDecodeMask mask) {
 		break;
 	case 0xd0: // bne
 		op->eob = true;
-		op->cond = R_ANAL_COND_NE;
+		op->cond = R_ANAL_CONDTYPE_NE;
 		op->jump = addr + 2 + (st8)data[1];
 		op->fail = addr + 2;
 		op->type = R_ANAL_OP_TYPE_CJMP;
 		break;
 	case 0xf0: // beq
 		op->eob = true;
-		op->cond = R_ANAL_COND_EQ;
+		op->cond = R_ANAL_CONDTYPE_EQ;
 		op->jump = addr + 2 + (st8)data[1];
 		op->fail = addr + 2;
 		op->type = R_ANAL_OP_TYPE_CJMP;
@@ -337,9 +337,9 @@ static bool snes_anop(RArchSession *as, RAnalOp *op, RArchDecodeMask mask) {
 const RArchPlugin r_arch_plugin_snes = {
 	.meta = {
 		.name = "snes",
-		.desc = "SNES analysis plugin",
-		.license = "LGPL3",
-		.author = "pancake",
+		.desc = "SNES cpu (aka Ricoh 5A22) based on custom 65C816",
+		.license = "LGPL-3.0-only",
+		.author = "condret",
 	},
 	.arch = "snes", // modified 6502 ?
 	.bits = R_SYS_BITS_PACK2 (8, 16),

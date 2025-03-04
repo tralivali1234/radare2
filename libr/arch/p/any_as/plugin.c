@@ -1,9 +1,9 @@
-/* Copyright (C) 2008-2023 - pancake */
+/* Copyright (C) 2008-2024 - pancake */
 
 #include <r_arch.h>
 #include "binutils_as.c"
 
-static const char *mycpu(RArchSession *s) {
+static const char *_mycpu(RArchSession *s) {
 	const char *cpu = s->config->cpu;
 	return cpu? cpu: R_SYS_ARCH;
 }
@@ -17,7 +17,7 @@ static bool as_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 		// TODO: find in PATH
 		gas = strdup ("as");
 	}
-	const char *cpu = mycpu (s);
+	const char *cpu = _mycpu (s);
 	if (!strcmp (cpu, "ppc")) {
 		char cmd_opt[4096];
 		snprintf (cmd_opt, sizeof (cmd_opt), "-mregnames -a%d %s", s->config->bits,
@@ -81,9 +81,9 @@ static bool as_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 const RArchPlugin r_arch_plugin_any_as = {
 	.meta = {
 		.name = "any.as",
-		.desc = "Uses system gnu/clang 'as' assembler",
+		.desc = "Use system's gnu/clang 'as' assembler",
 		.author = "pancake",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	// TODO: add the "any" architecture to support any, instead of using null
 	.arch = "any", // on purpose because that's a multi-arch plugin

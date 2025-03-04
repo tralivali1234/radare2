@@ -1,8 +1,6 @@
-/* radare - LGPL - Copyright 2008-2022 - pancake */
+/* radare - LGPL - Copyright 2008-2024 - pancake */
 
 #include <r_io.h>
-#include <r_lib.h>
-#include <sys/types.h>
 
 typedef struct {
 	ut8 *buf;
@@ -106,7 +104,7 @@ static bool __resize(RIO *io, RIODesc *fd, ut64 count) {
 }
 
 static int __read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	memset (buf, 0xff, count);
+	memset (buf, io->Oxff, count);
 	if (!fd || !fd->data) {
 		return -1;
 	}
@@ -141,13 +139,13 @@ static ut64 __lseek(RIO* io, RIODesc *fd, ut64 offset, int whence) {
 	}
 	ut32 mallocsz = _io_malloc_sz (fd);
 	switch (whence) {
-	case SEEK_SET:
+	case R_IO_SEEK_SET:
 		r_offset = (offset <= mallocsz) ? offset : mallocsz;
 		break;
-	case SEEK_CUR:
+	case R_IO_SEEK_CUR:
 		r_offset = (_io_malloc_off (fd) + offset <= mallocsz ) ? _io_malloc_off (fd) + offset : mallocsz;
 		break;
-	case SEEK_END:
+	case R_IO_SEEK_END:
 		r_offset = _io_malloc_sz (fd);
 		break;
 	}
@@ -184,9 +182,12 @@ static RIODesc *__open(RIO *io, const char *pathname, int rw, int mode) {
 }
 
 RIOPlugin r_io_plugin_gzip = {
-	.name = "gzip",
-	.desc = "Read/write gzipped files",
-	.license = "LGPL3",
+	.meta = {
+		.name = "gzip",
+		.desc = "Read/write gzipped files",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.uris = "gzip://",
 	.open = __open,
 	.close = __close,

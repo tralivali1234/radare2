@@ -1,5 +1,6 @@
-SDBPATH=$(SHLR)/sdb/src/
-SDBINCDIR=$(SHLR)/sdb/include
+# SUBPROJECTS TODO sdb
+SDBPATH=$(SHLR)/../subprojects/sdb/src/
+SDBINCDIR=$(SHLR)/../subprojects/sdb/include
 SDBLIB=${SDBPATH}/libsdb.a
 EXTRA_TARGETS+=${SDBLIB}
 EXTRA_PRE+=$(SDBLIB)
@@ -9,7 +10,6 @@ EXTRA_PRE+=$(SDBLIB)
 # CFLAGS+=-DHAVE_MMAN=0
 
 SDB_OBJS=
-SDB_OBJS+=buffer.o
 SDB_OBJS+=cdb.o
 SDB_OBJS+=heap.o
 SDB_OBJS+=set.o
@@ -18,6 +18,7 @@ SDB_OBJS+=ht_uu.o
 SDB_OBJS+=ht_up.o
 SDB_OBJS+=ht_pp.o
 SDB_OBJS+=ht_pu.o
+SDB_OBJS+=ht_su.o
 SDB_OBJS+=ht.o
 SDB_OBJS+=json.o
 SDB_OBJS+=text.o

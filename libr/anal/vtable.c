@@ -179,7 +179,7 @@ static bool vtable_is_addr_vtable_start(RVTableContext *context, RBinSection *se
 	if (context->abi == R_ANAL_CPP_ABI_ITANIUM) {
 		return vtable_is_addr_vtable_start_itanium (context, section, curAddress);
 	}
-	r_return_val_if_reached (false);
+	R_RETURN_VAL_IF_REACHED (false);
 	return false;
 }
 
@@ -208,11 +208,8 @@ R_API RVTableInfo *r_anal_vtable_parse_at(RVTableContext *context, ut64 addr) {
 		addr += context->word_size;
 
 		// a ref means the vtable has ended
-		RVecAnalRef *ll = r_anal_xrefs_get (context->anal, addr);
-		// TODO add R_API function that only returns if there are xrefs for an addr
-		// to avoid several allocations
-		const bool has_refs = ll && !RVecAnalRef_empty (ll);
-		RVecAnalRef_free (ll);
+		const ut64 number_of_refs = r_anal_xrefs_count_at (context->anal, addr);
+		const bool has_refs = number_of_refs > 0;
 		if (has_refs) {
 			break;
 		}
@@ -289,7 +286,7 @@ R_API RList *r_anal_vtable_search(RVTableContext *context) {
 	return vtables;
 }
 
-R_API void r_anal_list_vtables(RAnal *anal, int rad) {
+R_API void r_anal_vtables_list(RAnal *anal, int rad) {
 	RVTableContext context = {0};
 	r_anal_vtable_begin (anal, &context);
 
@@ -302,9 +299,6 @@ R_API void r_anal_list_vtables(RAnal *anal, int rad) {
 
 	if (rad == 'j') {
 		PJ *pj = pj_new ();
-		if (!pj) {
-			return;
-		}
 		pj_a (pj);
 		r_list_foreach (vtables, vtableIter, table) {
 			pj_o (pj);

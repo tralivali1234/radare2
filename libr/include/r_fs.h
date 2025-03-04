@@ -40,6 +40,9 @@ typedef struct r_fs_file_t {
 	ut8 *data;
 	void *ctx;
 	char type;
+	ut32 uid; // owner
+	ut32 gid; // group
+	ut32 perm; // rwx
 	ut64 time;
 	struct r_fs_plugin_t *p;
 	struct r_fs_root_t *root;
@@ -57,10 +60,7 @@ typedef struct r_fs_root_t {
 } RFSRoot;
 
 typedef struct r_fs_plugin_t {
-	const char *name;
-	const char *desc;
-	const char *author;
-	const char *license;
+	RPluginMeta meta;
 	RFSFile* (*slurp)(RFSRoot *root, const char *path);
 	RFSFile* (*open)(RFSRoot *root, const char *path, bool create);
 	bool (*unlink)(RFSRoot *root, const char *path);
@@ -68,7 +68,7 @@ typedef struct r_fs_plugin_t {
 	int (*read)(RFSFile *fs, ut64 addr, int len);
 	void (*close)(RFSFile *fs);
 	RList *(*dir)(RFSRoot *root, const char *path, int view);
-	void (*init)(void);
+	bool (*init)(void);
 	void (*fini)(void);
 	bool (*mount)(RFSRoot *root);
 	void (*umount)(RFSRoot *root);
@@ -86,7 +86,7 @@ typedef struct r_fs_shell_t {
 	char *cwd;
 	void (*set_prompt)(const char *prompt);
 	const char* (*readline)(void);
-	int (*hist_add)(const char *line);
+	bool (*hist_add)(const char *line);
 } RFSShell;
 
 typedef struct r_fs_type_t {
@@ -113,7 +113,19 @@ static inline void r_fs_shell_free(RFSShell *s) {
 #define R_FS_FILE_TYPE_REGULAR 'r'
 #define R_FS_FILE_TYPE_DELETED 'x'
 #define R_FS_FILE_TYPE_SPECIAL 's'
+#define R_FS_FILE_TYPE_BLOCK 'b'
+#define R_FS_FILE_TYPE_CHAR 'c'
 #define R_FS_FILE_TYPE_MOUNT 'm'
+
+// symlinked types
+#define R_FS_FILE_TYPE_S_MOUNTPOINT 'M'
+#define R_FS_FILE_TYPE_S_DIRECTORY 'D'
+#define R_FS_FILE_TYPE_S_REGULAR 'R'
+#define R_FS_FILE_TYPE_S_DELETED 'X'
+#define R_FS_FILE_TYPE_S_SPECIAL 'S'
+#define R_FS_FILE_TYPE_S_BLOCK 'B'
+#define R_FS_FILE_TYPE_S_CHAR 'C'
+#define R_FS_FILE_TYPE_S_MOUNT 'M'
 
 typedef int (*RFSPartitionIterator)(void *disk, void *ptr, void *user);
 typedef struct r_fs_partition_type_t {
@@ -194,6 +206,7 @@ extern RFSPlugin r_fs_plugin_posix;
 extern RFSPlugin r_fs_plugin_r2;
 extern RFSPlugin r_fs_plugin_reiserfs;
 extern RFSPlugin r_fs_plugin_sfs;
+extern RFSPlugin r_fs_plugin_squashfs;
 extern RFSPlugin r_fs_plugin_tar;
 extern RFSPlugin r_fs_plugin_tar;
 extern RFSPlugin r_fs_plugin_udf;

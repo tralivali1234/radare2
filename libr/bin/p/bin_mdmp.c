@@ -1,39 +1,37 @@
-/* radare2 - LGPL - Copyright 2016-2023 - Davis, Alex Kornitzer */
+/* radare2 - LGPL - Copyright 2016-2024 - Davis, Alex Kornitzer */
 
 #include <r_util/r_print.h>
 #include <r_bin.h>
 #include "mdmp/mdmp.h"
 
 static Sdb *get_sdb(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o, NULL);
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 	return (mdmp && mdmp->kv) ? mdmp->kv: NULL;
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_mdmp_free ((RBinMdmpObj *)bf->o->bin_obj);
+	r_bin_mdmp_free ((RBinMdmpObj *)bf->bo->bin_obj);
 }
 
 static RList* entries(RBinFile *bf) {
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
-	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
-	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 	RListIter *it;
-	RList* ret, *list;
 
-	if (!(ret = r_list_newf (free))) {
-		return NULL;
-	}
-
-	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
-		list = Pe32_r_bin_mdmp_pe_get_entrypoint (pe32_bin);
-		r_list_join (ret, list);
-		r_list_free (list);
-	}
-	r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
-		list = Pe64_r_bin_mdmp_pe_get_entrypoint (pe64_bin);
-		r_list_join (ret, list);
-		r_list_free (list);
+	RList *ret = r_list_newf (free);
+	if (R_LIKELY (ret)) {
+		struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
+		r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
+			RList *list = Pe32_r_bin_mdmp_pe_get_entrypoint (pe32_bin);
+			r_list_join (ret, list);
+			r_list_free (list);
+		}
+		struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
+		r_list_foreach (mdmp->pe64_bins, it, pe64_bin) {
+			RList *list = Pe64_r_bin_mdmp_pe_get_entrypoint (pe64_bin);
+			r_list_join (ret, list);
+			r_list_free (list);
+		}
 	}
 
 	return ret;
@@ -44,7 +42,7 @@ static RBinInfo *info(RBinFile *bf) {
 	if (!ret) {
 		return NULL;
 	}
-	RBinMdmpObj *mdmp = bf->o->bin_obj;
+	RBinMdmpObj *mdmp = bf->bo->bin_obj;
 	if (!mdmp) {
 		return NULL;
 	}
@@ -125,14 +123,14 @@ static RList* libs(RBinFile *bf) {
 	RList *ret = NULL;
 	RListIter *it;
 
-	if (!bf || !bf->o || !bf->o->bin_obj) {
+	if (!bf || !bf->bo || !bf->bo->bin_obj) {
 		return NULL;
 	}
 	if (!(ret = r_list_newf (free))) {
 		return NULL;
 	}
 
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 
 	/* TODO: Resolve module name for lib, or filter to remove duplicates,
 	** rather than the vaddr :) */
@@ -159,12 +157,12 @@ static RList* libs(RBinFile *bf) {
 	return ret;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	r_return_val_if_fail (buf, false);
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
+	R_RETURN_VAL_IF_FAIL (buf, false);
 	struct r_bin_mdmp_obj *res = r_bin_mdmp_new_buf (buf);
-	if (res) {
-		sdb_ns_set (sdb, "info", res->kv);
-		*bin_obj = res;
+	if (R_LIKELY (res)) {
+		sdb_ns_set (bf->sdb, "info", res->kv);
+		bf->bo->bin_obj = res;
 		return true;
 	}
 	return false;
@@ -175,7 +173,6 @@ static RList *sections(RBinFile *bf) {
 	struct minidump_memory_descriptor64 *memory64;
 	struct minidump_module *module;
 	struct minidump_string *str;
-	struct r_bin_mdmp_obj *obj;
 	struct Pe32_r_bin_mdmp_pe_bin *pe32_bin;
 	struct Pe64_r_bin_mdmp_pe_bin *pe64_bin;
 	RList *ret, *pe_secs;
@@ -183,7 +180,7 @@ static RList *sections(RBinFile *bf) {
 	RBinSection *ptr;
 	ut64 index;
 
-	obj = (struct r_bin_mdmp_obj *)bf->o->bin_obj;
+	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)bf->bo->bin_obj;
 
 	if (!(ret = r_list_newf (free))) {
 		return NULL;
@@ -289,9 +286,8 @@ static RList *sections(RBinFile *bf) {
 			}
 		}
 	}
-	eprintf ("[INFO] Parsing data sections for large dumps can take time, "
-		"please be patient (but if strings ain't your thing try with "
-		"-z)!\n");
+	R_LOG_INFO ("Parsing data sections for large dumps can take time");
+	R_LOG_INFO ("Please be patient (but if strings ain't your thing try with -z)");
 	return ret;
 }
 
@@ -310,7 +306,7 @@ static RList *mem(RBinFile *bf) {
 		return NULL;
 	}
 
-	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)R_UNWRAP3 (bf, o, bin_obj);
+	struct r_bin_mdmp_obj *obj = (struct r_bin_mdmp_obj *)R_UNWRAP3 (bf, bo, bin_obj);
 	if (!obj) {
 		return ret;
 	}
@@ -376,7 +372,7 @@ static RList* relocs(RBinFile *bf) {
 	if (!ret) {
 		return NULL;
 	}
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		if (pe32_bin->bin && pe32_bin->bin->relocs) {
 			r_list_join (ret, pe32_bin->bin->relocs);
@@ -399,7 +395,7 @@ static RList* imports(RBinFile *bf) {
 	if (!(ret = r_list_newf ((RListFree)r_bin_import_free))) {
 		return NULL;
 	}
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		list = Pe32_r_bin_mdmp_pe_get_imports (pe32_bin);
 		if (list) {
@@ -427,7 +423,7 @@ static RList* symbols(RBinFile *bf) {
 		return NULL;
 	}
 
-	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->o->bin_obj;
+	RBinMdmpObj *mdmp = (RBinMdmpObj*)bf->bo->bin_obj;
 
 	r_list_foreach (mdmp->pe32_bins, it, pe32_bin) {
 		list = Pe32_r_bin_mdmp_pe_get_symbols (bf->rbin, pe32_bin);
@@ -442,7 +438,7 @@ static RList* symbols(RBinFile *bf) {
 	return ret;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut8 magic[6];
 	if (r_buf_read_at (b, 0, magic, sizeof (magic)) == 6) {
 		return !memcmp (magic, MDMP_MAGIC, 6);
@@ -451,17 +447,20 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 }
 
 RBinPlugin r_bin_plugin_mdmp = {
-	.name = "mdmp",
-	.desc = "Minidump format r_bin plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "mdmp",
+		.author = "Davis,Alex Kornitzer",
+		.desc = "Minidump format r_bin plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.destroy = &destroy,
 	.entries = entries,
 	.get_sdb = &get_sdb,
 	.imports = &imports,
 	.info = &info,
 	.libs = &libs,
-	.load_buffer = &load_buffer,
-	.check_buffer = &check_buffer,
+	.load = &load,
+	.check = &check,
 	.mem = &mem,
 	.relocs = &relocs,
 	.sections = &sections,

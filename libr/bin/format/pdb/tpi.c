@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2014-2020 - inisider */
+/* radare - LGPL - Copyright 2014-2024 - inisider */
 
 #include "types.h"
 #include "tpi.h"
@@ -1672,7 +1672,7 @@ static void get_array_print_type(void *type, char **name) {
 
 	SType *t = 0;
 	ti->get_element_type (ti, (void **)&t);
-	r_return_if_fail (t); // t == NULL indicates malformed PDB ?
+	R_RETURN_IF_FAIL (t); // t == NULL indicates malformed PDB ?
 	if (t->type_data.leaf_type == eLF_SIMPLE_TYPE) {
 		need_to_free = false;
 		SLF_SIMPLE_TYPE *base_type = t->type_data.type_info;
@@ -1705,7 +1705,7 @@ static void get_pointer_print_type(void *type, char **name) {
 	int need_to_free = 1;
 
 	ti->get_utype (ti, (void **)&t);
-	r_return_if_fail (t); // t == NULL indicates malformed PDB ?
+	R_RETURN_IF_FAIL (t); // t == NULL indicates malformed PDB ?
 	if (t->type_data.leaf_type == eLF_SIMPLE_TYPE) {
 		need_to_free = false;
 		SLF_SIMPLE_TYPE *base_type = t->type_data.type_info;
@@ -1830,7 +1830,7 @@ static void get_enum_print_type(void *type, char **name) {
 	int need_to_free = 1;
 
 	ti->get_utype (ti, (void **)&t);
-	r_return_if_fail (t); // This shouldn't happen?, TODO explore this situation
+	R_RETURN_IF_FAIL (t); // This shouldn't happen?, TODO explore this situation
 	if (t->type_data.leaf_type == eLF_SIMPLE_TYPE) { // BaseType
 		need_to_free = 0;
 		SLF_SIMPLE_TYPE *base_type = t->type_data.type_info;
@@ -2159,10 +2159,9 @@ int parse_sctring(SCString *sctr, uint8_t *leaf_data, unsigned int *read_bytes, 
 		c++;
 		leaf_data++;
 	}
-	CAN_READ(*read_bytes, 1, len);
+	CAN_READ (*read_bytes, 1, len);
 	leaf_data += 1;
 	(*read_bytes) += (c + 1);
-
 	init_scstring (sctr, c + 1, (char *)leaf_data - (c + 1));
 	return 1;
 }
@@ -2187,9 +2186,10 @@ static int parse_sval(SVal *val, uint8_t *leaf_data, unsigned int *read_bytes, u
 		{
 		    SVal_LF_UQUADWORD lf_uqword;
 		    READ8(*read_bytes, len, lf_uqword.value, leaf_data, st64);
-		    parse_sctring(&lf_uqword.name, leaf_data, read_bytes, len);
-		    val->name_or_val = malloc(sizeof (SVal_LF_UQUADWORD));
+		    parse_sctring (&lf_uqword.name, leaf_data, read_bytes, len);
+		    val->name_or_val = R_NEW0 (SVal_LF_UQUADWORD);
 		    if (!val->name_or_val) {
+			    free (lf_uqword.name.name);
 			    break;
 		    }
 		    memcpy(val->name_or_val, &lf_uqword, sizeof (SVal_LF_UQUADWORD));

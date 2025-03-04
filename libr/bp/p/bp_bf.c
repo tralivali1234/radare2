@@ -10,7 +10,12 @@ static RBreakpointArch r_bp_plugin_bf_bps[] = {
 };
 
 RBreakpointPlugin r_bp_plugin_bf = {
-	.name = "bf",
+	.meta = {
+		.name = "bf",
+		.desc = "",
+		.author = "pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.arch = "bf",
 	.nbps = 2,
 	.bps = r_bp_plugin_bf_bps,
@@ -23,3 +28,4 @@ R_API RLibStruct radare_plugin = {
 	.version = R2_VERSION
 };
 #endif
+

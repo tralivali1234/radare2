@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2008-2021 pancake */
+/* radare - LGPL - Copyright 2008-2024 pancake */
 
 #include "r_io.h"
 #include "r_lib.h"
@@ -30,7 +30,7 @@ typedef struct {
 #define SHMATSZ 0x9000; // 32*1024*1024; /* 32MB : XXX not used correctly? */
 
 static int shm__write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
-	r_return_val_if_fail (fd && fd->data, -1);
+	R_RETURN_VAL_IF_FAIL (fd && fd->data, -1);
 	RIOShm *shm = fd->data;
 	if (shm->buf) {
 		(void)memcpy (shm->buf + io->off, buf, count);
@@ -40,7 +40,7 @@ static int shm__write(RIO *io, RIODesc *fd, const ut8 *buf, int count) {
 }
 
 static int shm__read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
-	r_return_val_if_fail (fd && fd->data, -1);
+	R_RETURN_VAL_IF_FAIL (fd && fd->data, -1);
 	RIOShm *shm = fd->data;
 	if (io->off + count >= shm->size) {
 		if (io->off > shm->size) {
@@ -56,7 +56,7 @@ static int shm__read(RIO *io, RIODesc *fd, ut8 *buf, int count) {
 }
 
 static bool shm__close(RIODesc *fd) {
-	r_return_val_if_fail (fd && fd->data, -1);
+	R_RETURN_VAL_IF_FAIL (fd && fd->data, -1);
 	RIOShm *shm = fd->data;
 	int ret = (shm->buf)
 		? shmdt (((RIOShm*)(fd->data))->buf)
@@ -66,22 +66,26 @@ static bool shm__close(RIODesc *fd) {
 }
 
 static ut64 shm__lseek(RIO *io, RIODesc *fd, ut64 offset, int whence) {
-	r_return_val_if_fail (fd && fd->data, -1);
+	R_RETURN_VAL_IF_FAIL (fd && fd->data, -1);
 	RIOShm *shm = fd->data;
 	switch (whence) {
-	case SEEK_SET:
+	case R_IO_SEEK_SET:
 		io->off = offset;
 		break;
-	case SEEK_CUR:
+	case R_IO_SEEK_CUR:
 		if (io->off + offset > shm->size) {
-			io->off = shm->size;
+			io->off = shm->size;			//XXX
 		} else {
-			io->off += offset;
+			io->off += offset;			//XXX
 		}
 		break;
-	case SEEK_END:
-		io->off = ((int)shm->size > 0) ? shm->size : UT64_MAX;
-		io->off += (int)offset;
+	case R_IO_SEEK_END:
+		if ((int)shm->size > 0) {
+			io->off = shm->size + (int)offset;	//XXX
+		} else {
+			// UT64_MAX means error
+			io->off = UT64_MAX - 1;			//XXX
+		}
 		break;
 	}
 	return io->off;
@@ -130,11 +134,13 @@ static RIODesc *shm__open(RIO *io, const char *pathname, int rw, int mode) {
 }
 
 RIOPlugin r_io_plugin_shm = {
-	.name = "shm",
-	.desc = "Shared memory resources plugin",
+	.meta = {
+		.name = "shm",
+		.desc = "Shared memory resources plugin",
+		.license = "MIT",
+		.author = "pancake",
+	},
 	.uris = "shm://",
-	.license = "MIT",
-	.author = "pancake",
 	.open = shm__open,
 	.close = shm__close,
 	.read = shm__read,
@@ -145,8 +151,10 @@ RIOPlugin r_io_plugin_shm = {
 
 #else
 RIOPlugin r_io_plugin_shm = {
-	.name = "shm",
-	.desc = "shared memory resources (not for this platform)",
+	.meta = {
+		.name = "shm",
+		.desc = "shared memory resources (not for this platform)",
+	}
 };
 #endif
 

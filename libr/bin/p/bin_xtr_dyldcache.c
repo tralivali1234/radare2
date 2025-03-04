@@ -1,8 +1,5 @@
-/* radare - LGPL - Copyright 2009-2019 nibble, pancake */
+/* radare - LGPL - Copyright 2009-2023 nibble, pancake */
 
-#include <r_types.h>
-#include <r_util.h>
-#include <r_lib.h>
 #include <r_bin.h>
 #include "mach0/dyldcache.h"
 #include "mach0/mach0.h"
@@ -12,7 +9,7 @@ static RList *extractall(RBin *bin);
 static RBinXtrData *oneshot(RBin *bin, const ut8 *buf, ut64 size, int idx);
 static RList *oneshotall(RBin *bin, const ut8 *buf, ut64 size);
 
-static bool check_buffer(RBinFile *bf, RBuffer *buf) {
+static bool check(RBinFile *bf, RBuffer *buf) {
 	ut8 b[4] = {0};
 	r_buf_read_at (buf, 0, b, sizeof (b));
 	return !memcmp (buf, "dyld", 4);
@@ -166,9 +163,12 @@ static RList *oneshotall(RBin *bin, const ut8* buf, ut64 size) {
 }
 
 RBinXtrPlugin r_bin_xtr_plugin_xtr_dyldcache = {
-	.name = "xtr.dyldcache",
-	.desc = "dyld cache bin extractor plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "xtr.dyldcache",
+		.author = "pancake,nibble",
+		.desc = "dyld cache bin extractor plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.load = &load,
 	.extract = &extract,
 	.extractall = &extractall,
@@ -176,7 +176,7 @@ RBinXtrPlugin r_bin_xtr_plugin_xtr_dyldcache = {
 	.extract_from_bytes = &oneshot,
 	.extractall_from_bytes = &oneshotall,
 	.free_xtr = &free_xtr,
-	.check_buffer = &check_buffer,
+	.check = &check,
 };
 
 #ifndef R2_PLUGIN_INCORE

@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2022 - pancake */
+/* radare - LGPL - Copyright 2009-2024 - pancake */
 
 #include <r_lib.h>
 #include <r_crypto.h>
@@ -53,12 +53,12 @@ static void rot_decrypt(ut8 key, const ut8 *inbuf, ut8 *outbuf, int buflen) {
 }
 
 static bool rot_set_key(RCryptoJob *cj, const ut8 *key, int keylen, int mode, int direction) {
-	cj->flag = direction;
+	cj->flag = direction == R_CRYPTO_DIR_ENCRYPT;
 	return rot_init (&cj->rot_key, key, keylen);
 }
 
 static int rot_get_key_size(RCryptoJob *cj) {
-	//Returning number of bytes occupied by ut8
+	// Returning number of bytes occupied by ut8
 	return 1;
 }
 
@@ -67,10 +67,13 @@ static bool update(RCryptoJob *cj, const ut8 *buf, int len) {
 	if (!obuf) {
 		return false;
 	}
-	if (cj->flag == 0) {
+	switch (cj->flag) {
+	case R_CRYPTO_DIR_ENCRYPT:
 		rot_crypt (cj->rot_key, buf, obuf, len);
-	} else if (cj->flag == 1) {
+		break;
+	case R_CRYPTO_DIR_DECRYPT:
 		rot_decrypt (cj->rot_key, buf, obuf, len);
+		break;
 	}
 	r_crypto_job_append (cj, obuf, len);
 	free (obuf);
@@ -78,10 +81,14 @@ static bool update(RCryptoJob *cj, const ut8 *buf, int len) {
 }
 
 RCryptoPlugin r_crypto_plugin_rot = {
-	.name = "rot",
+	.type = R_CRYPTO_TYPE_ENCODER,
+	.meta = {
+		.name = "rot",
+		.desc = "Rotate Encryption",
+		.author = "pancake",
+		.license = "MIT",
+	},
 	.implements = "rot",
-	.author = "pancake",
-	.license = "MIT",
 	.set_key = rot_set_key,
 	.get_key_size = rot_get_key_size,
 	.update = update,

@@ -1,6 +1,5 @@
-/* radare - LGPL - Copyright 2009-2022 - pancake, defragger, madprogrammer */
+/* radare - LGPL - Copyright 2009-2024 - pancake, defragger, madprogrammer */
 
-#include <r_asm.h>
 #include <r_debug.h>
 #include <libqnxr.h>
 
@@ -116,8 +115,7 @@ static RList *r_debug_qnx_map_get(RDebug *dbg) {
 static bool r_debug_qnx_reg_write(RDebug *dbg, int type, const ut8 *buf, int size) {
 	int buflen = 0;
 	int bits = dbg->anal->config->bits;
-	const char *pcname = r_reg_get_name (dbg->anal->reg, R_REG_NAME_PC);
-	RRegItem *reg = r_reg_get (dbg->anal->reg, pcname, 0);
+	RRegItem *reg = r_reg_get (dbg->anal->reg, "PC", 0);
 	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
 	if (!pd || !pd->reg_buf) {
 		// we cannot write registers before we once read them
@@ -191,7 +189,7 @@ static RDebugReasonType r_debug_qnx_wait(RDebug *dbg, int pid) {
 	return 0;
 }
 
-static int r_debug_qnx_stop(RDebug *dbg) {
+static bool r_debug_qnx_stop(RDebug *dbg) {
 	PluginData *pd = R_UNWRAP3 (dbg, current, plugin_data);
 	if (!pd) {
 		return false;
@@ -210,8 +208,8 @@ static bool r_debug_qnx_attach(RDebug *dbg, int pid) {
 		return false;
 	}
 
-	if (d && d->plugin && d->plugin->name && d->data) {
-		if (!strcmp ("qnx", d->plugin->name)) {
+	if (d && d->plugin && d->plugin->meta.name && d->data) {
+		if (!strcmp ("qnx", d->plugin->meta.name)) {
 			RIOQnx *g = d->data;
 			int arch = r_sys_arch_id (dbg->arch);
 			int bits = dbg->anal->config->bits;
@@ -377,14 +375,14 @@ static int r_debug_qnx_breakpoint(RBreakpoint *bp, RBreakpointItem *b, bool set)
 }
 
 static bool init_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds, false);
 
 	ds->plugin_data = R_NEW0 (PluginData);
 	return !!ds->plugin_data;
 }
 
 static bool fini_plugin(RDebug *dbg, RDebugPluginSession *ds) {
-	r_return_val_if_fail (dbg && ds && ds->plugin_data, false);
+	R_RETURN_VAL_IF_FAIL (dbg && ds && ds->plugin_data, false);
 
 	PluginData *pd = ds->plugin_data;
 	R_FREE (pd->reg_buf);
@@ -398,10 +396,10 @@ RDebugPlugin r_debug_plugin_qnx = {
 		.name = "qnx",
 		.author = "pancake, defragger, madprogrammer",
 		.desc = "qnx debug plugin",
-		.license = "LGPL3",
+		.license = "LGPL-3.0-only",
 	},
 	.arch = "x86,arm",
-	.bits = R_SYS_BITS_32,
+	.bits = R_SYS_BITS_PACK (32),
 	.init_plugin = init_plugin,
 	.fini_plugin = fini_plugin,
 	.step = r_debug_qnx_step,

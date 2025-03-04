@@ -3,7 +3,7 @@
 #define R_BIN_PE64 1
 #include "bin_pe.inc.c"
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut64 length = r_buf_size (b);
 	if (length <= 0x3d) {
 		return false;
@@ -29,23 +29,21 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 }
 
 static RList *fields(RBinFile *bf) {
-	r_strf_buffer (64);
 	RList *ret  = r_list_new ();
 	if (!ret) {
 		return NULL;
 	}
 
 	#define ROWL(nam,siz,val,fmt) \
-		r_list_append (ret, r_bin_field_new (addr, addr, siz, nam, \
-				r_strf ("0x%08"PFMT64x, (ut64)val), fmt, false));
+		r_list_append (ret, r_bin_field_new (addr, addr, val, siz, nam, NULL, fmt, false));
 
-	struct PE_(r_bin_pe_obj_t) * bin = bf->o->bin_obj;
+	struct PE_(r_bin_pe_obj_t) * bin = bf->bo->bin_obj;
 	ut64 addr = bin->rich_header_offset ? bin->rich_header_offset : 128;
 
 	RListIter *it;
 	Pe_image_rich_entry *rich;
 	r_list_foreach (bin->rich_entries, it, rich) {
-		r_list_append (ret, r_bin_field_new (addr, addr, 0, "RICH_ENTRY_NAME", rich->productName, "s", false));
+		r_list_append (ret, r_bin_field_new (addr, addr, 0, 0, "RICH_ENTRY_NAME", rich->productName, "s", false));
 		ROWL ("RICH_ENTRY_ID", 2, rich->productId, "x"); addr += 2;
 		ROWL ("RICH_ENTRY_VERSION", 2, rich->minVersion, "x"); addr += 2;
 		ROWL ("RICH_ENTRY_TIMES", 4, rich->timesUsed, "x"); addr += 4;
@@ -208,7 +206,7 @@ static RList *fields(RBinFile *bf) {
 }
 
 static void header(RBinFile *bf) {
-	struct PE_(r_bin_pe_obj_t) * bin = bf->o->bin_obj;
+	struct PE_(r_bin_pe_obj_t) * bin = bf->bo->bin_obj;
 	struct r_bin_t *rbin = bf->rbin;
 	rbin->cb_printf ("PE file header:\n");
 	rbin->cb_printf ("IMAGE_NT_HEADERS\n");
@@ -318,12 +316,12 @@ extern struct r_bin_write_t r_bin_write_pe64;
 
 static RList *trycatch(RBinFile *bf) {
 	RIO *io = bf->rbin->iob.io;
-	ut64 baseAddr = bf->o->baddr;
+	ut64 baseAddr = bf->bo->baddr;
 	int i;
 	ut64 offset;
 	ut32 c_handler = 0;
 
-	struct PE_(r_bin_pe_obj_t) * bin = bf->o->bin_obj;
+	struct PE_(r_bin_pe_obj_t) * bin = bf->bo->bin_obj;
 	PE_(image_data_directory) *expdir = &bin->optional_header->DataDirectory[PE_IMAGE_DIRECTORY_ENTRY_EXCEPTION];
 	if (!expdir->Size) {
 		return NULL;
@@ -453,13 +451,16 @@ static RList *trycatch(RBinFile *bf) {
 }
 
 RBinPlugin r_bin_plugin_pe64 = {
-	.name = "pe64",
-	.desc = "PE64 (PE32+) bin plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "pe64",
+		.desc = "PE64 (PE32+) bin plugin",
+		.author = "nibble,pancake",
+		.license = "LGPL-3.0-only",
+	},
 	.get_sdb = &get_sdb,
-	.load_buffer = &load_buffer,
+	.load = &load,
 	.destroy = &destroy,
-	.check_buffer = &check_buffer,
+	.check = &check,
 	.baddr = &baddr,
 	.binsym = &binsym,
 	.entries = &entries,

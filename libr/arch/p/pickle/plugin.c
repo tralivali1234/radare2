@@ -1,164 +1,9 @@
-/* radare2 - LGPL - Copyright 2022 - bemodtwz */
+/* radare2 - LGPL - Copyright 2022-2024 - bemodtwz */
 
 #include <r_anal.h>
-#include <r_lib.h>
+#include "dis_helper.inc"
 
 #define MAXSTRLEN 128
-
-struct opmap {
-	const char * const name;
-	const char op;
-};
-
-enum opcode {
-	OP_MARK = '(',
-	OP_STOP = '.',
-	OP_POP = '0',
-	OP_POP_MARK = '1',
-	OP_DUP = '2',
-	OP_FLOAT = 'F',
-	OP_INT = 'I',
-	OP_BININT = 'J',
-	OP_BININT1 = 'K',
-	OP_LONG = 'L',
-	OP_BININT2 = 'M',
-	OP_NONE = 'N',
-	OP_PERSID = 'P',
-	OP_BINPERSID = 'Q',
-	OP_REDUCE = 'R',
-	OP_STRING = 'S',
-	OP_BINSTRING = 'T',
-	OP_SHORT_BINSTRING = 'U',
-	OP_UNICODE = 'V',
-	OP_BINUNICODE = 'X',
-	OP_APPEND = 'a',
-	OP_BUILD = 'b',
-	OP_GLOBAL = 'c',
-	OP_DICT = 'd',
-	OP_EMPTY_DICT = '}',
-	OP_APPENDS = 'e',
-	OP_GET = 'g',
-	OP_BINGET = 'h',
-	OP_INST = 'i',
-	OP_LONG_BINGET = 'j',
-	OP_LIST = 'l',
-	OP_EMPTY_LIST = ']',
-	OP_OBJ = 'o',
-	OP_PUT = 'p',
-	OP_BINPUT = 'q',
-	OP_LONG_BINPUT = 'r',
-	OP_SETITEM = 's',
-	OP_TUPLE = 't',
-	OP_EMPTY_TUPLE = ')',
-	OP_SETITEMS = 'u',
-	OP_BINFLOAT = 'G',
-
-	// Protocol 2.
-	OP_PROTO = '\x80',
-	OP_NEWOBJ = '\x81',
-	OP_EXT1 = '\x82',
-	OP_EXT2 = '\x83',
-	OP_EXT4 = '\x84',
-	OP_TUPLE1 = '\x85',
-	OP_TUPLE2 = '\x86',
-	OP_TUPLE3 = '\x87',
-	OP_NEWTRUE = '\x88',
-	OP_NEWFALSE = '\x89',
-	OP_LONG1 = '\x8a',
-	OP_LONG4 = '\x8b',
-
-	// Protocol 3 (Python 3.x)
-	OP_BINBYTES = 'B',
-	OP_SHORT_BINBYTES = 'C',
-
-	// Protocol 4
-	OP_SHORT_BINUNICODE = '\x8c',
-	OP_BINUNICODE8 = '\x8d',
-	OP_BINBYTES8 = '\x8e',
-	OP_EMPTY_SET = '\x8f',
-	OP_ADDITEMS = '\x90',
-	OP_FROZENSET = '\x91',
-	OP_NEWOBJ_EX = '\x92',
-	OP_STACK_GLOBAL = '\x93',
-	OP_MEMOIZE = '\x94',
-	OP_FRAME = '\x95',
-
-	// Protocol 5
-	OP_BYTEARRAY8 = '\x96',
-	OP_NEXT_BUFFER = '\x97',
-	OP_READONLY_BUFFER = '\x98'
-};
-
-static const struct opmap op_name_map[] = {
-	{ "mark", '(' },
-	{ "stop", '.' },
-	{ "pop", '0' },
-	{ "pop_mark", '1' },
-	{ "dup", '2' },
-	{ "float", 'F' },
-	{ "int", 'I' },
-	{ "binint", 'J' },
-	{ "binint1", 'K' },
-	{ "long", 'L' },
-	{ "binint2", 'M' },
-	{ "none", 'N' },
-	{ "persid", 'P' },
-	{ "binpersid", 'Q' },
-	{ "reduce", 'R' },
-	{ "string", 'S' },
-	{ "binstring", 'T' },
-	{ "short_binstring", 'U' },
-	{ "unicode", 'V' },
-	{ "binunicode", 'X' },
-	{ "append", 'a' },
-	{ "build", 'b' },
-	{ "global", 'c' },
-	{ "dict", 'd' },
-	{ "empty_dict", '}' },
-	{ "appends", 'e' },
-	{ "get", 'g' },
-	{ "binget", 'h' },
-	{ "inst", 'i' },
-	{ "long_binget", 'j' },
-	{ "list", 'l' },
-	{ "empty_list", ']' },
-	{ "obj", 'o' },
-	{ "put", 'p' },
-	{ "binput", 'q' },
-	{ "long_binput", 'r' },
-	{ "setitem", 's' },
-	{ "tuple", 't' },
-	{ "empty_tuple", ')' },
-	{ "setitems", 'u' },
-	{ "binfloat", 'G' },
-	{ "proto", '\x80' },
-	{ "newobj", '\x81' },
-	{ "ext1", '\x82' },
-	{ "ext2", '\x83' },
-	{ "ext4", '\x84' },
-	{ "tuple1", '\x85' },
-	{ "tuple2", '\x86' },
-	{ "tuple3", '\x87' },
-	{ "newtrue", '\x88' },
-	{ "newfalse", '\x89' },
-	{ "long1", '\x8a' },
-	{ "long4", '\x8b' },
-	{ "binbytes", 'B' },
-	{ "short_binbytes", 'C' },
-	{ "short_binunicode", '\x8c' },
-	{ "binunicode8", '\x8d' },
-	{ "binbytes8", '\x8e' },
-	{ "empty_set", '\x8f' },
-	{ "additems", '\x90' },
-	{ "frozenset", '\x91' },
-	{ "newobj_ex", '\x92' },
-	{ "stack_global", '\x93' },
-	{ "memoize", '\x94' },
-	{ "frame", '\x95' },
-	{ "bytearray8", '\x96' },
-	{ "next_buffer", '\x97' },
-	{ "readonly_buffer", '\x98' }
-};
 
 static inline bool valid_offset(RArch *a, ut64 addr) {
 	RBin *bin = R_UNWRAP2 (a, binb.bin);
@@ -184,7 +29,7 @@ static inline bool handle_int(RAnalOp *op, const char *name, int sz) {
 }
 
 static inline int handle_long(RArch *a, RAnalOp *op, int sz) {
-	r_return_val_if_fail (sz == 1 || sz == 4, -1);
+	R_RETURN_VAL_IF_FAIL (sz == 1 || sz == 4, -1);
 	op->sign = true;
 
 	// process how long the numer is is
@@ -289,7 +134,7 @@ static inline void max_oplen_set(RArchSession *s, RAnalOp *op) {
 }
 
 static inline bool handle_n_lines(RArchSession *s, RAnalOp *op, const char *name, int n) {
-	r_return_val_if_fail (op->size >= 2 && name && n < 3 && n > 0, -1);
+	R_RETURN_VAL_IF_FAIL (op->size >= 2 && name && n < 3 && n > 0, -1);
 	// TODO: use an alternative func for INT, FLOAT, LONG ops that gets the
 	// value from arg str
 	const ut8 *buf = op->bytes + 1;
@@ -374,7 +219,7 @@ static bool cnt_str(RArchSession *s, RAnalOp *op, const char *name, int sz) {
 }
 
 static bool pickle_decode(RArchSession *s, RAnalOp *op, RAnalOpMask mask) {
-	r_return_val_if_fail (s && op, false);
+	R_RETURN_VAL_IF_FAIL (s && op, false);
 	if (op->size < 1 || !op->bytes) {
 		return false;
 	}
@@ -675,7 +520,7 @@ static inline int assemble_float(const char *str, ut8 *outbuf, int outsz) {
 	}
 	RNum *num = r_num_new (NULL, NULL, NULL);
 	if (num) {
-		*((double *)outbuf) = r_num_get_float (num, str);
+		*((double *)outbuf) = r_num_get_double (num, str);
 		r_mem_swap (outbuf, sizeof (double));
 		r_num_free (num);
 		return sizeof (double);
@@ -710,7 +555,7 @@ static int assemble_cnt_str(char *str, int byte_sz, ut8 *outbuf, int outsz) {
 }
 
 static inline int assemble_n_str(char *str, ut32 cnt, ut8 *outbuf, int outsz, bool q) {
-	r_return_val_if_fail (cnt <= 2, -2);
+	R_RETURN_VAL_IF_FAIL (cnt <= 2, -2);
 	st64 len = str_valid_arg (str);
 	if (len < 0) {
 		return len;
@@ -746,28 +591,19 @@ static inline int assemble_n_str(char *str, ut32 cnt, ut8 *outbuf, int outsz, bo
 	return len + 1;
 }
 
-static inline bool write_op(char *opstr, ut8 *outbuf) {
-	size_t i;
-	for (i = 0; i < R_ARRAY_SIZE (op_name_map); i++) {
-		if (!r_str_casecmp (opstr, op_name_map[i].name)) {
-			*outbuf = (ut8)op_name_map[i].op;
-			return true;
-		}
-	}
-	return false;
-}
-
 static bool pickle_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 	const char *str = op->mnemonic;
 	// some ops can be huge, but they should always be smaller then the mnemonics
 	int outsz = strlen (str);
+
+	// _outbuf is kept for free'ing while outbuff will get ++
 	ut8 *_outbuf = malloc (outsz);
 	if (!_outbuf) {
 		return false;
 	}
 	ut8 *outbuf = _outbuf;
 
-	r_return_val_if_fail (str && *str && outsz > 0 && outbuf, -1);
+	R_RETURN_VAL_IF_FAIL (str && *str && outsz > 0 && outbuf, -1);
 	int wlen = 0;
 	char *opstr = strdup (str); // get a non-const str to manipulate
 	if (!opstr) {
@@ -784,8 +620,12 @@ static bool pickle_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 		arg = "";
 	}
 
-	if (write_op (opstr, outbuf)) {
-		char ob = (char)*outbuf;
+	char ob = name_to_op (opstr);
+	if (ob == OP_FAILURE) {
+		R_LOG_ERROR ("Unknown pickle verb: %s", opstr);
+		wlen = -1;
+	} else {
+		*outbuf = (ut8)ob;
 		wlen++;
 		outbuf++;
 		outsz--;
@@ -896,14 +736,14 @@ static bool pickle_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 			wlen += assemble_n_str (arg, 1, outbuf, outsz, true);
 			break;
 		default:
-			r_warn_if_reached ();
+			R_WARN_IF_REACHED ();
 			wlen = -1;
 		}
 	}
 	free (opstr);
 
 	if (wlen > 0) {
-		r_return_val_if_fail (wlen <= outsz, false);
+		R_RETURN_VAL_IF_FAIL (wlen <= outsz, false);
 		free (op->bytes);
 		op->bytes = realloc (_outbuf, wlen);
 		if (op->bytes) {
@@ -918,17 +758,17 @@ static bool pickle_encode(RArchSession *s, RAnalOp *op, RArchEncodeMask mask) {
 
 static int pickle_info(RArchSession *s, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
+	case R_ARCH_INFO_CODE_ALIGN:
 		return 0;
-	case R_ANAL_ARCHINFO_MAX_OP_SIZE:
+	case R_ARCH_INFO_MAXOP_SIZE:
 		// some ops accept newline terminated strings of arbitrary len...
 		if (s->data) {
 			return *(int *)s->data;
 		}
 		return MAXSTRLEN;
-	case R_ANAL_ARCHINFO_INV_OP_SIZE:
+	case R_ARCH_INFO_INVOP_SIZE:
 		return 1;
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_MINOP_SIZE:
 		return 1;
 	}
 	return 0;
@@ -972,7 +812,7 @@ static char *pickle_mnemonics(RArchSession *s, int id, bool json) {
 }
 
 static bool pickle_init(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	s->data = R_NEW (int);
 	if (s->data) {
 		*((int *)s->data) = MAXSTRLEN;
@@ -982,7 +822,7 @@ static bool pickle_init(RArchSession *s) {
 }
 
 static bool pickle_fini(RArchSession *s) {
-	r_return_val_if_fail (s, false);
+	R_RETURN_VAL_IF_FAIL (s, false);
 	free (s->data);
 	s->data = NULL;
 	return true;
@@ -991,8 +831,9 @@ static bool pickle_fini(RArchSession *s) {
 const RArchPlugin r_arch_plugin_pickle = {
 	.meta = {
 		.name = "pickle",
+		.author = "bemodtwz",
 		.desc = "Python Pickle Machine Disassembler",
-		.license = "BSD",
+		.license = "BSD-3-Clause",
 	},
 	.arch = "pickle",
 	.bits = R_SYS_BITS_PACK1 (8), // not sure

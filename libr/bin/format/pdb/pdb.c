@@ -1,8 +1,7 @@
-/* radare - LGPL - Copyright 2014-2020 - inisider */
+/* radare - LGPL - Copyright 2014-2025 - inisider */
 
 #include <r_pdb.h>
 #include <r_bin.h>
-#include <string.h>
 
 #include "types.h"
 #include "stream_pe.h"
@@ -787,7 +786,7 @@ static int simple_type_to_format(const SLF_SIMPLE_TYPE *simple_type, char **memb
 			*member_format = "::::";
 			return -2;
 		default:
-			r_warn_if_reached ();
+			R_WARN_IF_REACHED ();
 			break;
 		}
 		break;
@@ -815,7 +814,7 @@ static int simple_type_to_format(const SLF_SIMPLE_TYPE *simple_type, char **memb
 		break;
 	default:
 		// unknown mode ??
-		r_warn_if_reached ();
+		R_WARN_IF_REACHED ();
 		return -1;
 	}
 	return 0;
@@ -830,7 +829,7 @@ static int simple_type_to_format(const SLF_SIMPLE_TYPE *simple_type, char **memb
  * @return int -1 if it can't build the format
  */
 static int build_member_format(STypeInfo *type_info, RStrBuf *format, RStrBuf *names) {
-	r_return_val_if_fail (type_info && format && names && type_info->type_info, -1);
+	R_RETURN_VAL_IF_FAIL (type_info && format && names && type_info->type_info, -1);
 	// THOUGHT: instead of not doing anything for unknown types I can just skip the bytes
 	// format is 2 chars tops + null terminator
 
@@ -849,24 +848,31 @@ static int build_member_format(STypeInfo *type_info, RStrBuf *format, RStrBuf *n
 		if (type_info->get_index) {
 			type_info->get_index (type_info, (void **)&under_type);
 		} else {
-			r_warn_if_reached ();
+			R_WARN_IF_REACHED ();
 		}
 	} else if (type_info->leaf_type == eLF_METHOD ||
 		type_info->leaf_type == eLF_ONEMETHOD) {
 		return 0; // skip method member
 	} else {
-		r_warn_if_reached ();
+		R_WARN_IF_REACHED ();
 		return -1;
 	}
 	type_info = &under_type->type_data;
 
 	char *member_format = NULL;
-	char tmp_format[5] = {0}; // used as writable format buffer
+	char tmp_format[32] = {0}; // used as writable format buffer
 
 	switch (type_info->leaf_type) {
+	case eLF_MODIFIER:
+		// TODO: this info is not exposed outside the debug log
+		snprintf (tmp_format, sizeof (tmp_format), "d");
+		member_format = tmp_format;
+		R_LOG_DEBUG ("eLF_MODIFIER: %s", name);
+		r_strbuf_appendf (names, "(int)%s", name);
+		break;
 	case eLF_SIMPLE_TYPE: {
-		int map_result = 0;
-		if ((map_result = simple_type_to_format (type_info->type_info, &member_format)) != 0) {
+		int map_result = simple_type_to_format (type_info->type_info, &member_format);
+		if (map_result != 0) {
 			if (map_result == -1) { // unparsable
 				goto error;
 			} else if (map_result == -2) { // skip
@@ -881,7 +887,7 @@ static int build_member_format(STypeInfo *type_info, RStrBuf *format, RStrBuf *n
 		if (type_info->get_val) {
 			type_info->get_val (type_info, &size);
 		}
-		snprintf (tmp_format, 5, "p%d", size);
+		snprintf (tmp_format, sizeof (tmp_format), "p%d", size);
 		member_format = tmp_format;
 		r_strbuf_append (names, name);
 		break;
@@ -927,12 +933,12 @@ static int build_member_format(STypeInfo *type_info, RStrBuf *format, RStrBuf *n
 	}
 
 	default:
-		r_warn_if_reached (); // Unhandled type format
+		R_LOG_WARN ("Unknown type format %d", type_info->leaf_type);
 		goto error;
 	}
 
 	if (!member_format) {
-		r_warn_if_reached (); // Unhandled type format
+		R_LOG_WARN ("Unknown member format");
 		goto error;
 	}
 	r_strbuf_append (format, member_format);
@@ -982,7 +988,7 @@ static char *get_enum_base_type_name(STypeInfo *type_info) {
  * @param printf Print function
  */
 static void print_struct(const char *name, const int size, const RList *members, PrintfCallback printf) {
-	r_return_if_fail (name && printf);
+	R_RETURN_IF_FAIL (name && printf);
 	printf ("struct %s { // size 0x%x\n", name, size);
 
 	RListIter *member_iter = r_list_iterator (members);
@@ -1015,7 +1021,7 @@ static void print_struct(const char *name, const int size, const RList *members,
  * @param printf Print function
  */
 static void print_union(const char *name, const int size, const RList *members, PrintfCallback printf) {
-	r_return_if_fail (name && printf);
+	R_RETURN_IF_FAIL (name && printf);
 	printf ("union %s { // size 0x%x\n", name, size);
 
 	RListIter *member_iter = r_list_iterator (members);
@@ -1048,7 +1054,7 @@ static void print_union(const char *name, const int size, const RList *members, 
  * @param printf Print function
  */
 static void print_enum(const char *name, const char *type, const RList *members, PrintfCallback printf) {
-	r_return_if_fail (name && printf);
+	R_RETURN_IF_FAIL (name && printf);
 	printf ("enum %s { // type: %s\n", name, type);
 
 	RListIter *member_iter = r_list_iterator (members);
@@ -1074,7 +1080,7 @@ static void print_enum(const char *name, const char *type, const RList *members,
  * @param types List of types
  */
 static void print_types_regular(const RPdb *pdb, const RList *types) {
-	r_return_if_fail (pdb && types);
+	R_RETURN_IF_FAIL (pdb && types);
 	RListIter *it = r_list_iterator (types);
 
 	while (r_list_iter_next (it)) {
@@ -1118,7 +1124,7 @@ static void print_types_regular(const RPdb *pdb, const RList *types) {
 			break;
 		default:
 			// Unimplemented printing of printable type
-			r_warn_if_reached ();
+			R_WARN_IF_REACHED ();
 			break;
 		}
 	}
@@ -1131,7 +1137,7 @@ static void print_types_regular(const RPdb *pdb, const RList *types) {
  * @param types List of types
  */
 static void print_types_json(const RPdb *pdb, PJ *pj, const RList *types) {
-	r_return_if_fail (pdb && types && pj);
+	R_RETURN_IF_FAIL (pdb && types && pj);
 
 	RListIter *it = r_list_iterator (types);
 
@@ -1168,6 +1174,11 @@ static void print_types_json(const RPdb *pdb, PJ *pj, const RList *types) {
 
 		// Maybe refactor these into their own functions aswell
 		switch (type_info->leaf_type) {
+		case eLF_MODIFIER:
+			pj_o (pj);
+			pj_ks (pj, "modifier", name);
+			pj_end (pj);
+			break;
 		case eLF_CLASS:
 		case eLF_STRUCTURE:
 		case eLF_UNION: {
@@ -1236,7 +1247,7 @@ static void print_types_json(const RPdb *pdb, PJ *pj, const RList *types) {
 		}
 		default:
 			// Unimplemented printing of printable type
-			r_warn_if_reached ();
+			R_WARN_IF_REACHED ();
 			break;
 		}
 	}
@@ -1250,7 +1261,7 @@ static void print_types_json(const RPdb *pdb, PJ *pj, const RList *types) {
  * @param types List of types
  */
 static void print_types_format(const RPdb *pdb, const RList *types) {
-	r_return_if_fail (pdb && types);
+	R_RETURN_IF_FAIL (pdb && types);
 	RListIter *it = r_list_iterator (types);
 	bool to_free_name = false;
 	while (r_list_iter_next (it)) {
@@ -1306,7 +1317,7 @@ static void print_types_format(const RPdb *pdb, const RList *types) {
 				}
 				break;
 			default:
-				r_warn_if_reached ();
+				R_WARN_IF_REACHED ();
 			}
 			r_strbuf_append (&member_names, " ");
 		}
@@ -1502,7 +1513,7 @@ error:
 }
 
 R_API bool init_pdb_parser(RPdb *pdb, const char *filename) {
-	RBuffer *buf = r_buf_new_slurp (filename);
+	RBuffer *buf = r_buf_new_from_file (filename);
 	if (!buf) {
 		R_LOG_ERROR ("%s: Error reading file \"%s\"", __func__, filename);
 		return false;

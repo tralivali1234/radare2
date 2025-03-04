@@ -1,14 +1,13 @@
-/* radare2 - LGPL - Copyright 2020-2023 - aemitt, pancake */
+/* radare2 - LGPL - Copyright 2020-2024 - aemitt, pancake */
 
 #include <r_arch.h>
 #include <r_search.h>
 #include <sdb/ht_uu.h>
-// #include "./asm-arm.h"
 #include <r_util/r_assert.h>
-#include "v35/arch-arm64/disassembler/encodings_dec.h"
-#include "v35/arch-arm64/disassembler/encodings_fmt.h"
-#include "v35/arch-arm64/disassembler/operations.h"
-#include "v35/arch-arm64/disassembler/arm64dis.h"
+#include "encodings_dec.h"
+#include "encodings_fmt.h"
+#include "operations.h"
+#include "arm64dis.h"
 
 #define BITMASK_BY_WIDTH_COUNT 64
 static const ut64 bitmask_by_width[BITMASK_BY_WIDTH_COUNT] = {
@@ -810,7 +809,7 @@ static void anop64(RArchSession *as, RAnalOp *op, Instruction *insn) {
 	}
 
 	op->cond = cond_cs2r2 (insn->detail->arm64.cc);
-	if (op->cond == R_ANAL_COND_NV) {
+	if (op->cond == R_ANAL_CONDTYPE_NV) {
 		op->type = R_ANAL_OP_TYPE_NOP;
 		return;
 	}*/
@@ -2579,19 +2578,19 @@ static bool decode(RArchSession *as, RAnalOp *op, RArchDecodeMask mask) {
 }
 
 static int archinfo(RArchSession *anal, ut32 q) {
-	if (q == R_ANAL_ARCHINFO_DATA_ALIGN) {
+	if (q == R_ARCH_INFO_DATA_ALIGN) {
 		return 4;
 	}
-	if (q == R_ANAL_ARCHINFO_ALIGN) {
+	if (q == R_ARCH_INFO_CODE_ALIGN) {
 		if (anal && anal->config->bits == 16) {
 			return 2;
 		}
 		return 4;
 	}
-	if (q == R_ANAL_ARCHINFO_MAX_OP_SIZE) {
+	if (q == R_ARCH_INFO_MAXOP_SIZE) {
 		return 4;
 	}
-	if (q == R_ANAL_ARCHINFO_MIN_OP_SIZE) {
+	if (q == R_ARCH_INFO_MINOP_SIZE) {
 		if (anal && anal->config->bits == 16) {
 			return 2;
 		}
@@ -3362,8 +3361,9 @@ static bool encode(RArchSession *s, RAnalOp *op, ut32 mask) {
 const RArchPlugin r_arch_plugin_arm_v35 = {
 	.meta = {
 		.name = "arm.v35",
+		.author = "aemitt,pancake,Vector35",
 		.desc = "Vector35 ARM analyzer",
-		.license = "BSD",
+		.license = "BSD-3-Clause",
 	},
 	.arch = "arm",
 	.info = archinfo,

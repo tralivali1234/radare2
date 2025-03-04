@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2010-2023 - pancake */
+/* radare - LGPL - Copyright 2010-2024 - pancake */
 
 #include <r_arch.h>
 #include "../../include/disas-asm.h"
@@ -965,6 +965,10 @@ static int analop_esil(RArchSession *as, RAnalOp *op, ut64 addr, gnu_insn *insn)
 		r_strbuf_appendf (&op->esil, "0,%s,==,$z,?{,%s,%s,=,}",
 			R_REG (rt), R_REG (rs), R_REG (rd));
 		break;
+	case MIPS_INS_MOVN:
+		r_strbuf_appendf (&op->esil, "0,%s,==,$z,!,?{,%s,%s,=,}",
+			R_REG (rt), R_REG (rs), R_REG (rd));
+		break;
 	case MIPS_INS_MOVT:
 		r_strbuf_appendf (&op->esil, "1,%s,==,$z,?{,%s,%s,=,}",
 			R_REG (rt), R_REG (rs), R_REG (rd));
@@ -1227,7 +1231,11 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 	op->addr = addr;
 	// Be endian aware
 	if (len >= 4) {
+#if R_SYS_ENDIAN
+		opcode = r_read_ble32 (b, !R_ARCH_CONFIG_IS_BIG_ENDIAN (as->config));
+#else
 		opcode = r_read_ble32 (b, R_ARCH_CONFIG_IS_BIG_ENDIAN (as->config));
+#endif
 	} else if (len >= 2) {
 		opcode = r_read_ble16 (b, R_ARCH_CONFIG_IS_BIG_ENDIAN (as->config));
 	}
@@ -1532,6 +1540,7 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 		insn.i_reg.rt = mips_reg_decode (rt);
 		snprintf ((char *)insn.i_reg.imm, REG_BUF_MAX, "%" PFMT32d, imm);
 
+		// eprintf ("OPTYPE %d\n", optype);
 		RAnalValue *src, *dst;
 		switch (optype) {
 		case 1:
@@ -1607,6 +1616,7 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 		// TODO: this is a stop-gap. Really we need some smarts in here to tie this into the
 		// flags directly, as suggested here: https://github.com/radareorg/radare2/issues/949#issuecomment-43654922
 		case 15: // lui
+			op->type = R_ANAL_OP_TYPE_LOAD;
 			insn.id = MIPS_INS_LUI;
 			snprintf ((char *)insn.i_reg.imm, REG_BUF_MAX, "0x%" PFMT32x, imm);
 			dst = r_vector_push (&op->dsts, NULL);
@@ -1646,8 +1656,10 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 			break;
 		case 10: // slti
 			insn.id = MIPS_INS_SLTI;
+			op->type = R_ANAL_OP_TYPE_CMOV; // maybe cmp too?
 			break;
 		case 11: // sltiu
+			op->type = R_ANAL_OP_TYPE_CMOV; // maybe cmp too?
 			insn.id = MIPS_INS_SLTIU;
 			break;
 		case 12: // andi
@@ -1697,9 +1709,7 @@ static bool decode(RArchSession *as, RAnalOp *op, RAnalOpMask mask) {
 			}
 
 			if (rs == 28) {
-#if R2_590
 				op->ptr = as->config->gp + imm;
-#endif
 			} else {
 				op->ptr = imm;
 			}
@@ -1907,8 +1917,8 @@ static char *regs(RArchSession *as) {
 
 static int archinfo(RArchSession *as, ut32 q) {
 	switch (q) {
-	case R_ANAL_ARCHINFO_ALIGN:
-	case R_ANAL_ARCHINFO_MIN_OP_SIZE:
+	case R_ARCH_INFO_CODE_ALIGN:
+	case R_ARCH_INFO_MINOP_SIZE:
 		{
 			const char *cpu = as->config->cpu;
 			if (cpu && !strcmp (cpu, "micro")) {
@@ -1921,7 +1931,7 @@ static int archinfo(RArchSession *as, ut32 q) {
 }
 
 static bool init(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	if (as->data) {
 		R_LOG_WARN ("Already initialized");
 		return false;
@@ -1938,7 +1948,7 @@ static bool init(RArchSession *as) {
 }
 
 static bool fini(RArchSession *as) {
-	r_return_val_if_fail (as, false);
+	R_RETURN_VAL_IF_FAIL (as, false);
 	PluginData *pd = as->data;
 	R_FREE (pd->pre_cpu);
 	R_FREE (as->data);
@@ -1948,8 +1958,9 @@ static bool fini(RArchSession *as) {
 const RArchPlugin r_arch_plugin_mips_gnu = {
 	.meta = {
 		.name = "mips.gnu",
-		.desc = "MIPS code analysis plugin",
-		.license = "LGPL3",
+		.author = "pancake",
+		.desc = "MIPS RISC architecture",
+		.license = "LGPL-3.0-only",
 	},
 	.cpus = "micro,mips64r2,mips32r2,mips64,mips32,loongson3a,gs464,gs464e,gs264e,loongson2e,loongson2f,mips32/64",
 	.arch = "mips",

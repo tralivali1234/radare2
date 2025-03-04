@@ -1,21 +1,20 @@
-/* radare2 - LGPL - Copyright 2020-2023 - abcSup */
+/* radare2 - LGPL - Copyright 2020-2024 - abcSup */
 
 #include <r_bin.h>
-
 #include "dmp/dmp64.h"
 
 static Sdb *get_sdb(RBinFile *bf) {
-	r_return_val_if_fail (bf && bf->o, NULL);
-	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->o->bin_obj;
+	R_RETURN_VAL_IF_FAIL (bf && bf->bo, NULL);
+	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->bo->bin_obj;
 	return (obj && obj->kv) ? obj->kv: NULL;
 }
 
 static void destroy(RBinFile *bf) {
-	r_bin_dmp64_free ((struct r_bin_dmp64_obj_t*)bf->o->bin_obj);
+	r_bin_dmp64_free ((struct r_bin_dmp64_obj_t*)bf->bo->bin_obj);
 }
 
 static void header(RBinFile *bf) {
-	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->o->bin_obj;
+	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->bo->bin_obj;
 	struct r_bin_t *rbin = bf->rbin;
 	rbin->cb_printf ("DUMP_HEADER64:\n");
 	rbin->cb_printf ("  MajorVersion : 0x%08"PFMT32x"\n", obj->header->MajorVersion);
@@ -45,11 +44,11 @@ static void header(RBinFile *bf) {
 }
 
 static RBinInfo *info(RBinFile *bf) {
-	RBinInfo *ret;
-	if (!(ret = R_NEW0 (RBinInfo))) {
+	RBinInfo *ret = R_NEW0 (RBinInfo);
+	if (!ret) {
 		return NULL;
 	}
-	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->o->bin_obj;
+	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->bo->bin_obj;
 
 	ret->arch = strdup ("x86");
 	ret->bits = 64;
@@ -76,6 +75,7 @@ static RBinInfo *info(RBinFile *bf) {
 		break;
 	default:
 		ret->os = strdup ("Unknown");
+		break;
 	}
 
 	return ret;
@@ -83,45 +83,38 @@ static RBinInfo *info(RBinFile *bf) {
 
 static RList *sections(RBinFile *bf) {
 	dmp_page_desc *page;
-	RList *ret;
 	RListIter *it;
-	RBinSection *ptr;
-	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->o->bin_obj;
+	struct r_bin_dmp64_obj_t *obj = (struct r_bin_dmp64_obj_t *)bf->bo->bin_obj;
 
-	if (!(ret = r_list_newf (free))) {
-		return NULL;
-	}
-
+	RList *ret = r_list_newf (free);
 	r_list_foreach (obj->pages, it, page) {
-		if (!(ptr = R_NEW0 (RBinSection))) {
-			return ret;
+		RBinSection *ptr = R_NEW0 (RBinSection);
+		if (R_LIKELY (ptr)) {
+			ptr->name = strdup ("Memory_Section");
+			ptr->paddr = page->file_offset;
+			ptr->size = DMP_PAGE_SIZE;
+			ptr->vaddr = page->start;
+			ptr->vsize = DMP_PAGE_SIZE;
+			ptr->add = true;
+			ptr->perm = R_PERM_R;
+			r_list_append (ret, ptr);
 		}
-
-		ptr->name = strdup ("Memory_Section");
-		ptr->paddr = page->file_offset;
-		ptr->size = DMP_PAGE_SIZE;
-		ptr->vaddr = page->start;
-		ptr->vsize = DMP_PAGE_SIZE;
-		ptr->add = true;
-		ptr->perm = R_PERM_R;
-
-		r_list_append (ret, ptr);
 	}
 	return ret;
 }
 
-static bool load_buffer(RBinFile *bf, void **bin_obj, RBuffer *buf, ut64 loadaddr, Sdb *sdb) {
-	r_return_val_if_fail (buf, false);
+static bool load(RBinFile *bf, RBuffer *buf, ut64 loadaddr) {
+	R_RETURN_VAL_IF_FAIL (buf, false);
 	struct r_bin_dmp64_obj_t *res = r_bin_dmp64_new_buf (buf);
 	if (res) {
-		sdb_ns_set (sdb, "info", res->kv);
-		*bin_obj = res;
+		sdb_ns_set (bf->sdb, "info", res->kv);
+		bf->bo->bin_obj = res;
 		return true;
 	}
 	return false;
 }
 
-static bool check_buffer(RBinFile *bf, RBuffer *b) {
+static bool check(RBinFile *bf, RBuffer *b) {
 	ut8 magic[8];
 	if (r_buf_read_at (b, 0, magic, sizeof (magic)) == 8) {
 		return !memcmp (magic, DMP64_MAGIC, 8);
@@ -130,15 +123,18 @@ static bool check_buffer(RBinFile *bf, RBuffer *b) {
 }
 
 RBinPlugin r_bin_plugin_dmp64 = {
-	.name = "dmp64",
-	.desc = "Windows Crash Dump x64 r_bin plugin",
-	.license = "LGPL3",
+	.meta = {
+		.name = "dmp64",
+		.author = "abcSup",
+		.desc = "Windows Crash Dump x64 r_bin plugin",
+		.license = "LGPL-3.0-only",
+	},
 	.destroy = &destroy,
 	.get_sdb = &get_sdb,
 	.header = &header,
 	.info = &info,
-	.load_buffer = &load_buffer,
-	.check_buffer = &check_buffer,
+	.load = &load,
+	.check = &check,
 	.sections = &sections
 };
 
